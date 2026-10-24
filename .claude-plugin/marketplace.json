@@ -1,0 +1,15 @@
+{
+  "name": "knackpack",
+  "description": "A pack of Claude Code knacks: skills and agents",
+  "owner": {
+    "name": "Bez Moradi",
+    "url": "https://github.com/bezmoradi"
+  },
+  "plugins": [
+    {
+      "name": "knackpack",
+      "source": "./",
+      "description": "A pack of Claude Code knacks: skills and agents"
+    }
+  ]
+}
