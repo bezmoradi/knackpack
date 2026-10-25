@@ -22,8 +22,9 @@
 # only inside its own folder,
 # ${XDG_STATE_HOME:-$HOME/.local/state}/knackpack/intent, where it creates
 # folders, keeps one small turn file per session, and deletes files nobody
-# has changed for 30 days. It never touches the repository, uses no network,
-# and exits 0 on every failure so a problem here never blocks a session.
+# has changed for 30 days and empty folders nobody has touched for a day.
+# It never touches the repository, uses no network, and exits 0 on every
+# failure so a problem here never blocks a session.
 #
 # KNACKPACK_INTENT=off turns the hooks off. KNACKPACK_INTENT=on also runs them
 # in sessions nobody attends, such as `claude -p`, which they skip by default.
@@ -193,7 +194,9 @@ state)
 	if [ "$src" = startup ]; then
 		find "$root" -type f -name '*.md' ! -name glossary.md -mtime +30 -exec rm -f {} + 2>/dev/null
 		find "$turns" -type f -mtime +30 -exec rm -f {} + 2>/dev/null
-		find "$root" -mindepth 1 -type d -empty -exec rmdir {} + 2>/dev/null
+		# Only folders untouched for a day, so this doesn't remove the empty
+		# folder another open session has just created.
+		find "$root" -mindepth 1 -type d -empty -mtime +0 -exec rmdir {} + 2>/dev/null
 	fi
 	mkdir -p "$repo_dir" 2>/dev/null
 	print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000
@@ -211,7 +214,7 @@ prompt)
 	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	open=
 	[ "$exists" = 1 ] && open=$(open_items "$record")
-	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, then do the work. If nothing changes, don't mention the record."
+	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, then do the work. If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
 	[ "$missed" = 1 ] && printf '%s\n' "Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	;;
@@ -219,7 +222,7 @@ tool)
 	mkdir -p "$turns" 2>/dev/null
 	case $input in
 	*"\"$repo_dir/$sid"*) echo record >>"$turn" ;;
-	*"\"$root/"*) ;;
+	*"\"$root/"* | *'/.claude/rules/glossary.md"'*) ;;
 	*) echo work >>"$turn" ;;
 	esac
 	;;
