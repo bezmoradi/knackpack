@@ -69,8 +69,10 @@ Name the concrete requirement if it prevents dependent work.
 
 Read the requirements challenger's output when available: the brief from
 knackpack's `challenge-requirements` skill, which is saved as `REQUIREMENTS.md`
-for substantial changes. If the user refers to a brief you can't see, ask for
-its path; don't plan from assumptions instead.
+for substantial changes. Read the session's intent record too, if knackpack
+keeps one: it's newer where they differ, and only its Agreed entries are
+confirmed. If the user refers to a brief you can't see, ask for its path;
+don't plan from assumptions instead.
 
 Identify unresolved decisions that materially affect:
 
@@ -230,13 +232,8 @@ These may differ.
 
 Keep required atomic changes together and explain why.
 
-Avoid tasks such as:
-- "Implement backend."
-- "Add security."
-- "Write comprehensive tests."
-- "Handle all edge cases."
-
-Replace them with specific behavior and evidence.
+Replace vague tasks such as "Add security" or "Handle all edge cases" with
+specific behavior and evidence.
 
 ## 8. Order work by dependency and risk
 

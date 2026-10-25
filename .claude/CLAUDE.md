@@ -1,6 +1,6 @@
 # Working on knackpack
 
-knackpack is a Claude Code plugin made only of Markdown: skills in `skills/<name>/SKILL.md` and agents in `agents/<name>.md`. The repository root is both the plugin and its marketplace, so every file at the root ships to every user. The README's Local Development section has the commands; this file holds the rules.
+knackpack is a Claude Code plugin made of Markdown plus one hook: skills in `skills/<name>/SKILL.md`, agents in `agents/<name>.md`, and hooks in `hooks/` that load the track-intent skill and check that its record stays up to date. The repository root is both the plugin and its marketplace, so every file at the root ships to every user. The README's Local Development section has the commands; this file holds the rules.
 
 ## Rules
 
@@ -10,8 +10,9 @@ knackpack is a Claude Code plugin made only of Markdown: skills in `skills/<name
 - **Write everything yourself.** Don't copy text from other projects, even MIT-licensed ones, and don't include ASVS requirement text, which is licensed CC BY-SA; the ASVS reviewer downloads the release file and checks its checksum instead.
 - **Keep it generic.** No company or product names from private projects, no email addresses, and no names of private repositories.
 - **Check facts against primary sources:** the Claude Code docs, specs, RFCs and library source. Name the version when behavior changed in one.
-- **Keep each `SKILL.md` under about 19,000 characters.** After compaction, Claude Code carries over only the first 5,000 tokens of each skill, and anything past that is lost.
-- **Don't add `.mcp.json`, `hooks/`, `bin/` or `settings.json` at the root** unless every user should get them.
+- **Keep each `SKILL.md` under about 19,000 characters.** After compaction, Claude Code carries over only the first 5,000 tokens of each skill, and anything past that is lost. Keep track-intent's body under about 8,500: the hook prints it along with the session's paths, Claude Code caps hook output at 10,000 characters, and anything longer is cut to a short preview.
+- **Keep the hook safe for every user.** `hooks/track-intent.sh` runs at every session start, message, file edit and turn end for everyone who installs knackpack. Keep it POSIX `sh`, fast, silent, and exiting 0 on any failure, and let it write only inside its own state folder.
+- **Don't add `.mcp.json`, `bin/`, `settings.json` or more hooks at the root** unless every user should get them.
 
 ## Before you publish
 

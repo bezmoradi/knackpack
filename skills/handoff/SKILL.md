@@ -26,7 +26,7 @@ Optional free-text argument describing the scope to cover (e.g. `rate-limit fix`
    - State on the first line after the preamble which repo the work is in — the reviewer may be launched from the monorepo root or from inside the repo.
    - Every file reference is a full `path:line` from the repo root, never "the file we just edited".
    - Name every symbol, sentinel, table, event, and command explicitly; never "the helper from earlier" or "as discussed above".
-   - Do not reference this conversation, the user's earlier messages, or other scratchpad files, except the requirements brief and plan (`REQUIREMENTS.md`, `PLAN.md`), which you may cite by absolute path.
+   - Do not reference this conversation, the user's earlier messages, or other scratchpad files, except the requirements brief, the plan and the session's intent record (`REQUIREMENTS.md`, `PLAN.md`, and the record from knackpack's intent tracking), which you may cite by absolute path.
    - Before finishing, re-read the file as a stranger would: any sentence that needs conversation context to parse must be rewritten.
 
 4. **In chat, report** (in this order):
@@ -63,7 +63,7 @@ In order:
    - **Regression check**: what existing behavior you confirmed is unbroken.
    Use concrete inputs (curl commands, database keys, UI steps, log snippets). "Compiled and linted" is necessary but NOT sufficient.
 
-8. **Requirements covered** *(conditional)* — when the work implements requirements with IDs (REQ-01 and so on), list each ID with where it's implemented and how it was verified, and cite the requirements brief and plan by absolute path when they exist.
+8. **Requirements covered** *(conditional)* — when the work implements requirements with IDs (REQ-01 and so on), list each ID with where it's implemented and how it was verified, and cite the requirements brief, the plan and the intent record by absolute path when they exist.
 
 9. **Risk / rollback** *(conditional)* — include for anything beyond a trivial refactor. One line is often enough. Cover: blast radius (which services / data / users), rollback procedure, any migration or feature-flag state, cross-service contract changes. Tie explicitly to deployment reality when relevant (rolling updates, event consumers, token claim shape, URL path contracts). Skip for pure local refactors that revert cleanly.
 

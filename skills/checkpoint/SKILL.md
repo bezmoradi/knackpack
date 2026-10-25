@@ -19,6 +19,8 @@ The file is temporary and belongs to this task. Don't copy it, or anything from 
 
 Go back through the whole conversation, not just the last few turns, and record what actually happened. Be specific: real paths, `path:line` locations, symbol names and commands. "Was working on the auth code" helps nobody after compaction.
 
+If knackpack's intent tracking keeps a record for this session, give its path under Context rather than copying its requirements: it already survives compaction.
+
 Use these sections in this order, and leave out any that would be empty:
 
 ```markdown
