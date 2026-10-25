@@ -1,10 +1,11 @@
 # Knackpack
 
-A pack of Claude Code knacks: skills and agents.
+Knackpack is a [Claude Code](https://code.claude.com) plugin with eight skills, six review agents, and hooks that load and check a running record of what you and Claude agreed. The skills settle requirements, research options and plan the work before any code exists, and write documentation, checkpoints, explanations and review handoffs. The agents review architecture, UI, Go and security-sensitive changes, try to break any change, and independently check another reviewer's most serious findings. They report and never edit your files.
+
+Claude Code's bundled `/code-review` and `/security-review` commands review a diff. Knackpack covers the steps around that review: settling requirements, researching the options and making a plan before any code exists, reviewing the architecture of a plan, adversarial review that proves each finding before reporting it and has its most serious findings checked independently, and a security gate built on a pinned release of OWASP ASVS with a requirement-by-requirement evidence matrix.
 
 ## Table of Contents
 
-- [Introduction](#introduction)
 - [What's Inside](#whats-inside)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
@@ -18,25 +19,19 @@ A pack of Claude Code knacks: skills and agents.
 - [Author](#author)
 - [License](#license)
 
-## Introduction
-
-Knackpack is a collection of [Claude Code](https://code.claude.com) skills and agents, packaged as a plugin so you can install the whole set in one go. A *knack* is a skill you've practiced until it's second nature, and each one here came out of real projects: pressure-testing requirements before anything gets built, keeping track of what you and Claude actually agreed as requirements shift during a conversation, planning the work in small verifiable steps, challenging designs against their real requirements, keeping the thread of a long task when the conversation gets compacted, handing finished work to another agent for review, explaining a change in plain English, reviewing UI and Go changes with the same rigor every time, trying to break any change before it ships, and checking security-sensitive changes against OWASP ASVS.
-
-Claude Code's bundled `/code-review` and `/security-review` commands review a diff. Knackpack covers the steps around that review: settling requirements and a plan before any code exists, reviewing the architecture of a plan, adversarial review that proves each finding before reporting it and has its most serious findings checked independently, and a security gate built on a pinned release of OWASP ASVS with a requirement-by-requirement evidence matrix.
-
-The repository is also a Claude Code plugin marketplace, so this GitHub repo is what Claude Code installs from.
-
 ## What's Inside
 
 ### Skills
 
-Skills are commands you run yourself. Plugin skills are namespaced, so each one starts with `/knackpack:`. Challenge requirements and Plan implementation run only when you type their command. Checkpoint, Explain and Handoff also respond when you ask for them in plain words, such as "save where we are" before compacting. Track intent is the exception: knackpack's hooks turn it on at the start of every session, so you never need to run it.
+Plugin skills are namespaced, so each command starts with `/knackpack:`. Challenge requirements and Plan implementation run only when you type their command. Checkpoint, Explain and Handoff also run when you ask for them in plain words, such as "save where we are" before compacting. Research and Write docs do too, and Claude can also pick them up on its own: Research when you ask whether to adopt, replace or remove something, or which option to choose, and Write docs when it writes or updates a document, such as a README after a code change. In testing, Opus picked them up reliably and Sonnet less often, so run the command when you want to be sure. Track intent needs no command: knackpack's hooks load it at the start of every session.
 
 | Skill | Command | What it does |
 |-------|---------|--------------|
 | Challenge requirements | `/knackpack:challenge-requirements [request]` | Before anything is built, pressure-tests a feature request, bug report, spec or proposed solution: finds gaps, conflicts and hidden assumptions, asks the few questions whose answers change what gets built, and writes testable acceptance criteria |
 | Track intent | Automatic; `/knackpack:track-intent` only where hooks are blocked | Keeps a private record of what you and Claude agreed in each session: requirements in your own words, assumptions, open questions, ideas that weren't agreed, and what has been built. Reads every message against it, so a question doesn't become an instruction and a correction doesn't erase other requirements, and reloads it after compaction |
+| Research | `/knackpack:research [question or decision]` | Researches an engineering question until a decision is supported: checks claims against current primary sources for the versions you actually use, compares the options, including keeping what you have, against the same constraints, and runs small, reproducible experiments in a scratch folder. Ends with a recommendation that labels each piece of evidence and names what's still uncertain |
 | Plan implementation | `/knackpack:plan-implementation [change]` | Turns agreed requirements into a plan grounded in your actual repository: small, ordered work packages, each with dependencies, verification and a definition of done, plus security, compatibility, rollout and recovery where they matter |
+| Write docs | `/knackpack:write-docs [document, path or topic]` | Writes, updates and reviews engineering documents, from READMEs, ADRs and runbooks to API docs, diagrams and PR descriptions, in as few words as each reader needs, without cutting constraints, warnings, failure behavior or uncertainty, and keeps what's verified apart from what's only planned |
 | Checkpoint | `/knackpack:checkpoint` | Before you compact a long conversation, writes the task's goal, progress, decisions, gotchas and next steps to `CHECKPOINT.md`, so the next context picks up exactly where you left off |
 | Explain | `/knackpack:explain [more \| topic]` | Explains what was just built in plain English for a junior developer: two paragraphs by default, a longer walkthrough with `more`, or scoped to a topic you name |
 | Handoff | `/knackpack:handoff [focus]` | Writes a self-contained `HANDOFF.md` for another coding agent acting as a principal code reviewer: what changed, why, how it was verified, the risks, and what to scrutinize |
@@ -59,8 +54,8 @@ Agents are reviewers that Claude runs in their own context. All six are report-o
 Knackpack's hooks all run one small shell script, `hooks/track-intent.sh`, for Track intent:
 
 - At the start of each session you're attending, after compaction and when you resume a conversation, it loads the rules and the current session's record.
-- With each message you send, it adds a short reminder to update the record before acting, and to offer the glossary when you define a project term, with the open questions and proposals.
-- After each file edit and at the end of each turn, it checks for a missed update. If a turn edited files but not the record, the next message says so; if Claude wrote "Noted:" without updating the record, it has to fix that before the turn ends.
+- With each message you send, it reminds Claude to update the record before acting and to offer to save any project term you define to a glossary, and it lists the record's open questions and proposals.
+- After each file edit, it notes whether the edit was to the record or another file. If a turn edited files but not the record, the reminder with your next message says so. If Claude wrote "Noted:" without updating the record, the end-of-turn check sends it back to update the record or tell you it wasn't recorded.
 
 They skip headless `claude -p` runs. To turn them off, set `KNACKPACK_INTENT=off` (see [Track intent](#track-intent)).
 
@@ -68,7 +63,7 @@ They skip headless `claude -p` runs. To turn them off, set `KNACKPACK_INTENT=off
 
 - **[Claude Code](https://code.claude.com)** 2.1.292 or later, installed and signed in (tested with 2.1.310). Earlier versions miss fixes the pack relies on: 2.1.271 added the setting that lets reviewers start without your instruction files loaded, 2.1.289 made `claude plugin validate` check a plugin that sits next to a marketplace manifest, as this one does, and 2.1.292 stopped a compaction summary from letting Claude run the slash-command-only skills on its own.
 - **macOS, Linux or WSL.** The reviewers' commands and the hooks assume a POSIX shell with git and tar.
-- **[Playwright MCP server](https://github.com/microsoft/playwright-mcp)** (optional): lets `ui-code-reviewer` open your app in a real browser. Add it under the name `playwright`, because the reviewer only gets browser tools from a server with that name, and give it an output folder outside your repositories:
+- **[Playwright MCP server](https://github.com/microsoft/playwright-mcp)** (optional): lets `ui-code-reviewer` open your app in a real browser. Add it under the name `playwright`, because the reviewer gets browser tools only from a server with that name or from the Playwright plugin, and give it an output folder outside your repositories:
 
 ```text
 $ claude mcp add playwright -- npx @playwright/mcp@latest --output-dir ~/.cache/playwright-mcp
@@ -80,7 +75,7 @@ Without `--output-dir`, the server writes page snapshots, console logs and scree
 
 ## Installation
 
-Inside a Claude Code session, add this repository as a marketplace and install the plugin from it:
+This repository is also its own plugin marketplace. Inside a Claude Code session, add it as a marketplace and install the plugin from it:
 
 ```text
 /plugin marketplace add bezmoradi/knackpack
@@ -100,7 +95,7 @@ $ claude plugin marketplace add bezmoradi/knackpack
 $ claude plugin install knackpack@knackpack
 ```
 
-To make sure it's installed correctly, run the following command; its component inventory should list six skills, six agents and four hooks:
+To make sure it's installed correctly, run the following command; its component inventory should list eight skills, six agents and four hooks:
 
 ```text
 $ claude plugin details knackpack
@@ -147,7 +142,7 @@ Claude keeps the agreement in a Markdown record that separates what you asked fo
 - WHATIF-01: Support staff might someday see orders across all organizations. No change.
 ```
 
-Each session gets its own record, so a new session starts with a clean slate and yesterday's feature can't leak into today's. The record reloads by itself after compaction and when you resume the conversation with `claude --continue`, `--resume` or `/resume`. To pick up earlier work in a new session, or to check or stop tracking, say so in plain words:
+Each session gets its own record, so a new session starts with an empty agreement and an earlier task's requirements don't carry over into it. The record reloads by itself after compaction and when you resume the conversation with `claude --continue`, `--resume` or `/resume`. To pick up earlier work in a new session, or to check or stop tracking, say so in plain words:
 
 ```text
 Continue the order visibility work.
@@ -155,10 +150,28 @@ What have we agreed so far?
 Don't track this session.
 ```
 
-- **Where records live:** outside your repositories, one file per session in `~/.local/state/knackpack/intent/<repository>-<id>/`, or under `$XDG_STATE_HOME` if you set it. Records nobody has changed for 30 days are deleted. Claude copies a record into your repository only when you ask.
+- **Where records live:** outside your repositories, one file per session in `~/.local/state/knackpack/intent/<repository>-<id>/`, or under `$XDG_STATE_HOME` if you set it. When a new session starts, records nobody has changed for 30 days are deleted; personal glossaries are kept. Claude copies a record into your repository only when you ask.
 - **Glossaries:** when you confirm what a term means for the whole project, such as "customer means the paying organization", Claude offers to save it to a glossary, never to its own memory. If the repository has a team glossary, `.claude/rules/glossary.md`, the term goes there as an uncommitted change you review and commit, and Claude Code loads that file in every session for every contributor. Otherwise it goes to your personal glossary for that repository, which loads in every session you start there. If a meaning changes later, Claude replaces the old entry instead of adding a second one. Ask Claude to start a team glossary and it creates the file.
 - **Plans and reviews:** when you ask for a plan or a review, Claude passes the record along as the requirements and marks which entries you confirmed.
 - **Turning it off:** add `"KNACKPACK_INTENT": "off"` to the `env` block of `~/.claude/settings.json`, or of a repository's `.claude/settings.local.json` for just that repository. It's off in headless `claude -p` runs unless you set `KNACKPACK_INTENT=on`. Where an organization blocks plugin hooks, run `/knackpack:track-intent` at the start of a session instead.
+
+### Research
+
+Run it before a decision that's expensive to get wrong, or ask in plain words:
+
+```text
+/knackpack:research Should we replace our hand-rolled retry logic with a library?
+/knackpack:research Can Postgres LISTEN/NOTIFY carry our job queue at 200 jobs a second?
+Find out why the export job slows down after an hour.
+```
+
+It reads your repository first, including the dependency versions you actually use, then checks claims against current primary sources and labels each one as documented, observed, corroborated, inferred or unresolved. When reading isn't enough, it runs the smallest experiment that settles the question, in a scratch folder outside your repository, deciding what counts as success before it runs. It counts keeping what you have as an option, tries to prove its own recommendation wrong, and stops once more research wouldn't change the answer. For a consequential decision, it also saves the brief as `RESEARCH.md` and gives you a line to plan from it:
+
+```text
+/knackpack:plan-implementation Plan from the research at <path>/RESEARCH.md
+```
+
+The recommendation is only a proposal: nothing gets built, bought or released until you agree.
 
 ### Plan implementation
 
@@ -174,6 +187,18 @@ It reads the relevant code before proposing anything, then breaks the work into 
 - the first step you can start on
 
 Ask for planning only and it stays read-only. Ask it to go ahead and it implements the plan, updating each package's status from real test results. For a substantial change, it also saves the plan as `PLAN.md`, outside your repository, and gives you its path.
+
+### Write docs
+
+Ask in plain words, or run the command with a document, a path or a topic:
+
+```text
+/knackpack:write-docs a runbook for rotating the signing key
+/knackpack:write-docs review docs/architecture.md
+Update the README for the new --dry-run flag.
+```
+
+Claude can also load it on its own when it writes or updates a document. It reads the code and the existing docs first, updates the document that owns the topic instead of adding another, and puts what the reader needs first. Shortening never drops a warning, prerequisite or limit; a fact it can't confirm becomes a question or a marked gap instead of a guess, and anything unverified is labeled. There's no word limit: a README may fit on one screen, while a recovery runbook keeps every step. Ask for a review and it lists the problems by impact without editing.
 
 ### Checkpoint
 
@@ -199,7 +224,7 @@ Run `/knackpack:handoff` when you want another coding agent to review what you j
 Read <path>/HANDOFF.md in full, then carry out the review it describes.
 ```
 
-`CHECKPOINT.md`, `HANDOFF.md`, `REQUIREMENTS.md` and `PLAN.md` go to the session's scratchpad folder when Claude Code provides one, and otherwise to a private `claude-<session-id>` folder in your temporary directory — never into your repository. That folder belongs to one session, and your operating system may clear it after a few days, so copy anything you want to keep.
+`CHECKPOINT.md`, `HANDOFF.md`, `REQUIREMENTS.md`, `RESEARCH.md` and `PLAN.md`, along with Research's experiments, go to the session's scratchpad folder when Claude Code provides one, and otherwise to a private `claude-<session-id>` folder in your temporary directory — never into your repository. That folder belongs to one session, and your operating system may clear it after a few days, so copy anything you want to keep.
 
 ### Reviewers
 
@@ -228,14 +253,14 @@ The UI and Go reviewers work through a checklist and label findings by severity,
 
 A clean review is a valid outcome, so don't expect it to find something every time.
 
-The architecture reviewer uses the same safeguards:
+The architecture reviewer also has the adjudicator check each blocking finding before reporting it. In addition:
 
 - It reviews proposals and plans as well as code.
 - It ends with **PROCEED**, **PROCEED WITH CONDITIONS**, **REVISE BEFORE IMPLEMENTATION OR RELEASE**, or **INSUFFICIENT EVIDENCE**, which is also its answer when it can't read the plan it was asked to review.
 - It can endorse a design as it stands.
 - For an important decision, it drafts an architecture decision record for you to save rather than writing one itself.
 
-The ASVS security reviewer works the same way and adds a security standard:
+The ASVS security reviewer also has the adjudicator check each Critical or High finding, and it works from a security standard:
 
 - It has three modes. **Plan** sets out security requirements and tests before you code, **review** checks a change, and **verify-fix** confirms that a security fix closes the hole and its bypasses.
 - It downloads the official OWASP ASVS 5.0.0 requirements and the standard's cryptography appendix, and checks their checksums before using them, so it never works from memory or from a later draft of the standard.
@@ -251,20 +276,21 @@ The ASVS security reviewer works the same way and adds a security standard:
 - **Reviewers decide whether to run the code.** Your uncommitted work and local branches count as yours; pull requests, forks and other people's branches don't, unless you vouch for them. A reviewer runs untrusted code only if you tell it the environment is isolated and holds no credentials; otherwise it reviews statically and says what it didn't run. To be explicit, say so when you ask: "Review pull request 42 from an outside contributor; don't run its code."
 - **For code you don't trust, isolate Claude Code itself** in a container or virtual machine, or turn on the sandbox (`/sandbox`) with `allowUnsandboxedCommands: false`, `failIfUnavailable: true` and read denies for your credential files. The sandbox covers shell commands only: MCP servers, including the browser, run outside it, and sandboxed commands still see your environment variables.
 - **These guarantees assume reviewers run as ordinary subagents.** Started as an [agent team](https://code.claude.com/docs/en/agent-teams) teammate, a reviewer loads your `CLAUDE.md` files, and in split-pane mode it ignores its tool denials.
-- **Skills run in your conversation with your normal permissions.** Their own files (checkpoints, handoffs, requirement briefs and plans) go to a private temporary folder, and intent records and personal glossaries to a private folder in your home directory. The only file Track intent writes in your repository is a team glossary, when you have one or ask for one, and it never commits.
-- **The hooks run a shell script at session start, with each message, after each file edit and at the end of each turn.** `hooks/track-intent.sh` reads the session details Claude Code passes it and runs `git rev-parse` to identify the repository. It keeps its own folder under `~/.local/state/knackpack/intent`, holding the records, glossaries and one small file per session that notes which files the current turn edited, and deletes files there that nobody has changed for 30 days and empty folders nobody has touched for a day. It prints the rules, reminders and current record for Claude to read, uses no network, and never touches your repository. Claude writes the records itself, with its normal file tools and under your permission mode.
+- **Skills run in your conversation with your normal permissions.** Their own files (checkpoints, handoffs, requirement briefs, research briefs and experiments, and plans) go to a private temporary folder, and intent records and personal glossaries to a private folder in your home directory. The only file Track intent writes in your repository is a team glossary, when you have one or ask for one, and it never commits. Write docs edits documents in your repository like any other change Claude makes. Research may download and run packages for its experiments, inside that temporary folder and under your permission mode, pinning versions and turning install scripts off where the package manager allows it.
+- **The hooks run a shell script at session start, with each message, after each file edit and at the end of each turn.** `hooks/track-intent.sh` reads the session details Claude Code passes it and runs `git rev-parse` to identify the repository. It keeps its own folder under `~/.local/state/knackpack/intent`, holding the records, personal glossaries and one small file per session that notes whether the current turn edited the record or other files. When a new session starts, it deletes records and those small files that nobody has changed for 30 days, and empty folders nobody has touched for a day; it never deletes a glossary. It prints the rules, reminders and current record for Claude to read, uses no network, and never touches your repository. Claude writes the records itself, with its normal file tools and under your permission mode.
 
 ## Cost and Models
 
 The adversarial, architecture, ASVS and Go reviewers and the adjudicator run on Opus, and the UI reviewer runs on Sonnet. A review reads a lot of code, so it costs more than a quick diff review: in testing on small changes, a single reviewer run cost between about $0.30 and $2.80 at API prices.
 
-Track intent adds about 2,500 tokens of rules at the start of each session and after each compaction, plus the current record when it reloads, and a reminder of about 100 tokens with each message. Prompt caching makes repeat reads cheap.
+Track intent adds about 2,500 tokens of rules at the start of each session and after each compaction, plus the current record when it reloads, and a reminder of about 100 tokens with each message. Research and Write docs each add about 3,000 tokens when they load, which Claude may do on its own; a research run's searches and experiments cost more on top. Prompt caching makes repeat reads cheap.
 
 To run a reviewer on a cheaper model, say so when you ask: "Use the knackpack:go-code-reviewer agent on Sonnet to review my changes." Setting `CLAUDE_CODE_SUBAGENT_MODEL` alone doesn't override a model an agent sets for itself; set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` as well to put every subagent on one model.
 
 ## Limitations
 
-- The reviewers are careful prompts, not proofs. They can miss defects, and a clean review isn't a guarantee. No evaluation suite has yet measured them against a baseline without the plugin.
+- The skills and reviewers are instructions Claude follows, not proofs. Claude can still skip a step or misread a request, a reviewer can miss defects, and a clean review isn't a guarantee. No evaluation suite has yet measured them against a baseline without the plugin.
+- Research sees only what it can reach: public pages, your repository and your machine. It can't read pages behind a login or measure your production systems, and its experiments run locally, so it says when a result may not carry over.
 - Headless runs (`claude -p`) deny any command that would need approval unless you allow it, so a review there may fall back to reading the code; its report says what didn't run.
 - Reports live in the conversation. Save the ones you want to keep: Claude Code deletes old transcripts after `cleanupPeriodDays`, 30 days by default.
 - Track intent's hooks make a missed update much less likely, but Claude still decides what counts as an agreement, so it can misread a message, and the record holds only what it wrote down. The end-of-turn check sees edits made with Claude's file tools, not changes made through shell commands. The record is evidence, not permission, so deploying, pushing or deleting data still needs your go-ahead in the conversation.
@@ -289,21 +315,17 @@ The repository layout:
 
 ```text
 knackpack/
+├── .claude/
+│   └── CLAUDE.md          # the rules for changing knackpack
 ├── .claude-plugin/
 │   ├── marketplace.json   # makes the repo installable as a marketplace
 │   └── plugin.json        # the plugin's name, version and metadata
 ├── agents/                # one Markdown file per agent
-├── hooks/                 # the session-start hook that loads Track intent
+├── hooks/                 # hooks.json and track-intent.sh, which run Track intent
 └── skills/                # one folder per skill, each with a SKILL.md
 ```
 
-The marketplace installs the repository root as the plugin, so everything at the root ships to every user. The hooks run at every session start, message, file edit and turn end for everyone who installs the plugin, so keep them fast, quiet and limited to their own folder, and don't add `.mcp.json`, `bin/`, `settings.json` or more hooks unless you mean every user to get them.
-
-To see what the session-start hook prints without starting a session, feed it an event by hand:
-
-```text
-$ printf '{"session_id":"test","source":"startup"}' | sh knackpack/hooks/track-intent.sh rules
-```
+The marketplace installs the repository root as the plugin, so every file at the root ships to every user, and the hooks run at every session start, message, file edit and turn end for everyone who installs it. Read the rules in [`.claude/CLAUDE.md`](.claude/CLAUDE.md) before you change anything.
 
 To try your changes without installing anything, start Claude Code with the plugin loaded from your clone:
 
@@ -312,13 +334,19 @@ $ git clone https://github.com/bezmoradi/knackpack.git
 $ claude --plugin-dir ./knackpack
 ```
 
+To see what the session-start hook prints without starting a session, feed it an event by hand from the same folder:
+
+```text
+$ printf '{"session_id":"test","source":"startup"}' | sh knackpack/hooks/track-intent.sh rules
+```
+
 All six agent files end with the same "Review protocol" section. After editing it in one, copy it to the others, then check that this prints the same checksum six times:
 
 ```text
 $ for f in knackpack/agents/*.md; do sed -n '/^## Review protocol$/,$p' "$f" | shasum -a 256; done
 ```
 
-Before committing, validate the plugin:
+Before committing, validate the plugin. The only warning to expect is the one for the missing icon:
 
 ```text
 $ claude plugin validate ./knackpack
