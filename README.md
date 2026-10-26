@@ -221,10 +221,12 @@ Read <path>/CHECKPOINT.md in full, then continue the task.
 Run `/knackpack:handoff` when you want another coding agent to review what you just built. Add a focus if the conversation covered more than one change, such as `/knackpack:handoff rate-limit fix`; the file is then named after the focus, so it doesn't replace an earlier handoff. It writes `HANDOFF.md` and gives you the line to hand to the reviewer:
 
 ```text
-Read <path>/HANDOFF.md in full, then carry out the review it describes.
+Read <path>/HANDOFF.md in full, then carry out the review it describes and write it to <path>/REVIEW.md.
 ```
 
-`CHECKPOINT.md`, `HANDOFF.md`, `REQUIREMENTS.md`, `RESEARCH.md` and `PLAN.md`, along with Research's experiments, go to the session's scratchpad folder when Claude Code provides one, and otherwise to a private `claude-<session-id>` folder in your temporary directory — never into your repository. That folder belongs to one session, and your operating system may clear it after a few days, so copy anything you want to keep.
+The reviewer writes its whole review to `REVIEW.md` beside the handoff and replies with only that path. A reviewer that can't write there, such as one running in the cloud, gives the review in its reply instead.
+
+`CHECKPOINT.md`, `HANDOFF.md`, `REVIEW.md`, `REQUIREMENTS.md`, `RESEARCH.md` and `PLAN.md`, along with Research's experiments, go to the session's scratchpad folder when Claude Code provides one, and otherwise to a private `claude-<session-id>` folder in your temporary directory — never into your repository. That folder belongs to one session, and your operating system may clear it after a few days, so copy anything you want to keep.
 
 ### Reviewers
 

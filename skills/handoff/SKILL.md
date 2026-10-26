@@ -1,12 +1,12 @@
 ---
 name: handoff
-description: "Generate a high-level, self-contained code-review handoff and save it as HANDOFF.md in a private temporary folder outside the repository, so the user can pass a single file path to another coding agent acting as principal code reviewer. Summarizes recent changes, the motivation, approach, alternatives, verification, risk, and what the reviewer should scrutinize."
+description: "Generate a high-level, self-contained code-review handoff and save it as HANDOFF.md in a private temporary folder outside the repository, so the user can pass a single file path to another coding agent acting as principal code reviewer, which writes its review to a file beside it. Summarizes recent changes, the motivation, approach, alternatives, verification, risk, and what the reviewer should scrutinize."
 argument-hint: "[focus]"
 ---
 
 # Handoff Writeup
 
-Produce a focused, high-level writeup of the work most recently done so it can be handed off to another developer or coding agent for review. The full writeup goes to a file (see "Output & delivery" below) so the user can hand the receiving agent a single file path instead of copy-pasting; chat gets the path, a paste-ready instruction, and a brief summary — the full text goes to chat only if the user explicitly asks for it there.
+Produce a focused, high-level writeup of the work most recently done so it can be handed off to another developer or coding agent for review. The full writeup goes to a file (see "Output & delivery" below) so the user can hand the receiving agent a single file path instead of copy-pasting; chat gets the path, a paste-ready instruction, and a brief summary — the full text goes to chat only if the user explicitly asks for it there. The reviewer works the same way: it writes its whole review to a file beside the handoff and replies with only that file's path.
 
 The structure follows widely used conventions for change descriptions: a commit-style lede, what and why, rejected alternatives, a reproducible test plan, and invariants phrased in RFC 2119 terms. Don't invent variants.
 
@@ -16,11 +16,13 @@ Optional free-text argument describing the scope to cover (e.g. `rate-limit fix`
 
 ## Output & delivery
 
-1. **Write the full writeup to a private folder outside the repository.** Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks. Name the file `HANDOFF.md`, or `HANDOFF-<focus-slug>.md` when a focus was given (for example `HANDOFF-rate-limit-fix.md`), so a second handoff doesn't overwrite the first. Do not commit or push it.
+1. **Write the full writeup to a private folder outside the repository.** Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks. Name the file `HANDOFF.md`, or `HANDOFF-<focus-slug>.md` when a focus was given (for example `HANDOFF-rate-limit-fix.md`), so a second handoff doesn't overwrite the first. The reviewer's review goes beside it as `REVIEW.md`, or `REVIEW-<focus-slug>.md` to match. Do not commit or push either file.
 
 2. **Open the file with a role-setting preamble addressed to the receiving agent**, placed before all writeup sections:
 
-   > You are a principal code reviewer, and ONLY a code reviewer — reviewing this handoff is your sole task; do not continue, extend, or fix the work described, and do not take on any other task. The writeup below hands off recently completed work for your review. Scrutinize it with the rigor of a principal engineer. Treat its Verification and Invariants sections as the author's claims, and verify them against the actual code. Build your own view of the risks from the code first, then work through the author's "What to scrutinize" list. You are report-only: you are NOT allowed to change any file in the repository; scratch files for your own checks go in a temporary folder outside it, which you delete afterwards. Your responsibility is only and only to report back the issues or improvements you find; deciding on and applying them stays with the author/owner.
+   > You are a principal code reviewer, and ONLY a code reviewer — reviewing this handoff is your sole task; do not continue, extend, or fix the work described, and do not take on any other task. The writeup below hands off recently completed work for your review. Scrutinize it with the rigor of a principal engineer. Treat its Verification and Invariants sections as the author's claims, and verify them against the actual code. Build your own view of the risks from the code first, then work through the author's "What to scrutinize" list. You are report-only: you are NOT allowed to change any file in the repository; scratch files for your own checks go in a temporary folder outside it, which you delete afterwards. Your responsibility is only and only to report back the issues or improvements you find; deciding on and applying them stays with the author/owner. Write your entire review to `<absolute-path-to-the-review-file>`, never into the repository and not into your scratch folder, so your cleanup doesn't delete it, and reply with only that path. If you can't or aren't allowed to write there, for example because you run on another machine, give the review in your reply instead.
+
+   Replace `<absolute-path-to-the-review-file>` with the review file's real absolute path.
 
 3. **The file must be fully self-contained.** The receiving agent has NONE of this session's context — it sees only this file plus the repo. Therefore:
    - State on the first line after the preamble which repo the work is in — the reviewer may be launched from the monorepo root or from inside the repo.
@@ -30,11 +32,11 @@ Optional free-text argument describing the scope to cover (e.g. `rate-limit fix`
    - Before finishing, re-read the file as a stranger would: any sentence that needs conversation context to parse must be rewritten.
 
 4. **In chat, report** (in this order):
-   - The absolute path to the handoff file.
-   - The exact instruction the user should give the reviewing agent: **"Read `<absolute-path-to-the-file>` in full, then carry out the review it describes."**
+   - The absolute path to the handoff file, and the absolute path the review will be written to.
+   - The exact instruction the user should give the reviewing agent: **"Read `<absolute-path-to-the-file>` in full, then carry out the review it describes and write it to `<absolute-path-to-the-review-file>`."**
    - A 3–5 line summary (the lede plus the top "What to scrutinize" items) so the user can sanity-check the handoff without opening the file.
 
-   Caveat: a remote/cloud agent cannot read local paths — if the user says the reviewer is remote, paste the full text in chat instead.
+   Caveat: a remote/cloud agent cannot read or write local paths — if the user says the reviewer is remote, paste the full text in chat instead; the reviewer will then give its review in its reply.
 
 ## Section structure
 
