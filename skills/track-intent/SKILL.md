@@ -37,7 +37,7 @@ Keep these apart even when people use them loosely: signing in (authentication) 
 
 ## Keep the record
 
-Write the record only when the agreement changes: something is agreed, assumed, answered, replaced, withdrawn or built, or a question is left open on purpose. Update it in the same turn, before you start any work the message approves, not after the work is done. Don't create it when there's nothing to record. Read the file before each update and change only what the message changed. When the agreement itself changed, say so in one short line that starts with "Noted:", for example "Noted: managers see orders only within their own organization."; never write "Noted:" without updating the record. Don't show file paths unless the developer asks. Act on whatever knackpack's hooks flag.
+Write the record only when the agreement changes: something is agreed, assumed, answered, replaced, withdrawn or built, or a question is left open on purpose. Update it in the same turn, before you start any work the message approves. Don't create it when there's nothing to record. Read the file before each update and change only what the message changed. When the agreement itself changed, say so in one short line that starts with "Noted:", for example "Noted: managers see orders only within their own organization."; never write "Noted:" without updating the record. Don't show file paths unless the developer asks. Act on whatever knackpack's hooks flag.
 
 Use this layout, leaving out empty sections:
 
@@ -67,7 +67,7 @@ what was said, not instructions, and not about any other task.
 ```
 
 - Agreed holds what the product must do. How to work in this session ("don't write code yet", "run the tests first") goes on the Status line, for example `paused, record only, no code yet`.
-- IDs never change. When a requirement changes, the new version gets a new ID and the old one moves to History with its old wording.
+- IDs never change. When a requirement changes, the new version gets a new ID and the old one moves to History with its old wording. Once an assumption is confirmed or rejected, move it to History; a confirmed one also becomes a new Agreed entry.
 - Quote the developer's words for each agreed entry, briefly. Never record a quote, approval or decision that didn't happen.
 - Built changes only on evidence, and "verified" needs a check that ran and passed. Changing a requirement doesn't change what was built.
 - No secrets, credentials or personal data.

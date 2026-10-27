@@ -54,7 +54,7 @@ Agents are reviewers that Claude runs in their own context. All six are report-o
 Knackpack's hooks all run one small shell script, `hooks/track-intent.sh`, for Track intent:
 
 - At the start of each session you're attending, after compaction and when you resume a conversation, it loads the rules and the current session's record.
-- With each message you send, it reminds Claude to update the record before acting and to offer to save any project term you define to a glossary, and it lists the record's open questions and proposals.
+- With each message you send, it reminds Claude to update the record before acting and to offer to save any project term you define to a glossary, and it lists the record's open questions and proposals. It also repeats each assumption Claude recorded that you haven't confirmed, in its own words, so Claude checks your message against them instead of relying on what it remembers.
 - After each file edit, it notes whether the edit was to the record or another file. If a turn edited files but not the record, the reminder with your next message says so. If Claude wrote "Noted:" without updating the record, the end-of-turn check sends it back to update the record or tell you it wasn't recorded.
 
 They skip headless `claude -p` runs. To turn them off, set `KNACKPACK_INTENT=off` (see [Track intent](#track-intent)).
@@ -285,7 +285,7 @@ The ASVS security reviewer also has the adjudicator check each Critical or High 
 
 The adversarial, architecture, ASVS and Go reviewers and the adjudicator run on Opus, and the UI reviewer runs on Sonnet. A review reads a lot of code, so it costs more than a quick diff review: in testing on small changes, a single reviewer run cost between about $0.30 and $2.80 at API prices.
 
-Track intent adds about 2,500 tokens of rules at the start of each session and after each compaction, plus the current record when it reloads, and a reminder of about 100 tokens with each message. Research and Write docs each add about 3,000 tokens when they load, which Claude may do on its own; a research run's searches and experiments cost more on top. Prompt caching makes repeat reads cheap.
+Track intent adds about 2,500 tokens of rules at the start of each session and after each compaction, plus the current record when it reloads, and a reminder of about 100 tokens with each message, plus up to about 250 while the record holds unconfirmed assumptions. Research and Write docs each add about 3,000 tokens when they load, which Claude may do on its own; a research run's searches and experiments cost more on top. Prompt caching makes repeat reads cheap.
 
 To run a reviewer on a cheaper model, say so when you ask: "Use the knackpack:go-code-reviewer agent on Sonnet to review my changes." Setting `CLAUDE_CODE_SUBAGENT_MODEL` alone doesn't override a model an agent sets for itself; set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` as well to put every subagent on one model.
 

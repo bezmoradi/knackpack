@@ -7,8 +7,9 @@
 #                            glossary for the repository and this session's
 #                            current record, if they exist
 #   track-intent.sh prompt   (UserPromptSubmit) print a short reminder to
-#                            update the record, with the open items, and flag
-#                            a last turn that edited files but not the record
+#                            update the record, with the open items and
+#                            assumptions, and flag a last turn that edited
+#                            files but not the record
 #   track-intent.sh tool     (PostToolUse on file edits) note whether this
 #                            turn edited the record or other files
 #   track-intent.sh stop     (Stop) make Claude update the record if it wrote
@@ -153,6 +154,34 @@ open_items() {
 	}' "$1" 2>/dev/null
 }
 
+# Lists the record's assumptions with their text, since an ID alone doesn't
+# say what was assumed. Past about 1,000 characters, only their IDs.
+assumed_items() {
+	awk '
+	/^## / { sec = $0; next }
+	sec ~ /^## Assumed/ && match($0, /^- ASM-[0-9]+/) {
+		id = substr($0, 3, RLENGTH - 2)
+		t = substr($0, 3)
+		sub(/\r$/, "", t)
+		w = index(t, " Why:")
+		if (w > 0) t = substr(t, 1, w - 1)
+		sub(/[[:space:]]+$/, "", t)
+		if (t !~ /[.!?]$/) t = t "."
+		if (used + length(t) <= 1000) {
+			a = a (a == "" ? "" : " ") t
+			used += length(t) + 1
+		} else {
+			more = more (more == "" ? "" : ", ") id
+		}
+	}
+	END {
+		if (a == "" && more == "") exit
+		printf "Assumed, not confirmed; check this message and your next step against them:"
+		if (a != "") printf " %s", a
+		if (more != "") printf " More in the record: %s.", more
+	}' "$1" 2>/dev/null
+}
+
 print_paths() {
 	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	if [ -f "$glossary" ]; then gstate='exists'; else gstate='none yet'; fi
@@ -213,9 +242,14 @@ prompt)
 	: >"$turn" 2>/dev/null
 	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	open=
-	[ "$exists" = 1 ] && open=$(open_items "$record")
+	assumed=
+	if [ "$exists" = 1 ]; then
+		open=$(open_items "$record")
+		assumed=$(assumed_items "$record")
+	fi
 	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, then do the work. If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
+	[ -n "$assumed" ] && printf '%s\n' "$assumed"
 	[ "$missed" = 1 ] && printf '%s\n' "Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	;;
 tool)
