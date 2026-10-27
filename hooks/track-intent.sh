@@ -155,30 +155,56 @@ open_items() {
 }
 
 # Lists the record's assumptions with their text, since an ID alone doesn't
-# say what was assumed. Past about 1,000 characters, only their IDs.
+# say what was assumed, one per line and as written. An entry that wraps onto
+# more lines is joined, never cut at the break. Past about 1,000 characters,
+# only their IDs.
 assumed_items() {
 	awk '
-	/^## / { sec = $0; next }
-	sec ~ /^## Assumed/ && match($0, /^- ASM-[0-9]+/) {
-		id = substr($0, 3, RLENGTH - 2)
-		t = substr($0, 3)
-		sub(/\r$/, "", t)
-		w = index(t, " Why:")
+	function flush() {
+		if (id == "") return
+		# Cut at the last " Why:", so text that contains one is not lost.
+		w = 0
+		while ((i = index(substr(t, w + 1), " Why:")) > 0) w += i
 		if (w > 0) t = substr(t, 1, w - 1)
-		sub(/[[:space:]]+$/, "", t)
-		if (t !~ /[.!?]$/) t = t "."
+		sub(/[ \t]+$/, "", t)
 		if (used + length(t) <= 1000) {
-			a = a (a == "" ? "" : " ") t
-			used += length(t) + 1
+			a = a "\n- " t
+			used += length(t) + 3
 		} else {
 			more = more (more == "" ? "" : ", ") id
 		}
+		id = ""
+	}
+	{ sub(/\r$/, "") }
+	/^## / { flush(); sec = $0; next }
+	sec ~ /^## Assumed/ && match($0, /^- ASM-[0-9]+/) {
+		flush()
+		id = substr($0, 3, RLENGTH - 2)
+		t = substr($0, 3)
+		sub(/[ \t]+$/, "", t)
+		gap = 0
+		next
+	}
+	id != "" {
+		# As in Markdown, an indented line continues the entry, and so does
+		# an unindented one that follows text, unless it starts a bullet, an
+		# ordered list at 1 or a heading.
+		if ($0 ~ /^[ \t]*$/) { gap = 1; next }
+		if ($0 ~ /^[ \t]/ || (!gap && $0 !~ /^([-*+]|1[.)])[ \t]/ && $0 !~ /^#+([ \t]|$)/)) {
+			s = $0
+			sub(/^[ \t]+/, "", s)
+			sub(/[ \t]+$/, "", s)
+			t = t " " s
+			gap = 0
+			next
+		}
+		flush()
 	}
 	END {
+		flush()
 		if (a == "" && more == "") exit
-		printf "Assumed, not confirmed; check this message and your next step against them:"
-		if (a != "") printf " %s", a
-		if (more != "") printf " More in the record: %s.", more
+		printf "Assumed, not confirmed; check this message and your next step against them:%s", a
+		if (more != "") printf "\nMore in the record: %s.", more
 	}' "$1" 2>/dev/null
 }
 
