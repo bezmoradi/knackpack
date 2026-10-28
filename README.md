@@ -38,7 +38,7 @@ Plugin skills are namespaced, so each command starts with `/knackpack:`. Challen
 
 ### Agents
 
-Agents are reviewers that Claude runs in their own context. All six are report-only: they never edit files or commit. They run only when you ask for them, except the adjudicator, which the adversarial, ASVS and architecture reviewers start to check their most serious findings. To keep an agent from running at all, add `Agent(knackpack:<name>)` to `permissions.deny` in your settings.
+Agents are reviewers that Claude runs in their own context. All six are report-only: they never edit files or commit. Each saves its report to a file in your temporary directory and replies with the path, which Claude gives you instead of copying the report into the conversation. They run only when you ask for them, except the adjudicator, which the adversarial, ASVS and architecture reviewers start to check their most serious findings. To keep an agent from running at all, add `Agent(knackpack:<name>)` to `permissions.deny` in your settings.
 
 | Agent | What it reviews | Works best with |
 |-------|-----------------|-----------------|
@@ -224,7 +224,7 @@ Run `/knackpack:handoff` when you want another coding agent to review what you j
 Read <path>/HANDOFF.md in full, then carry out the review it describes and write it to <path>/REVIEW.md.
 ```
 
-The reviewer writes its whole review to `REVIEW.md` beside the handoff and replies with only that path. A reviewer that can't write there, such as one running in the cloud, gives the review in its reply instead.
+The reviewer writes its whole review to `REVIEW.md` beside the handoff and replies with only that path. A reviewer whose own instructions keep it from writing there, such as one of knackpack's, saves it in its own folder and replies with that path; one running in the cloud gives the review in its reply instead.
 
 `CHECKPOINT.md`, `HANDOFF.md`, `REVIEW.md`, `REQUIREMENTS.md`, `RESEARCH.md` and `PLAN.md`, along with Research's experiments, go to the session's scratchpad folder when Claude Code provides one, and otherwise to a private `claude-<session-id>` folder in your temporary directory — never into your repository. That folder belongs to one session, and your operating system may clear it after a few days, so copy anything you want to keep.
 
@@ -241,11 +241,12 @@ Use the knackpack:asvs-security-reviewer agent to review my changes at ASVS Leve
 Use the knackpack:adjudicator agent to check this finding: <the claim>.
 ```
 
-Unless you name a target, a reviewer covers everything on your branch that its target branch doesn't have yet, plus uncommitted and untracked work. Every reviewer follows the same protocol:
+Unless you name a target, a reviewer covers everything on your branch that its target branch doesn't have yet, plus uncommitted and untracked work. When there's none, it reviews your last commit and says so. Every reviewer follows the same protocol:
 
 - It records the exact state of your work as a git snapshot, without committing anything or touching your files, and checks at the end that it left everything as it found it.
 - It reads your project's `CLAUDE.md` and rule files itself, so it follows your conventions instead of flagging them. If the change edits those files, it takes its guidance from the previous version, so a change can't exempt itself from review.
 - It runs experiments, such as a reproduction or a regression test, only in a throwaway copy of the snapshot, and only when it's safe to run the change's code (see [Trust Boundary](#trust-boundary)).
+- It saves its full report to a new private folder in your temporary directory and replies with the path and a one-line verdict. Claude gives you that path rather than copying the report into the conversation, which would pay for every token of it twice and could change it on the way. Your operating system may clear the folder after a few days, so copy any report you want to keep.
 
 The UI and Go reviewers work through a checklist and label findings by severity, from **[Blocker]** down to **[Nitpick]**. The adversarial reviewer works differently:
 
@@ -269,10 +270,11 @@ The ASVS security reviewer also has the adjudicator check each Critical or High 
 - A review ends with the first of three recommendations that applies: **BLOCKED**, **READY FOR REQUIRED HUMAN REVIEW**, or **NO BLOCKING SECURITY ISSUES FOUND IN SCOPE**. A plan ends with whether it's ready to build.
 - Missing security documentation is reported as a gap, and blocks only when your policy requires that document.
 - It never claims ASVS compliance or certification. OWASP doesn't certify anything either.
+- A review of a whole codebase can take half an hour or more, so point it at a change when you can.
 
 ## Trust Boundary
 
-- **Reviewers can't edit files, but they can run commands.** They have no file-editing tools, and their instructions forbid commits, pushes and other changes to your repository. Each one still has a shell, the adversarial, ASVS and architecture reviewers can also fetch web pages, search the web and start the adjudicator, and the UI reviewer can drive a browser. "Report-only" rests on those instructions and the missing tools; it isn't a sandbox. No reviewer gets your other MCP servers or your skills, and the UI reviewer doesn't get the Playwright server's upload and run-code tools.
+- **Reviewers can't edit files, but they can run commands.** They have no file-editing tools, and their instructions forbid commits, pushes and other changes to your repository. Each one also saves its report to a private folder in your temporary directory. Each one still has a shell, the adversarial, ASVS and architecture reviewers can also fetch web pages, search the web and start the adjudicator, and the UI reviewer can drive a browser. "Report-only" rests on those instructions and the missing tools; it isn't a sandbox. No reviewer gets your other MCP servers or your skills, and the UI reviewer doesn't get the Playwright server's upload and run-code tools.
 - **Your permission mode decides what runs without asking.** Plugin agents can't set their own permission mode, so they run in yours. In Manual mode you approve each command; in acceptEdits mode common file commands such as `rm`, `mv`, `cp` and `sed` run inside your project without asking; in auto mode a classifier approves actions for you.
 - **Experiments run in a throwaway copy** made with `git archive`, which runs no git hooks and shares no branches, config or stashes with your repository. A copy protects your files, not your credentials.
 - **Reviewers decide whether to run the code.** Your uncommitted work and local branches count as yours; pull requests, forks and other people's branches don't, unless you vouch for them. A reviewer runs untrusted code only if you tell it the environment is isolated and holds no credentials; otherwise it reviews statically and says what it didn't run. To be explicit, say so when you ask: "Review pull request 42 from an outside contributor; don't run its code."
@@ -294,7 +296,7 @@ To run a reviewer on a cheaper model, say so when you ask: "Use the knackpack:go
 - The skills and reviewers are instructions Claude follows, not proofs. Claude can still skip a step or misread a request, a reviewer can miss defects, and a clean review isn't a guarantee. No evaluation suite has yet measured them against a baseline without the plugin.
 - Research sees only what it can reach: public pages, your repository and your machine. It can't read pages behind a login or measure your production systems, and its experiments run locally, so it says when a result may not carry over.
 - Headless runs (`claude -p`) deny any command that would need approval unless you allow it, so a review there may fall back to reading the code; its report says what didn't run.
-- Reports live in the conversation. Save the ones you want to keep: Claude Code deletes old transcripts after `cleanupPeriodDays`, 30 days by default.
+- Reports live in your temporary directory, which your operating system may clear after a few days. Copy the ones you want to keep.
 - Track intent's hooks make a missed update much less likely, but Claude still decides what counts as an agreement, so it can misread a message, and the record holds only what it wrote down. The end-of-turn check sees edits made with Claude's file tools, not changes made through shell commands. The record is evidence, not permission, so deploying, pushing or deleting data still needs your go-ahead in the conversation.
 - Records live outside your project, so in acceptEdits mode Claude asks before each update. Auto mode sends those writes to its classifier instead.
 - The hooks tell attended sessions from headless ones by two variables Claude Code sets for hooks but doesn't document. If a later version drops both, the hooks also run under `claude -p` until you set `KNACKPACK_INTENT=off`.
