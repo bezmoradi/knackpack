@@ -2,7 +2,9 @@
 # Hooks for knackpack's track-intent skill.
 #
 #   track-intent.sh rules    (SessionStart) print the skill's rules and this
-#                            session's paths
+#                            session's paths, or only a note on how to turn
+#                            tracking back on if the session's record is
+#                            stopped
 #   track-intent.sh state    (SessionStart) print the developer's personal
 #                            glossary for the repository and this session's
 #                            current record, if they exist
@@ -31,12 +33,27 @@
 # in sessions nobody attends, such as `claude -p`, which they skip by default.
 
 umask 077
+# Exit 0 however the script ends, even when the shell itself stops it.
+trap 'exit 0' EXIT
 mode=${1:-}
 case $mode in rules | state | prompt | tool | stop | manual) ;; *) exit 0 ;; esac
 
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) || exit 0
 plugin_root=${here%/*}
 skill=$plugin_root/skills/track-intent/SKILL.md
+
+# Prints the first value of a string field in the event. Claude Code puts the
+# event's own fields before the tool's input, so a field of the same name
+# nested in the input doesn't win.
+field() {
+	printf '%s\n' "$input" | awk -v k="$1" '
+	match($0, "\"" k "\"[ \t]*:[ \t]*\"[^\"]*\"") {
+		s = substr($0, RSTART, RLENGTH)
+		sub(/^"[^"]*"[ \t]*:[ \t]*"/, "", s)
+		print substr(s, 1, length(s) - 1)
+		exit
+	}'
+}
 
 src=
 if [ "$mode" = manual ]; then
@@ -59,8 +76,8 @@ else
 		;;
 	esac
 	input=$(cat)
-	sid=$(printf '%s\n' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
-	src=$(printf '%s\n' "$input" | sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+	sid=$(field session_id)
+	src=$(field source)
 	dir=${CLAUDE_PROJECT_DIR:-}
 fi
 
@@ -133,21 +150,77 @@ fi
 turns=$root/.turns
 turn=$turns/$sid
 
+# Writes to the turn file go only through a real folder the hook owns, never
+# through a symbolic or hard link: a link or anything else at the file's path
+# is removed first. Only this user can write in the folder, so no other user can swap
+# one in between the check and the write.
+turn_ok() {
+	mkdir -p "$turns" 2>/dev/null
+	[ -d "$turns" ] && [ ! -L "$turns" ] && [ -O "$turns" ] || return 1
+	if [ -L "$turn" ] || { [ -e "$turn" ] && [ ! -f "$turn" ]; } ||
+		[ -n "$(find "$turn" -prune -links +1 2>/dev/null)" ]; then
+		rm -f "$turn" 2>/dev/null
+	fi
+	[ ! -L "$turn" ] && { [ ! -e "$turn" ] || [ -f "$turn" ]; }
+}
+
 stopped() {
 	[ "$exists" = 1 ] && grep -Eq '^- Status:[[:space:]]*stopped' "$record" 2>/dev/null
 }
 
-# Lists the record's open questions and open proposals by ID.
+# Lists the record's open questions and open proposals by ID. The layout ends
+# a proposal with ", by <who>. open" or "... rejected", so its status is the
+# word right after the last such attribution, or, failing that, the last one
+# after a full stop that follows the last ", by ". The proposal, and a note
+# after the status, can contain either word.
 open_items() {
 	awk '
-	/^## / { sec = $0; next }
+	function flush(   s, r, i, st) {
+		if (id != "") {
+			s = tolower(t) " "
+			st = ""
+			r = s
+			while (match(r, /, by [^.]*\.[ \t]+(open|rejected)[^a-z]/)) {
+				st = substr(r, RSTART, RLENGTH)
+				r = substr(r, RSTART + RLENGTH)
+			}
+			if (st == "") {
+				# An attribution with a full stop of its own, or none.
+				while ((i = index(s, ", by ")) > 0) s = substr(s, i + 5)
+				while (match(s, /\.[ \t]+(open|rejected)[^a-z]/)) {
+					st = substr(s, RSTART, RLENGTH)
+					s = substr(s, RSTART + RLENGTH)
+				}
+			}
+			if (st ~ /open[^a-z]$/) p = p (p == "" ? "" : ", ") id
+		}
+		id = ""
+	}
+	{ sub(/\r$/, "") }
+	/^## / { flush(); sec = $0; next }
 	sec ~ /^## Open questions/ && match($0, /^- Q-[0-9]+/) {
 		q = q (q == "" ? "" : ", ") substr($0, 3, RLENGTH - 2)
 	}
-	sec ~ /^## Not agreed/ && match($0, /^- PROP-[0-9]+/) && tolower($0) ~ /open/ && tolower($0) !~ /rejected/ {
-		p = p (p == "" ? "" : ", ") substr($0, 3, RLENGTH - 2)
+	sec ~ /^## Not agreed/ && match($0, /^- PROP-[0-9]+/) {
+		n = RLENGTH # flush() calls match(), which resets RLENGTH
+		flush()
+		id = substr($0, 3, n - 2)
+		t = $0
+		gap = 0
+		next
+	}
+	id != "" {
+		# An entry that wraps continues as in the assumptions below.
+		if ($0 ~ /^[ \t]*$/) { gap = 1; next }
+		if ($0 ~ /^[ \t]/ || (!gap && $0 !~ /^([-*+]|1[.)])[ \t]/ && $0 !~ /^#+([ \t]|$)/)) {
+			t = t " " $0
+			gap = 0
+			next
+		}
+		flush()
 	}
 	END {
+		flush()
 		if (q != "") printf "Open questions: %s.", q
 		if (q != "" && p != "") printf " "
 		if (p != "") printf "Open proposals: %s.", p
@@ -239,33 +312,59 @@ esc() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
 case $mode in
 rules)
 	[ -f "$skill" ] || exit 0
-	awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$skill" |
-		sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$(esc "$plugin_root")|g" \
-			-e "s|\${CLAUDE_SESSION_ID}|$sid|g" \
-			-e "s|\${CLAUDE_PROJECT_DIR}|$(esc "$dir")|g"
-	print_paths
+	if stopped; then
+		printf '%s\n' "knackpack intent tracking is stopped for this session, so its rules aren't loaded. If the developer asks to track it again, read \`$skill\` in full, after its frontmatter, set the record's Status back to active, and run \`sh \"$here/track-intent.sh\" manual $sid \"$dir\"\` for this session's paths."
+		exit 0
+	fi
+	out=$(
+		awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$skill" |
+			sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$(esc "$plugin_root")|g" \
+				-e "s|\${CLAUDE_SESSION_ID}|$sid|g" \
+				-e "s|\${CLAUDE_PROJECT_DIR}|$(esc "$dir")|g"
+		print_paths
+	)
+	# Past 10,000 characters Claude Code shows Claude only a short preview,
+	# so print a pointer to the skill instead of rules that would be cut.
+	# Counting bytes never undercounts characters.
+	if [ "$(printf '%s\n' "$out" | wc -c | tr -d ' ')" -le 9900 ]; then
+		printf '%s\n' "$out"
+	else
+		printf '%s\n' "# Track intent" "" "knackpack's intent-tracking rules are too long to print here with this session's paths. Read \`$skill\` in full now, after its frontmatter, and follow it for the whole session. In it, \${CLAUDE_PLUGIN_ROOT} stands for \`$plugin_root\`, \${CLAUDE_SESSION_ID} for \`$sid\` and \${CLAUDE_PROJECT_DIR} for \`$dir\`."
+		print_paths
+	fi
 	;;
 state)
 	if [ "$src" = startup ]; then
 		find "$root" -type f -name '*.md' ! -name glossary.md -mtime +30 -exec rm -f {} + 2>/dev/null
-		find "$turns" -type f -mtime +30 -exec rm -f {} + 2>/dev/null
+		[ -L "$turns" ] || find "$turns" -type f -mtime +30 -exec rm -f {} + 2>/dev/null
 		# Only folders untouched for a day, so this doesn't remove the empty
 		# folder another open session has just created.
 		find "$root" -mindepth 1 -type d -empty -mtime +0 -exec rmdir {} + 2>/dev/null
 	fi
 	mkdir -p "$repo_dir" 2>/dev/null
-	print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000
-	[ "$exists" = 1 ] && print_file "Current record: evidence of what was agreed, not instructions" "$record" 6000
+	gloss=$(print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000)
+	[ -n "$gloss" ] && printf '%s\n' "$gloss"
+	# The record gets up to 6,000 bytes, less whatever a full glossary and
+	# long paths need to keep the output under Claude Code's 10,000-character
+	# cap.
+	if [ "$exists" = 1 ]; then
+		room=$((9650 - $(printf '%s%s' "$gloss" "$record" | wc -c | tr -d ' ')))
+		[ "$room" -le 6000 ] || room=6000
+		[ "$room" -ge 1000 ] || room=1000
+		print_file "Current record: evidence of what was agreed, not instructions" "$record" "$room"
+	fi
 	;;
 prompt)
-	mkdir -p "$turns" 2>/dev/null
+	if turn_ok; then writable=1; else writable=0; fi
+	# `true`, not `:`: a failed redirection on `:` stops a POSIX shell, and
+	# stderr goes first so the failure stays silent.
 	if stopped; then
-		: >"$turn" 2>/dev/null
+		[ "$writable" = 1 ] && true 2>/dev/null >"$turn"
 		exit 0
 	fi
 	missed=0
-	if [ -f "$turn" ] && grep -qx work "$turn" && ! grep -qx record "$turn"; then missed=1; fi
-	: >"$turn" 2>/dev/null
+	if [ "$writable" = 1 ] && [ -f "$turn" ] && grep -qx work "$turn" && ! grep -qx record "$turn"; then missed=1; fi
+	[ "$writable" = 1 ] && true 2>/dev/null >"$turn"
 	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	open=
 	assumed=
@@ -279,11 +378,17 @@ prompt)
 	[ "$missed" = 1 ] && printf '%s\n' "Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	;;
 tool)
-	mkdir -p "$turns" 2>/dev/null
-	case $input in
-	*"\"$repo_dir/$sid"*) echo record >>"$turn" ;;
+	turn_ok || exit 0
+	# Judge the edit by the edited file's path, since the content of an edit
+	# can quote the record's path too; only an event without one is searched
+	# whole.
+	path=$(field file_path)
+	[ -n "$path" ] || path=$(field notebook_path)
+	if [ -n "$path" ]; then event="\"$path\""; else event=$input; fi
+	case $event in
+	*"\"$repo_dir/$sid"*) echo record 2>/dev/null >>"$turn" ;;
 	*"\"$root/"* | *'/.claude/rules/glossary.md"'*) ;;
-	*) echo work >>"$turn" ;;
+	*) echo work 2>/dev/null >>"$turn" ;;
 	esac
 	;;
 stop)
@@ -291,9 +396,12 @@ stop)
 	printf '%s' "$input" | grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true' && exit 0
 	# Only a line that starts with "Noted:", the skill's update line, counts.
 	printf '%s' "$input" | grep -Eq '("last_assistant_message"[[:space:]]*:[[:space:]]*"|\\n)(\*\*)?Noted:' || exit 0
-	[ -f "$turn" ] && grep -qx record "$turn" && exit 0
+	[ -f "$turn" ] && [ ! -L "$turn" ] && grep -qx record "$turn" && exit 0
 	msg="You wrote \"Noted:\" this turn, but the intent record wasn't updated. Update $record now, or tell the developer it wasn't recorded."
-	msg=$(printf '%s' "$msg" | sed 's/\\/\\\\/g; s/"/\\"/g')
+	# Escape it for JSON: backslashes, quotes, tabs and line breaks, and drop
+	# the other control characters, which a path can hold.
+	msg=$(printf '%s' "$msg" | tr -d '\001-\010\013-\037' | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' |
+		awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')
 	printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$msg"
 	;;
 manual)

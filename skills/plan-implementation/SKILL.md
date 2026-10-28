@@ -24,6 +24,10 @@ alternative.
 A plan is a set of justified decisions and executable work packages.
 It is not a list of aspirations such as "implement," "test," and "deploy."
 
+## Where to save
+
+Never write into the repository unless the user asks. To save the plan, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
+
 ## 1. Establish the planning contract
 
 The change to plan is the text passed with this skill. If it names a file,
@@ -449,8 +453,8 @@ Do not invent precise completion times or treat estimates as commitments.
 ## 15. Produce an executable handoff
 
 Scale the output to the task. Give the plan in the conversation. For a
-substantial change, also save it as `PLAN.md` so it can be handed to another
-agent. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks. Then give the user its absolute path; to have it
+substantial change, also save it as `PLAN.md` in the folder from Where to
+save, so it can be handed to another agent. Then give the user its absolute path; to have it
 reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to
 review the plan at <absolute path>`.
 

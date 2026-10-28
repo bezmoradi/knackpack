@@ -1,6 +1,6 @@
 ---
 name: write-docs
-description: "Write, update or review a codebase's engineering documents: READMEs, PRDs, ADRs, design docs, architecture overviews and diagrams, runbooks, API docs, PR descriptions, changelogs, migration guides, incident reviews, and agent instructions such as CLAUDE.md. Gives each reader what they need to understand, decide or act in as few words as that takes, without cutting constraints, warnings, failure behavior or uncertainty. Use it whenever you write or edit one of these documents, including a README or docs update after a code change, and when tightening wordy or AI-sounding text or checking a document against the code. Not for code comments, commit messages or chat replies."
+description: "Write, update or review a codebase's engineering documents: READMEs, PRDs, ADRs, design docs, architecture overviews and diagrams, runbooks, API docs, PR descriptions, changelogs, migration guides, incident reviews, and agent instructions such as CLAUDE.md. Gives each reader what they need to understand, decide or act in as few words as that takes, without cutting constraints, warnings, failure behavior or uncertainty. Use it whenever you write or edit one of these documents, including a README or docs update after a code change, and when tightening wordy or AI-sounding text or checking a document against the code. Not for a small fix such as a typo, a broken link or a version number, or for code comments, commit messages or chat replies."
 argument-hint: "[document, path or topic]"
 ---
 

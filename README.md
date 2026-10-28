@@ -46,14 +46,14 @@ Agents are reviewers that Claude runs in their own context. All six are report-o
 | `ui-code-reviewer` | Front-end changes: visual quality, user experience, accessibility (WCAG 2.2 AA), responsive layouts and front-end code health, testing a running preview in a browser | An already-running preview of your app and the [Playwright MCP server](https://github.com/microsoft/playwright-mcp), added under the name `playwright`; without them it reviews the code only |
 | `go-code-reviewer` | Go backend changes: security and authorization first, then architecture, then the code itself — correctness, concurrency, error handling, observability and performance | The Go toolchain, plus `staticcheck`, `golangci-lint` and `govulncheck` if you have them installed |
 | `adversarial-reviewer` | Any change — code, configuration, infrastructure, migrations or CI — reviewed by an independent skeptic that tries to break it, proves each finding before reporting it, and grades evidence and severity separately | The project's own tests and tools, and the [GitHub CLI](https://cli.github.com) for reviewing pull requests |
-| `asvs-security-reviewer` | Security-sensitive changes, checked against [OWASP ASVS 5.0.0](https://github.com/OWASP/ASVS/releases/tag/v5.0.0_release): plans security requirements before coding, reviews changes, and verifies security fixes, ending with a release recommendation backed by a requirement-by-requirement evidence matrix | Network access to download the ASVS release files, [jq](https://jqlang.org) to query them, and your project's security scanners |
+| `asvs-security-reviewer` | Security-sensitive changes, checked against [OWASP ASVS 5.0.0](https://github.com/OWASP/ASVS/releases/tag/v5.0.0_release): plans security requirements before coding, reviews changes, verifies security fixes and assesses an existing system, ending with a recommendation backed by a requirement-by-requirement evidence matrix | Network access to download the ASVS release files, [jq](https://jqlang.org) to query them, and your project's security scanners |
 | `adjudicator` | One claim about a change, usually another reviewer's Critical, High or blocking finding, checked from the evidence alone, without the reasoning behind it | The claim, the revision it's about and the files involved; you can also ask it to check a single finding yourself |
 
 ### Hooks
 
 Knackpack's hooks all run one small shell script, `hooks/track-intent.sh`, for Track intent:
 
-- At the start of each session you're attending, after compaction and when you resume a conversation, it loads the rules and the current session's record.
+- At the start of each session you're attending, after compaction and when you resume a conversation, it loads the rules and the current session's record. In a session you've told it not to track, it loads only a one-line note on how to turn tracking back on.
 - With each message you send, it reminds Claude to update the record before acting and to offer to save any project term you define to a glossary, and it lists the record's open questions and proposals. It also repeats each assumption Claude recorded that you haven't confirmed, in its own words, so Claude checks your message against them instead of relying on what it remembers.
 - After each file edit, it notes whether the edit was to the record or another file. If a turn edited files but not the record, the reminder with your next message says so. If Claude wrote "Noted:" without updating the record, the end-of-turn check sends it back to update the record or tell you it wasn't recorded.
 
@@ -62,7 +62,7 @@ They skip headless `claude -p` runs. To turn them off, set `KNACKPACK_INTENT=off
 ## Prerequisites
 
 - **[Claude Code](https://code.claude.com)** 2.1.292 or later, installed and signed in (tested with 2.1.310). Earlier versions miss fixes the pack relies on: 2.1.271 added the setting that lets reviewers start without your instruction files loaded, 2.1.289 made `claude plugin validate` check a plugin that sits next to a marketplace manifest, as this one does, and 2.1.292 stopped a compaction summary from letting Claude run the slash-command-only skills on its own.
-- **macOS, Linux or WSL.** The reviewers' commands and the hooks assume a POSIX shell with git and tar.
+- **macOS, Linux or WSL.** The reviewers' commands and the hooks assume a POSIX shell with git.
 - **[Playwright MCP server](https://github.com/microsoft/playwright-mcp)** (optional): lets `ui-code-reviewer` open your app in a real browser. Add it under the name `playwright`, because the reviewer gets browser tools only from a server with that name or from the Playwright plugin, and give it an output folder outside your repositories:
 
 ```text
@@ -152,6 +152,13 @@ Don't track this session.
 
 - **Where records live:** outside your repositories, one file per session in `~/.local/state/knackpack/intent/<repository>-<id>/`, or under `$XDG_STATE_HOME` if you set it. When a new session starts, records nobody has changed for 30 days are deleted; personal glossaries are kept. Claude copies a record into your repository only when you ask.
 - **Glossaries:** when you confirm what a term means for the whole project, such as "customer means the paying organization", Claude offers to save it to a glossary, never to its own memory. If the repository has a team glossary, `.claude/rules/glossary.md`, the term goes there as an uncommitted change you review and commit, and Claude Code loads that file in every session for every contributor. Otherwise it goes to your personal glossary for that repository, which loads in every session you start there. If a meaning changes later, Claude replaces the old entry instead of adding a second one. Ask Claude to start a team glossary and it creates the file.
+- **Fewer permission prompts:** records live outside your project, so Claude Code asks before Claude reads or updates one, even in acceptEdits mode. To let Claude do both without asking, add these rules to `permissions.allow` in `~/.claude/settings.json`. They cover every file tool, but only that folder:
+
+  ```json
+  { "permissions": { "allow": ["Read(~/.local/state/knackpack/**)", "Edit(~/.local/state/knackpack/**)"] } }
+  ```
+
+  If you set `$XDG_STATE_HOME`, use that path after two slashes instead, such as `Edit(//srv/state/knackpack/**)` for `/srv/state`.
 - **Plans and reviews:** when you ask for a plan or a review, Claude passes the record along as the requirements and marks which entries you confirmed.
 - **Turning it off:** add `"KNACKPACK_INTENT": "off"` to the `env` block of `~/.claude/settings.json`, or of a repository's `.claude/settings.local.json` for just that repository. It's off in headless `claude -p` runs unless you set `KNACKPACK_INTENT=on`. Where an organization blocks plugin hooks, run `/knackpack:track-intent` at the start of a session instead.
 
@@ -198,7 +205,7 @@ Ask in plain words, or run the command with a document, a path or a topic:
 Update the README for the new --dry-run flag.
 ```
 
-Claude can also load it on its own when it writes or updates a document. It reads the code and the existing docs first, updates the document that owns the topic instead of adding another, and puts what the reader needs first. Shortening never drops a warning, prerequisite or limit; a fact it can't confirm becomes a question or a marked gap instead of a guess, and anything unverified is labeled. There's no word limit: a README may fit on one screen, while a recovery runbook keeps every step. Ask for a review and it lists the problems by impact without editing.
+Claude can also load it on its own when it writes or updates a document, though not for a small fix such as a typo, a broken link or a version number. It reads the code and the existing docs first, updates the document that owns the topic instead of adding another, and puts what the reader needs first. Shortening never drops a warning, prerequisite or limit; a fact it can't confirm becomes a question or a marked gap instead of a guess, and anything unverified is labeled. There's no word limit: a README may fit on one screen, while a recovery runbook keeps every step. Ask for a review and it lists the problems by impact without editing.
 
 ### Checkpoint
 
@@ -238,25 +245,30 @@ Use the knackpack:ui-code-reviewer agent to review my changes.
 Use the knackpack:go-code-reviewer agent to review my changes.
 Use the knackpack:adversarial-reviewer agent to review pull request 42.
 Use the knackpack:asvs-security-reviewer agent to review my changes at ASVS Level 2.
+Use the knackpack:asvs-security-reviewer agent to assess the security of the billing service.
 Use the knackpack:adjudicator agent to check this finding: <the claim>.
 ```
 
 Unless you name a target, a reviewer covers everything on your branch that its target branch doesn't have yet, plus uncommitted and untracked work. When there's none, it reviews your last commit and says so. Every reviewer follows the same protocol:
 
-- It records the exact state of your work as a git snapshot, without committing anything or touching your files, and checks at the end that it left everything as it found it.
+- It records the exact state of your work as a git snapshot, without committing anything or changing your files, and checks at the end that it left everything as it found it.
+- It fetches your target branch so it compares against the latest version, but never stops to ask for a password or passphrase: if the fetch needs one, fails or takes more than about a minute, it uses the copy you already have and says so in the report.
 - It reads your project's `CLAUDE.md` and rule files itself, so it follows your conventions instead of flagging them. If the change edits those files, it takes its guidance from the previous version, so a change can't exempt itself from review.
 - It runs experiments, such as a reproduction or a regression test, only in a throwaway copy of the snapshot, and only when it's safe to run the change's code (see [Trust Boundary](#trust-boundary)).
 - It saves its full report to a new private folder in your temporary directory and replies with the path and a one-line verdict. Claude gives you that path rather than copying the report into the conversation, which would pay for every token of it twice and could change it on the way. Your operating system may clear the folder after a few days, so copy any report you want to keep.
 
-The UI and Go reviewers work through a checklist and label findings by severity, from **[Blocker]** down to **[Nitpick]**. The adversarial reviewer works differently:
+Every reviewer grades findings on one scale, **Critical**, **High**, **Medium** or **Low**, and says whether each one blocks the change, by that reviewer's own release gate where it has one. Every report ends with the same findings table, one row per finding with its ID, severity, whether it blocks, evidence, location and title, so you can compare one run with the next: give a reviewer an earlier report and the table marks each finding as new or carried over, and lists the ones that were fixed. It reads only the earlier report's findings, not its reasoning or the adjudicator's rulings, and checks each one again itself, so a mistaken ruling isn't carried over. The report closes with what the review cost, in minutes and tokens.
+
+The UI and Go reviewers work through a checklist. The adversarial reviewer works differently:
 
 - It reports only findings it has proven, graded **Critical**, **High**, **Medium** or **Low**, and lists unproven concerns separately as open risks, each with the severity it would have if confirmed.
 - It hands each Critical or High finding to the adjudicator for an independent check before reporting it.
 - When you give it requirements with IDs, it reports each one as verified, violated or not verified.
+- If you name areas to focus on, it starts there and still covers the rest of the change, and its report lists every changed file as read in full, skimmed or not read.
 
 A clean review is a valid outcome, so don't expect it to find something every time.
 
-The architecture reviewer also has the adjudicator check each blocking finding before reporting it. In addition:
+The architecture reviewer also has the adjudicator check each Critical or High finding before reporting it. In addition:
 
 - It reviews proposals and plans as well as code.
 - It ends with **PROCEED**, **PROCEED WITH CONDITIONS**, **REVISE BEFORE IMPLEMENTATION OR RELEASE**, or **INSUFFICIENT EVIDENCE**, which is also its answer when it can't read the plan it was asked to review.
@@ -265,21 +277,23 @@ The architecture reviewer also has the adjudicator check each blocking finding b
 
 The ASVS security reviewer also has the adjudicator check each Critical or High finding, and it works from a security standard:
 
-- It has three modes. **Plan** sets out security requirements and tests before you code, **review** checks a change, and **verify-fix** confirms that a security fix closes the hole and its bypasses.
+- It has four modes. **Plan** sets out security requirements and tests before you code, **review** checks a change, **verify-fix** confirms that a security fix closes the hole and its bypasses, and **assess** checks an existing system, or one part of it, as it is now. An assessment says which parts it examined in depth, which it sampled and which it didn't reach.
 - It downloads the official OWASP ASVS 5.0.0 requirements and the standard's cryptography appendix, and checks their checksums before using them, so it never works from memory or from a later draft of the standard.
-- A review ends with the first of three recommendations that applies: **BLOCKED**, **READY FOR REQUIRED HUMAN REVIEW**, or **NO BLOCKING SECURITY ISSUES FOUND IN SCOPE**. A plan ends with whether it's ready to build.
+- A review ends with the first of three recommendations that applies: **BLOCKED**, **READY FOR REQUIRED HUMAN REVIEW**, or **NO BLOCKING SECURITY ISSUES FOUND IN SCOPE**. An assessment uses the same three, with **ACTION REQUIRED** in place of **BLOCKED**, and a plan ends with whether it's ready to build.
 - Missing security documentation is reported as a gap, and blocks only when your policy requires that document.
 - It never claims ASVS compliance or certification. OWASP doesn't certify anything either.
-- A review of a whole codebase can take half an hour or more, so point it at a change when you can.
+- It uses the scanners installed on your machine and says when one's version differs from the version your CI pins.
+- An assessment of a whole system can take half an hour or more, so ask for a review of your change when that's what you want checked.
 
 ## Trust Boundary
 
-- **Reviewers can't edit files, but they can run commands.** They have no file-editing tools, and their instructions forbid commits, pushes and other changes to your repository. Each one also saves its report to a private folder in your temporary directory. Each one still has a shell, the adversarial, ASVS and architecture reviewers can also fetch web pages, search the web and start the adjudicator, and the UI reviewer can drive a browser. "Report-only" rests on those instructions and the missing tools; it isn't a sandbox. No reviewer gets your other MCP servers or your skills, and the UI reviewer doesn't get the Playwright server's upload and run-code tools.
+- **Reviewers can't edit files, but they can run commands.** They have no file-editing tools, and their instructions forbid commits, pushes and other changes to your repository. Each one also saves its report to a private folder in your temporary directory, and to measure its cost it searches the subagent transcripts Claude Code wrote in the last hour, under `~/.claude/projects/`, for its own report folder's name, then adds up the token counts in the one that matches. Each one still has a shell, the adversarial, ASVS and architecture reviewers can also fetch web pages and search the web, and the UI reviewer can drive a browser. Those three reviewers can also start other agents. Their instructions allow only the adjudicator, but Claude Code ignores agent-type limits in a subagent's tool list, so nothing stops one from starting an agent that edits files, such as the built-in general-purpose agent. Setting `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` stops every subagent from starting others, which also turns adjudication off. "Report-only" rests on those instructions and the missing tools; it isn't a sandbox. No reviewer gets your other MCP servers or your skills, and the UI reviewer doesn't get the Playwright server's upload and run-code tools.
 - **Your permission mode decides what runs without asking.** Plugin agents can't set their own permission mode, so they run in yours. In Manual mode you approve each command; in acceptEdits mode common file commands such as `rm`, `mv`, `cp` and `sed` run inside your project without asking; in auto mode a classifier approves actions for you.
-- **Experiments run in a throwaway copy** made with `git archive`, which runs no git hooks and shares no branches, config or stashes with your repository. A copy protects your files, not your credentials.
+- **Experiments run in a throwaway copy** of every file in the reviewed snapshot, written out with `git checkout-index` from a temporary index. It runs no git hooks and shares no branches, config or stashes with your repository. A copy protects your files, not your credentials.
+- **Git runs some programs of its own while a reviewer reads your work.** The filters and fsmonitor hook in your git config, such as Git LFS, run whenever git reads changed files, as they do for your own `git status`, and so does whatever a filter runs, even a script in your repository. A reviewer checks for them first. If any is set, it doesn't snapshot a checked-out branch that isn't your own work, such as a pull request, and reviews only its commits, and it makes no copy of code it may not run. It also turns off the diff programs in your git config, and git's hooks for its own git commands.
 - **Reviewers decide whether to run the code.** Your uncommitted work and local branches count as yours; pull requests, forks and other people's branches don't, unless you vouch for them. A reviewer runs untrusted code only if you tell it the environment is isolated and holds no credentials; otherwise it reviews statically and says what it didn't run. To be explicit, say so when you ask: "Review pull request 42 from an outside contributor; don't run its code."
 - **For code you don't trust, isolate Claude Code itself** in a container or virtual machine, or turn on the sandbox (`/sandbox`) with `allowUnsandboxedCommands: false`, `failIfUnavailable: true` and read denies for your credential files. The sandbox covers shell commands only: MCP servers, including the browser, run outside it, and sandboxed commands still see your environment variables.
-- **These guarantees assume reviewers run as ordinary subagents.** Started as an [agent team](https://code.claude.com/docs/en/agent-teams) teammate, a reviewer loads your `CLAUDE.md` files, and in split-pane mode it ignores its tool denials.
+- **These guarantees assume reviewers run as ordinary subagents.** Started as an [agent team](https://code.claude.com/docs/en/agent-teams) teammate, a reviewer loads your `CLAUDE.md` files, and in split-pane mode it ignores its tool denials. While agent teams are on (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`), any subagent Claude gives a name launches as a teammate without asking you, so this can happen when you never asked for a team; set the variable to `0` to prevent it.
 - **Skills run in your conversation with your normal permissions.** Their own files (checkpoints, handoffs, requirement briefs, research briefs and experiments, and plans) go to a private temporary folder, and intent records and personal glossaries to a private folder in your home directory. The only file Track intent writes in your repository is a team glossary, when you have one or ask for one, and it never commits. Write docs edits documents in your repository like any other change Claude makes. Research may download and run packages for its experiments, inside that temporary folder and under your permission mode, pinning versions and turning install scripts off where the package manager allows it.
 - **The hooks run a shell script at session start, with each message, after each file edit and at the end of each turn.** `hooks/track-intent.sh` reads the session details Claude Code passes it and runs `git rev-parse` to identify the repository. It keeps its own folder under `~/.local/state/knackpack/intent`, holding the records, personal glossaries and one small file per session that notes whether the current turn edited the record or other files. When a new session starts, it deletes records and those small files that nobody has changed for 30 days, and empty folders nobody has touched for a day; it never deletes a glossary. It prints the rules, reminders and current record for Claude to read, uses no network, and never touches your repository. Claude writes the records itself, with its normal file tools and under your permission mode.
 
@@ -298,7 +312,7 @@ To run a reviewer on a cheaper model, say so when you ask: "Use the knackpack:go
 - Headless runs (`claude -p`) deny any command that would need approval unless you allow it, so a review there may fall back to reading the code; its report says what didn't run.
 - Reports live in your temporary directory, which your operating system may clear after a few days. Copy the ones you want to keep.
 - Track intent's hooks make a missed update much less likely, but Claude still decides what counts as an agreement, so it can misread a message, and the record holds only what it wrote down. The end-of-turn check sees edits made with Claude's file tools, not changes made through shell commands. The record is evidence, not permission, so deploying, pushing or deleting data still needs your go-ahead in the conversation.
-- Records live outside your project, so in acceptEdits mode Claude asks before each update. Auto mode sends those writes to its classifier instead.
+- Records live outside your project, so Claude Code asks before Claude reads or updates one, even in acceptEdits mode, unless you add the permission rules under [Track intent](#track-intent). Auto mode sends those writes to its classifier instead.
 - The hooks tell attended sessions from headless ones by two variables Claude Code sets for hooks but doesn't document. If a later version drops both, the hooks also run under `claude -p` until you set `KNACKPACK_INTENT=off`.
 - Organizations that set `allowManagedHooksOnly` block plugin hooks, so Track intent doesn't start on its own there.
 
@@ -326,6 +340,8 @@ knackpack/
 │   └── plugin.json        # the plugin's name, version and metadata
 ├── agents/                # one Markdown file per agent
 ├── hooks/                 # hooks.json and track-intent.sh, which run Track intent
+├── scripts/
+│   └── check.sh           # the checks to run before publishing
 └── skills/                # one folder per skill, each with a SKILL.md
 ```
 
@@ -344,16 +360,12 @@ To see what the session-start hook prints without starting a session, feed it an
 $ printf '{"session_id":"test","source":"startup"}' | sh knackpack/hooks/track-intent.sh rules
 ```
 
-All six agent files end with the same "Review protocol" section. After editing it in one, copy it to the others, then check that this prints the same checksum six times:
+All six agent files end with the same "Review protocol" section, so after editing it in one, copy it to the others.
+
+Before committing, run the checks. The script runs `claude plugin validate`, where only the missing-icon warning is expected, and checks that the six agents share one review protocol and keep their tool limits, that each skill is under its size limit, that every hook mode exits 0 silently under dash, sh and bash, and that the version changed since the last release. It prints one line per check and exits 1 if any fails:
 
 ```text
-$ for f in knackpack/agents/*.md; do sed -n '/^## Review protocol$/,$p' "$f" | shasum -a 256; done
-```
-
-Before committing, validate the plugin. The only warning to expect is the one for the missing icon:
-
-```text
-$ claude plugin validate ./knackpack
+$ sh knackpack/scripts/check.sh
 ```
 
 Validation doesn't catch a misspelled frontmatter key such as `omitClaudeMD`, and Claude Code silently ignores a key it doesn't recognize. To check, on Claude Code 2.1.296 or later, start a session with `claude --debug --plugin-dir ./knackpack` and search its debug log in `~/.claude/debug/` for `does not recognize or apply`.

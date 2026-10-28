@@ -22,6 +22,10 @@ Optimize for resolving uncertainty that could materially change what gets built.
 
 Never invent business rules or silently turn assumptions into requirements.
 
+## Where to save
+
+Never write into the repository unless the user asks. To save the brief, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
+
 ## 1. Establish the task and its maturity
 
 The request to challenge is the text passed with this skill. If nothing was
@@ -376,8 +380,8 @@ Do not keep contradictory requirements active.
 ## 12. Provide an implementation handoff
 
 Scale the output to the task. Give the brief in the conversation. For a
-substantial change, also save it as `REQUIREMENTS.md` so it can be handed to
-other agents. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks.
+substantial change, also save it as `REQUIREMENTS.md` in the folder from Where
+to save, so it can be handed to other agents.
 
 Then give the user the brief's absolute path and the line that starts
 planning from it, in this session or a new one:

@@ -1,22 +1,22 @@
 # Working on knackpack
 
-knackpack is a Claude Code plugin made of Markdown plus one hook: skills in `skills/<name>/SKILL.md`, agents in `agents/<name>.md`, and hooks in `hooks/` that load the track-intent skill and check that its record stays up to date. The repository root is both the plugin and its marketplace, so every file at the root ships to every user. The README's Local Development section has the commands; this file holds the rules.
+knackpack is a Claude Code plugin made of Markdown plus one hook: skills in `skills/<name>/SKILL.md`, agents in `agents/<name>.md`, hooks in `hooks/` that load the track-intent skill and check that its record stays up to date, and the pre-publish checks in `scripts/check.sh`. The repository root is both the plugin and its marketplace, so every file at the root ships to every user. The README's Local Development section has the commands; this file holds the rules.
 
 ## Rules
 
 - **Keep the review protocol identical.** All six agent files end with the same "Review protocol" section. Change it in one file, copy it to the other five, and check that this prints one checksum six times:
   `for f in agents/*.md; do sed -n '/^## Review protocol$/,$p' "$f" | shasum -a 256; done`
-- **Keep the agents report-only.** Every agent lists its tools in `tools:` and never gets Edit, Write or NotebookEdit. Only the adversarial, ASVS and architecture reviewers get `Agent`, and they use it only to start `knackpack:adjudicator`. Keep `omitClaudeMd: true` on every agent.
+- **Keep the agents report-only.** Every agent lists its tools in `tools:` and never gets Edit, Write or NotebookEdit. Only the adversarial, ASVS and architecture reviewers get `Agent`, and they use it only to start `knackpack:adjudicator`; Claude Code ignores a type list such as `Agent(knackpack:adjudicator)` in a subagent's `tools`, so only their instructions hold them to that. Keep `omitClaudeMd: true` on every agent.
 - **Write everything yourself.** Don't copy text from other projects, even MIT-licensed ones, and don't include ASVS requirement text, which is licensed CC BY-SA; the ASVS reviewer downloads the release file and checks its checksum instead.
 - **Keep it generic.** No company or product names from private projects, no email addresses, and no names of private repositories.
 - **Check facts against primary sources:** the Claude Code docs, specs, RFCs and library source. Name the version when behavior changed in one.
-- **Keep each `SKILL.md` under about 19,000 characters.** After compaction, Claude Code carries over only the first 5,000 tokens of each skill, and anything past that is lost. Keep track-intent's body under about 8,500: the hook prints it along with the session's paths, Claude Code caps hook output at 10,000 characters, and anything longer is cut to a short preview.
-- **Keep the hook safe for every user.** `hooks/track-intent.sh` runs at every session start, message, file edit and turn end for everyone who installs knackpack. Keep it POSIX `sh`, fast, silent, and exiting 0 on any failure, and let it write only inside its own state folder.
+- **Keep each `SKILL.md` under about 19,000 characters.** After compaction, Claude Code carries over only the first 5,000 tokens of each skill, and anything past that is lost, so put rules Claude must keep, such as where a skill saves its files, near the top. Keep track-intent's body under about 8,500: the hook prints it along with the session's paths, and Claude Code cuts hook output past 10,000 characters to a short preview, so past 9,900 bytes the hook prints only a pointer to the skill file, which Claude then has to read itself.
+- **Keep the hook safe for every user.** `hooks/track-intent.sh` runs at every session start, message, file edit and turn end for everyone who installs knackpack. Keep it POSIX `sh`, apart from `find -mindepth`, `find -empty` and `head -c`, which macOS, GNU and busybox all have, and `test -O`, which dash and bash both have, and test it under `dash` as well as macOS `sh`. Keep it fast, silent, and exiting 0 on any failure, and let it write only inside its own state folder.
 - **Don't add `.mcp.json`, `bin/`, `settings.json` or more hooks at the root** unless every user should get them.
 
 ## Before you publish
 
-1. Run `claude plugin validate .`. The only expected warning is the missing icon.
+1. Run `sh scripts/check.sh` and fix whatever it reports. It runs `claude plugin validate .`, where the only expected warning is the missing icon, and checks the rules above that a script can check: the shared review protocol, the agents' tools and `omitClaudeMd`, the skill sizes, the hook under dash, sh and bash, and that the version changed since `origin/main`. Add a check there when you add a rule it can test.
 2. Check for misspelled frontmatter keys, which Claude Code ignores silently: start `claude --debug --plugin-dir .` and search the debug log in `~/.claude/debug/` for `does not recognize or apply`.
 3. Bump `version` in `.claude-plugin/plugin.json`; installed copies update only when it changes.
 4. Update the README when behavior changes, including the counts of skills and agents.
