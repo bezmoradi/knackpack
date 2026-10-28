@@ -1,0 +1,31 @@
+# Runs scripts/check.sh, the pre-publish checks, on Linux and macOS for every
+# push and pull request. It needs no secrets: `claude plugin validate` works
+# without signing in.
+name: check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # The full history gives the version check an origin/main to compare with.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install Claude Code
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run the pre-publish checks
+        run: sh scripts/check.sh

@@ -259,7 +259,7 @@ Unless you name a target, a reviewer covers everything on your branch that its t
 
 Every reviewer grades findings on one scale, **Critical**, **High**, **Medium** or **Low**, and says whether each one blocks the change, by that reviewer's own release gate where it has one. Every report ends with the same findings table, one row per finding with its ID, severity, whether it blocks, evidence, location and title, so you can compare one run with the next: give a reviewer an earlier report and the table marks each finding as new or carried over, and lists the ones that were fixed. It reads only the earlier report's findings, not its reasoning or the adjudicator's rulings, and checks each one again itself, so a mistaken ruling isn't carried over. The report closes with what the review cost, in minutes and tokens.
 
-The UI and Go reviewers work through a checklist. The adversarial reviewer works differently:
+The UI and Go reviewers work through a checklist whose rules are defaults learned from real incidents. A departure from one is a finding only when the reviewer can say what it breaks in your code, such as a contract or a concrete failure; otherwise it's at most a Low or a question. The adversarial reviewer works differently:
 
 - It reports only findings it has proven, graded **Critical**, **High**, **Medium** or **Low**, and lists unproven concerns separately as open risks, each with the severity it would have if confirmed.
 - It hands each Critical or High finding to the adjudicator for an independent check before reporting it.
@@ -287,7 +287,7 @@ The ASVS security reviewer also has the adjudicator check each Critical or High 
 
 ## Trust Boundary
 
-- **Reviewers can't edit files, but they can run commands.** They have no file-editing tools, and their instructions forbid commits, pushes and other changes to your repository. Each one also saves its report to a private folder in your temporary directory, and to measure its cost it searches the subagent transcripts Claude Code wrote in the last hour, under `~/.claude/projects/`, for its own report folder's name, then adds up the token counts in the one that matches. Each one still has a shell, the adversarial, ASVS and architecture reviewers can also fetch web pages and search the web, and the UI reviewer can drive a browser. Those three reviewers can also start other agents. Their instructions allow only the adjudicator, but Claude Code ignores agent-type limits in a subagent's tool list, so nothing stops one from starting an agent that edits files, such as the built-in general-purpose agent. Setting `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` stops every subagent from starting others, which also turns adjudication off. "Report-only" rests on those instructions and the missing tools; it isn't a sandbox. No reviewer gets your other MCP servers or your skills, and the UI reviewer doesn't get the Playwright server's upload and run-code tools.
+- **Reviewers can't edit files, but they can run commands.** They have no file-editing tools, and their instructions forbid commits, pushes and other changes to your repository. Each one also saves its report to a private folder in your temporary directory, and to measure its cost it searches this session's subagent transcripts, under `~/.claude/projects/`, for its own report folder's name, then adds up the token counts in the one that matches. Each one still has a shell, the adversarial, ASVS and architecture reviewers can also fetch web pages and search the web, and the UI reviewer can drive a browser. Those three reviewers can also start other agents. Their instructions allow only the adjudicator, but Claude Code ignores agent-type limits in a subagent's tool list, so nothing stops one from starting an agent that edits files, such as the built-in general-purpose agent. Setting `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=1` stops every subagent from starting others, which also turns adjudication off. "Report-only" rests on those instructions and the missing tools; it isn't a sandbox. No reviewer gets your other MCP servers or your skills, and the UI reviewer doesn't get the Playwright server's upload and run-code tools.
 - **Your permission mode decides what runs without asking.** Plugin agents can't set their own permission mode, so they run in yours. In Manual mode you approve each command; in acceptEdits mode common file commands such as `rm`, `mv`, `cp` and `sed` run inside your project without asking; in auto mode a classifier approves actions for you.
 - **Experiments run in a throwaway copy** of every file in the reviewed snapshot, written out with `git checkout-index` from a temporary index. It runs no git hooks and shares no branches, config or stashes with your repository. A copy protects your files, not your credentials.
 - **Git runs some programs of its own while a reviewer reads your work.** The filters and fsmonitor hook in your git config, such as Git LFS, run whenever git reads changed files, as they do for your own `git status`, and so does whatever a filter runs, even a script in your repository. A reviewer checks for them first. If any is set, it doesn't snapshot a checked-out branch that isn't your own work, such as a pull request, and reviews only its commits, and it makes no copy of code it may not run. It also turns off the diff programs in your git config, and git's hooks for its own git commands.
@@ -307,7 +307,7 @@ To run a reviewer on a cheaper model, say so when you ask: "Use the knackpack:go
 
 ## Limitations
 
-- The skills and reviewers are instructions Claude follows, not proofs. Claude can still skip a step or misread a request, a reviewer can miss defects, and a clean review isn't a guarantee. No evaluation suite has yet measured them against a baseline without the plugin.
+- The skills and reviewers are instructions Claude follows, not proofs. Claude can still skip a step or misread a request, a reviewer can miss defects, and a clean review isn't a guarantee. A small eval suite, five cases described under [Local Development](#local-development), compares them with runs without the plugin. In three runs of each on 2026-10-28, every case passed with the plugin. Without it, Claude found the planted defects and left the correct code alone just as well, but it never reported the planted instructions, and a `CLAUDE.md` line telling reviewers not to report security problems made it leave out a command injection in 2 of 3 runs. So the gain these cases show is in resisting steering, not in finding defects. The reviewer cases ran without Bash, and five small cases can't show how the reviewers do on real code.
 - Research sees only what it can reach: public pages, your repository and your machine. It can't read pages behind a login or measure your production systems, and its experiments run locally, so it says when a result may not carry over.
 - Headless runs (`claude -p`) deny any command that would need approval unless you allow it, so a review there may fall back to reading the code; its report says what didn't run.
 - Reports live in your temporary directory, which your operating system may clear after a few days. Copy the ones you want to keep.
@@ -338,10 +338,15 @@ knackpack/
 ├── .claude-plugin/
 │   ├── marketplace.json   # makes the repo installable as a marketplace
 │   └── plugin.json        # the plugin's name, version and metadata
+├── .github/workflows/
+│   └── check.yml          # runs scripts/check.sh on Linux and macOS
 ├── agents/                # one Markdown file per agent
+├── evals/                 # behavior evals for claude plugin eval
 ├── hooks/                 # hooks.json and track-intent.sh, which run Track intent
 ├── scripts/
-│   └── check.sh           # the checks to run before publishing
+│   ├── check.sh           # the checks to run before publishing
+│   ├── review-protocol.md # the one source of the agents' shared review protocol
+│   └── sync-protocol.sh   # copies that source into every agent
 └── skills/                # one folder per skill, each with a SKILL.md
 ```
 
@@ -360,13 +365,26 @@ To see what the session-start hook prints without starting a session, feed it an
 $ printf '{"session_id":"test","source":"startup"}' | sh knackpack/hooks/track-intent.sh rules
 ```
 
-All six agent files end with the same "Review protocol" section, so after editing it in one, copy it to the others.
+All six agent files end with the same "Review protocol" section, copied from `scripts/review-protocol.md`. Edit that file, never an agent's copy, then copy it into the agents:
 
-Before committing, run the checks. The script runs `claude plugin validate`, where only the missing-icon warning is expected, and checks that the six agents share one review protocol and keep their tool limits, that each skill is under its size limit, that every hook mode exits 0 silently under dash, sh and bash, and that the version changed since the last release. It prints one line per check and exits 1 if any fails:
+```text
+$ sh knackpack/scripts/sync-protocol.sh
+```
+
+Before committing, run the checks; CI also runs them on Linux and macOS for every push and pull request. The script runs `claude plugin validate`, where only the missing-icon warning is expected, and checks that each agent's review protocol matches its source and that the agents keep their tool limits, that each skill is under its size limit, that every hook mode exits 0 silently under dash, sh and bash, and that the version changed since the last release. It prints one line per check and exits 1 if any fails:
 
 ```text
 $ sh knackpack/scripts/check.sh
 ```
+
+Behavior evals in `evals/` run the plugin on small, realistic tasks with [`claude plugin eval`](https://code.claude.com/docs/en/plugin-evals), once with the plugin and once without it, and score each run. An adversarial review must find a planted missing tenant check, must not grade correct but unusual code High, and must report an SQL injection that a code comment tells AI reviewers to ignore and a command injection that the repository's `CLAUDE.md` tells reviewers not to report, flagging both instructions; a typo fix must start no reviewer and not load Write docs. The reviewer cases ask for an adversarial review without naming the agent, so the runs without the plugin review too. The evals call the model on your account, so run them when a change affects behavior, not on every commit:
+
+```text
+$ claude plugin eval ./knackpack --tag quick --scaffold --allow-tools Edit
+$ claude plugin eval ./knackpack --tag reviewer --scaffold --allow-tools Bash
+```
+
+`--scaffold` runs each case's setup script, which builds a small git repository in the run's temporary folder, and a reviewer case can take up to 40 minutes. Claude Code refuses to grant Bash to an eval on a machine whose SSH or cloud credential config uses a shell expansion it can't resolve, such as a `ProxyCommand` built with `$(…)`; there, leave out `--allow-tools Bash`, and the reviewer reads the files without git.
 
 Validation doesn't catch a misspelled frontmatter key such as `omitClaudeMD`, and Claude Code silently ignores a key it doesn't recognize. To check, on Claude Code 2.1.296 or later, start a session with `claude --debug --plugin-dir ./knackpack` and search its debug log in `~/.claude/debug/` for `does not recognize or apply`.
 

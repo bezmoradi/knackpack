@@ -1,11 +1,11 @@
 # Working on knackpack
 
-knackpack is a Claude Code plugin made of Markdown plus one hook: skills in `skills/<name>/SKILL.md`, agents in `agents/<name>.md`, hooks in `hooks/` that load the track-intent skill and check that its record stays up to date, and the pre-publish checks in `scripts/check.sh`. The repository root is both the plugin and its marketplace, so every file at the root ships to every user. The README's Local Development section has the commands; this file holds the rules.
+knackpack is a Claude Code plugin made of Markdown plus one hook: skills in `skills/<name>/SKILL.md`, agents in `agents/<name>.md`, hooks in `hooks/` that load the track-intent skill and check that its record stays up to date, the pre-publish checks in `scripts/check.sh`, which CI runs on Linux and macOS, and behavior evals in `evals/` for `claude plugin eval`. The repository root is both the plugin and its marketplace, so every file at the root ships to every user. The README's Local Development section has the commands; this file holds the rules.
 
 ## Rules
 
-- **Keep the review protocol identical.** All six agent files end with the same "Review protocol" section. Change it in one file, copy it to the other five, and check that this prints one checksum six times:
-  `for f in agents/*.md; do sed -n '/^## Review protocol$/,$p' "$f" | shasum -a 256; done`
+- **Edit the review protocol in one place.** All six agent files end with the same "Review protocol" section, copied from `scripts/review-protocol.md`. Edit that file and run `sh scripts/sync-protocol.sh`; never edit an agent's copy, which `scripts/check.sh` reports.
+- **Keep each agent's instructions in its own file.** Don't move rules into files an agent reads while it works: a plugin's files sit outside the user's project, so reading them needs permission, which Manual mode asks for and headless runs deny, and the rules would silently go missing.
 - **Keep the agents report-only.** Every agent lists its tools in `tools:` and never gets Edit, Write or NotebookEdit. Only the adversarial, ASVS and architecture reviewers get `Agent`, and they use it only to start `knackpack:adjudicator`; Claude Code ignores a type list such as `Agent(knackpack:adjudicator)` in a subagent's `tools`, so only their instructions hold them to that. Keep `omitClaudeMd: true` on every agent.
 - **Write everything yourself.** Don't copy text from other projects, even MIT-licensed ones, and don't include ASVS requirement text, which is licensed CC BY-SA; the ASVS reviewer downloads the release file and checks its checksum instead.
 - **Keep it generic.** No company or product names from private projects, no email addresses, and no names of private repositories.
@@ -20,3 +20,4 @@ knackpack is a Claude Code plugin made of Markdown plus one hook: skills in `ski
 2. Check for misspelled frontmatter keys, which Claude Code ignores silently: start `claude --debug --plugin-dir .` and search the debug log in `~/.claude/debug/` for `does not recognize or apply`.
 3. Bump `version` in `.claude-plugin/plugin.json`; installed copies update only when it changes.
 4. Update the README when behavior changes, including the counts of skills and agents.
+5. When a change affects how a skill or agent behaves, run the evals that cover it and compare the scores with the last run: `claude plugin eval . --tag quick --scaffold --allow-tools Edit`, and for the reviewers `claude plugin eval . --tag reviewer --scaffold --allow-tools Bash`. They call the model on your account, so CI doesn't run them, and Claude Code refuses Bash-granting evals on a machine whose SSH or cloud credential config uses a shell expansion it can't resolve.

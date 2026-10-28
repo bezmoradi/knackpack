@@ -45,7 +45,8 @@ for f in .mcp.json bin settings.json; do
 	[ -e "$f" ] && fail "$f exists at the root"
 done
 
-# The agents: report-only, no CLAUDE.md, and one shared review protocol.
+# The agents: report-only, no CLAUDE.md, and each with an exact copy of the
+# review protocol's one source.
 # Claude Code splits tools on commas and on spaces outside parentheses. What's
 # in parentheses doesn't narrow Agent in a subagent, so it's dropped, and Task
 # is the Agent tool's old name.
@@ -70,12 +71,13 @@ for f in agents/*.md; do
 	fi
 	grep -qx 'omitClaudeMd: true' "$tmp/fm" || { fail "$name lacks omitClaudeMd: true"; agents_ok=0; }
 	sed -n '/^## Review protocol$/,$p' "$f" >"$tmp/protocol"
-	[ -s "$tmp/protocol" ] || { fail "$name has no Review protocol section"; agents_ok=0; }
-	cksum <"$tmp/protocol" >>"$tmp/sums"
+	cmp -s "$tmp/protocol" scripts/review-protocol.md || {
+		fail "$name's review protocol differs from scripts/review-protocol.md; edit that file and run sh scripts/sync-protocol.sh"
+		agents_ok=0
+	}
 done
 [ "$n" = 6 ] || { fail "expected 6 agents, found $n"; agents_ok=0; }
-[ "$(sort -u "$tmp/sums" | wc -l | tr -d ' ')" = 1 ] || { fail "the review protocol differs between agents"; agents_ok=0; }
-[ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd and one review protocol"
+[ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd and the review protocol's source"
 
 # Skill sizes: compaction keeps about the first 5,000 tokens of each skill.
 for f in skills/*/SKILL.md; do
