@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: "Generate a high-level, self-contained code-review handoff and save it as HANDOFF.md in a private temporary folder outside the repository, so the user can pass a single file path to another coding agent acting as principal code reviewer, which writes its review to a file. Summarizes recent changes, the motivation, approach, alternatives, verification, risk, and what the reviewer should scrutinize."
+description: "Generate a high-level, self-contained code-review handoff and save it as HANDOFF.md in a private temporary folder outside the repository, so the user can pass a single file path to another coding agent acting as principal code reviewer, which writes its review to a file. Summarizes recent changes, the motivation, approach, alternatives, verification, risk, and what the reviewer should scrutinize. Use when the user wants a handoff or writeup to give another agent or person, not when they ask for a review here, which knackpack's reviewer agents do."
 argument-hint: "[focus]"
 ---
 

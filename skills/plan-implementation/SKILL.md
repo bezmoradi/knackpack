@@ -28,12 +28,15 @@ It is not a list of aspirations such as "implement," "test," and "deploy."
 
 Never write into the repository unless the user asks. To save the plan, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 
+Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if a `PLAN.md` for another task is already there, listing at its top the absolute paths of the brief, intent record and research it builds on. Give the user its absolute path; to have it reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to review the plan at <absolute path>`.
+
 ## 1. Establish the planning contract
 
 The change to plan is the text passed with this skill. If it names a file,
 such as a `REQUIREMENTS.md` brief, read the file first. If nothing was passed,
 use the most recent agreed request in the conversation and say which one you
-took.
+took. To revise an existing plan, read it first, keep its package IDs, and say
+what changed and why.
 
 Identify:
 
@@ -72,11 +75,13 @@ Name the concrete requirement if it prevents dependent work.
 ## 2. Check whether the requirements are ready
 
 Read the requirements challenger's output when available: the brief from
-knackpack's `challenge-requirements` skill, which is saved as `REQUIREMENTS.md`
-for substantial changes. Read the session's intent record too, if knackpack
+knackpack's `challenge-requirements` skill, which is saved as `REQUIREMENTS.md`.
+Read the session's intent record too, if knackpack
 keeps one: it's newer where they differ, and only its Agreed entries are
-confirmed. If the user refers to a brief you can't see, ask for its path;
-don't plan from assumptions instead.
+confirmed. A research brief's recommendation is a proposal: plan from it only
+where the developer accepted it, and mark the rest conditional. If the user
+refers to a brief you can't see, ask for its path; don't plan from
+assumptions instead.
 
 Identify unresolved decisions that materially affect:
 
@@ -186,9 +191,7 @@ Identify assumptions that could invalidate substantial downstream work.
 
 Examples:
 - A dependency may not support the required transaction semantics.
-- A provider may not offer reliable deduplication.
 - A schema change may lock a large production table.
-- A test environment may not reproduce the required integration behavior.
 
 For consequential uncertainty, define a bounded investigation: the exact
 question, the minimal experiment or inspection, its inputs and environment,
@@ -219,6 +222,8 @@ Each package should have:
 - Work: the substantive implementation actions.
 - Validation: how correctness will be established.
 - Completion criteria: observable conditions for being done.
+- Status, once work starts: not started, in progress, blocked, or done with
+  the check that passed.
 - Risk or recovery notes when relevant.
 
 Prefer packages that can be reviewed and verified independently.
@@ -227,12 +232,8 @@ Organize around coherent behavior rather than arbitrary file counts.
 Do not split tightly coupled changes into independently deployable steps
 when intermediate states would be broken or unsafe.
 
-Distinguish:
-- Implementation order.
-- Review or PR boundaries.
-- Deployment order.
-
-These may differ.
+Implementation order, review or PR boundaries, and deployment order may
+differ.
 
 Keep required atomic changes together and explain why.
 
@@ -243,29 +244,18 @@ specific behavior and evidence.
 
 Build an explicit dependency order.
 
-Bring forward work that:
+Bring forward work that tests a risky assumption, establishes a shared
+contract, enables meaningful integration testing, prevents expensive rework,
+or demonstrates a thin end-to-end path.
 
-- Tests a risky assumption.
-- Establishes a shared contract.
-- Enables meaningful integration testing.
-- Prevents expensive rework.
-- Demonstrates a thin end-to-end path.
-
-Do not automatically implement every database change, then every backend
-change, then every UI change.
-
-Use vertical slices when they provide earlier evidence, but do not force
-them where the architecture or migration requires a different sequence.
+Don't order by layer (all database, then backend, then UI) by default; use
+vertical slices where they give earlier evidence and the architecture or
+migration allows.
 
 Identify the critical path and genuine parallel opportunities.
 
-Parallel tasks must have:
-
-- Stable shared contracts.
-- Clear ownership.
-- Limited overlapping edits.
-- A defined integration point.
-- Integration validation.
+Parallel tasks need stable shared contracts, clear ownership, few
+overlapping edits, and a defined integration point with its validation.
 
 Do not assume tasks are independent merely because they modify different files.
 
@@ -434,16 +424,10 @@ Maintain a compact mapping:
 
 | Requirement | Work package | Verification | Open dependency |
 
-Every required behavior should map to implementation and verification.
-Every substantial work package should have a requirement or necessary
-engineering justification.
-
-Investigate:
-
-- Requirements with no implementation work.
-- Implementation work with no justified purpose.
-- Acceptance criteria with no verification.
-- Dependencies with no owner or resolution path.
+Every required behavior and acceptance criterion should map to
+implementation and verification, every substantial package to a requirement
+or a necessary engineering reason, and every dependency to an owner or a way
+to resolve it.
 
 Do not pad the mapping with trivial edits.
 
@@ -452,11 +436,8 @@ Do not invent precise completion times or treat estimates as commitments.
 
 ## 15. Produce an executable handoff
 
-Scale the output to the task. Give the plan in the conversation. For a
-substantial change, also save it as `PLAN.md` in the folder from Where to
-save, so it can be handed to another agent. Then give the user its absolute path; to have it
-reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to
-review the plan at <absolute path>`.
+Scale the output to the task. Give the plan in the conversation, and save
+it as Where to save describes.
 
 For substantial changes, use:
 
@@ -495,16 +476,12 @@ Do not create empty sections or unnecessary planning ceremony.
 
 ## Completion rule
 
-The plan is ready when:
-
-- Requirements are sufficiently clear for the ready work.
-- The approach fits the actual repository.
-- Consequential uncertainties are resolved or explicitly isolated.
-- Work packages have concrete outputs and verification.
-- Dependencies and required atomic changes are explicit.
-- Security and compatibility obligations are integrated.
-- Rollout and recovery are addressed where needed.
-- Another coding agent can identify its first action and know when it is done.
+The plan is ready when the requirements are clear enough for the ready work,
+the approach fits the actual repository, consequential uncertainties are
+resolved or isolated, packages have concrete outputs, verification and
+explicit dependencies, security, compatibility, rollout and recovery are
+covered where needed, and another coding agent can identify its first action
+and know when it is done.
 
 Planning readiness is not implementation completion, security approval,
 or permission to release.

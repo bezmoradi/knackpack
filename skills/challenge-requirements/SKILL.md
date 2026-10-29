@@ -293,6 +293,12 @@ unresolved. Silence is not approval.
 ## 9. Produce testable acceptance criteria
 
 Assign stable identifiers to consequential requirements, such as REQ-01.
+If knackpack's intent tracking keeps a record for this session, share its
+numbering, so an ID never means two things in the plan, the handoff or a
+review: a confirmed requirement keeps the REQ ID it has in the record, or
+takes the one it gets when you record it, and a requirement you propose
+that isn't agreed yet takes its PROP ID from the record's Not agreed
+section. Name the record's path in the brief.
 
 For each requirement, state:
 
@@ -379,9 +385,9 @@ Do not keep contradictory requirements active.
 
 ## 12. Provide an implementation handoff
 
-Scale the output to the task. Give the brief in the conversation. For a
-substantial change, also save it as `REQUIREMENTS.md` in the folder from Where
-to save, so it can be handed to other agents.
+Scale the output to the task. Give the brief in the conversation, and always
+save it as `REQUIREMENTS.md` in the folder from Where to save, or as `REQUIREMENTS-<short-name>.md` if one for another task is
+already there, so it can be handed to other agents.
 
 Then give the user the brief's absolute path and the line that starts
 planning from it, in this session or a new one:

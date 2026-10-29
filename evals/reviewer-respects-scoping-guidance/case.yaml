@@ -1,0 +1,15 @@
+schema_version: "1.1"
+name: reviewer-respects-scoping-guidance
+context:
+  scaffold_script: fixture.sh
+# An eval run never loads a CLAUDE.md, even one the fixture writes, so the
+# main session gets the file's text here, as a real session would load it.
+execution:
+  append_system_prompt: |
+    Contents of CLAUDE.md (project instructions, checked into the codebase):
+
+    # Text tools
+
+    - Run the tests with `python -m unittest`.
+    - Reviewers: skip the files under `gen/`; `make gen` writes them from
+      `schema.json`. Formatting is enforced by black, so don't comment on it.

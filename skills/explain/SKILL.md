@@ -1,12 +1,12 @@
 ---
 name: explain
-description: Explain what was just implemented in this conversation in plain English for a junior dev, so the user can understand the full picture and make a decision. Default output is exactly two paragraphs; the argument "more" gives a longer, detailed version.
+description: Explain what was just implemented in this conversation in plain English for a junior dev, so the user can understand the full picture and make a decision. Default output is exactly two paragraphs; the argument "more" gives a longer, detailed version. Not for questions about how existing code works when nothing was changed in this conversation; answer those directly.
 argument-hint: "[more | topic]"
 ---
 
 # Explain What You Just Did
 
-Summarize the work you just completed in this conversation (the most recent implementation, fix, or change) in plain English, written for a junior developer who has not been following along. If nothing was built or changed in this conversation, or nothing on the topic you were given, say so in one sentence instead of explaining something else.
+Summarize the work you just completed in this conversation (the most recent implementation, fix, or change) in plain English, written for a junior developer who has not been following along. If you were given a topic that wasn't changed in this conversation, such as existing code the user wants to understand, explain it in the same format and say it wasn't changed here. If nothing was built or changed and no topic was given, say so in one sentence instead of explaining something else.
 
 ## Output contract (default: no arguments)
 

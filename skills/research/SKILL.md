@@ -113,7 +113,7 @@ Put each citation next to the claim it supports, using real URLs, file paths and
 
 ## Save and hand off
 
-Give the brief in the conversation. For a consequential decision, also save it as `RESEARCH.md`, with each experiment in its own folder beside it. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks.
+Give the brief in the conversation, and always save it as `RESEARCH.md`, or as `RESEARCH-<short-name>.md` if one for another question is already there, with each experiment in its own folder beside it. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks.
 
 Then give the user the brief's absolute path, and tell them the folder belongs to this session and the operating system may clean it up, so they should copy anything they want to keep.
 

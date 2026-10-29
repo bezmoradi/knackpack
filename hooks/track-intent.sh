@@ -87,8 +87,11 @@ if [ -z "$dir" ] || [ ! -d "$dir" ]; then dir=$(pwd -P); fi
 
 # Name the repository's folder after the repository plus a short hash of the
 # path of its git folder, so worktrees of one repository share a folder and
-# two repositories with the same name don't.
-if top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ]; then
+# two repositories with the same name don't. A repository at the home folder,
+# such as one for dotfiles, doesn't count: every folder under it would share
+# its records, and its .claude/rules/ loads in every project.
+home=$(cd "${HOME:-/nonexistent}" 2>/dev/null && pwd -P)
+if top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] && [ "$top" != "$home" ]; then
 	common=$(cd "$dir" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)
 	[ -n "$common" ] || common=$top
 	case $common in
@@ -109,6 +112,7 @@ else
 	project=$id
 fi
 team_glossary=$project/.claude/rules/glossary.md
+[ "$project" != "$home" ] || team_glossary=
 name=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-' | cut -c 1-40)
 [ -n "$name" ] || name=repo
 hash=$(printf '%s' "$id" | cksum | cut -d ' ' -f 1)
@@ -146,7 +150,9 @@ else
 fi
 
 # The turn file holds one line per file edit in the current turn: "record"
-# for this session's record, "work" for anything outside the state folder.
+# for this session's record, "work" for anything outside the state folder and
+# the folders where skills save files: Claude Code's scratchpad,
+# <session>/scratchpad, and knackpack's fallback, claude-<session>.
 turns=$root/.turns
 turn=$turns/$sid
 
@@ -288,14 +294,18 @@ print_paths() {
 	printf '\n## This session\n\n'
 	printf '%s\n' "- Current record: \`$record\` ($state)"
 	printf '%s\n' "- This repository's records: \`$repo_dir/\`"
-	printf '%s\n' "- This repository's team glossary: \`$team_glossary\` ($tstate)"
+	if [ -n "$team_glossary" ]; then
+		printf '%s\n' "- This repository's team glossary: \`$team_glossary\` ($tstate)"
+	else
+		printf '%s\n' "- This repository's team glossary: none, since a home folder's \`.claude/rules/\` loads in every project"
+	fi
 	printf '%s\n' "- Your personal glossary for this repository: \`$glossary\` ($gstate)"
 }
 
 # Prints a file between markers, cut at a byte limit so the hook's output
 # stays under Claude Code's 10,000-character cap.
 print_file() {
-	[ -f "$2" ] && [ ! -L "$2" ] || return 0
+	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
 	size=$(wc -c <"$2" | tr -d ' ')
 	printf '\n## %s\n\n`%s`\n\n----- begin -----\n' "$1" "$2"
 	if [ "$size" -gt "$3" ]; then
@@ -316,17 +326,26 @@ rules)
 		printf '%s\n' "knackpack intent tracking is stopped for this session, so its rules aren't loaded. If the developer asks to track it again, read \`$skill\` in full, after its frontmatter, set the record's Status back to active, and run \`sh \"$here/track-intent.sh\" manual $sid \"$dir\"\` for this session's paths."
 		exit 0
 	fi
-	out=$(
-		awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$skill" |
-			sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$(esc "$plugin_root")|g" \
-				-e "s|\${CLAUDE_SESSION_ID}|$sid|g" \
-				-e "s|\${CLAUDE_PROJECT_DIR}|$(esc "$dir")|g"
-		print_paths
-	)
+	# sed can't put a line break into a replacement, so a path with one gets
+	# the pointer below.
+	nl='
+'
+	case $plugin_root$dir in
+	*"$nl"*) out= ;;
+	*)
+		out=$(
+			awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$skill" 2>/dev/null |
+				sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$(esc "$plugin_root")|g" \
+					-e "s|\${CLAUDE_SESSION_ID}|$sid|g" \
+					-e "s|\${CLAUDE_PROJECT_DIR}|$(esc "$dir")|g" 2>/dev/null
+			print_paths
+		)
+		;;
+	esac
 	# Past 10,000 characters Claude Code shows Claude only a short preview,
 	# so print a pointer to the skill instead of rules that would be cut.
 	# Counting bytes never undercounts characters.
-	if [ "$(printf '%s\n' "$out" | wc -c | tr -d ' ')" -le 9900 ]; then
+	if [ -n "$out" ] && [ "$(printf '%s\n' "$out" | wc -c | tr -d ' ')" -le 9900 ]; then
 		printf '%s\n' "$out"
 	else
 		printf '%s\n' "# Track intent" "" "knackpack's intent-tracking rules are too long to print here with this session's paths. Read \`$skill\` in full now, after its frontmatter, and follow it for the whole session. In it, \${CLAUDE_PLUGIN_ROOT} stands for \`$plugin_root\`, \${CLAUDE_SESSION_ID} for \`$sid\` and \${CLAUDE_PROJECT_DIR} for \`$dir\`."
@@ -387,7 +406,7 @@ tool)
 	if [ -n "$path" ]; then event="\"$path\""; else event=$input; fi
 	case $event in
 	*"\"$repo_dir/$sid"*) echo record 2>/dev/null >>"$turn" ;;
-	*"\"$root/"* | *'/.claude/rules/glossary.md"'*) ;;
+	*"\"$root/"* | *"/claude-$sid/"* | *"/$sid/scratchpad/"* | *'/.claude/rules/glossary.md"'*) ;;
 	*) echo work 2>/dev/null >>"$turn" ;;
 	esac
 	;;

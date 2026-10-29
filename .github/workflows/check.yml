@@ -17,6 +17,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # A run takes under a minute; a hung step shouldn't hold a runner for six hours.
+    timeout-minutes: 15
     steps:
       # The full history gives the version check an origin/main to compare with.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

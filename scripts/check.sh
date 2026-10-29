@@ -1,12 +1,9 @@
 #!/bin/sh
 # Runs knackpack's pre-publish checks: the rules in .claude/CLAUDE.md that a
 # script can check. Prints one line per check and exits 1 if any fails.
-# Needs git, dash and the claude CLI; bash is used too when installed.
+# Needs git, dash, jq and the claude CLI; bash is used too when installed.
 #
 #   sh scripts/check.sh
-#
-# It doesn't check for misspelled frontmatter keys; see "Before you publish"
-# in .claude/CLAUDE.md for that.
 
 cd "$(dirname -- "$0")/.." || exit 1
 failed=0
@@ -79,6 +76,59 @@ done
 [ "$n" = 6 ] || { fail "expected 6 agents, found $n"; agents_ok=0; }
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd and the review protocol's source"
 
+# Keys: Claude Code ignores a frontmatter or hook key it doesn't know without
+# a word, so one that isn't documented fails here. Plugin agents can't use
+# hooks, mcpServers, permissionMode or initialPrompt, so those fail too.
+skill_keys='name description when_to_use argument-hint arguments disable-model-invocation user-invocable allowed-tools disallowed-tools model effort context agent background hooks paths shell metadata license compatibility'
+agent_keys='name description tools disallowedTools model maxTurns autoCompactWindow skills memory background omitClaudeMd effort isolation color experimental'
+unknown_keys() { # <file> <keys>
+	frontmatter "$1" | sed -n 's/^\([^[:space:]#][^:]*\):.*/\1/p' | while read -r k; do
+		case " $2 " in *" $k "*) ;; *) printf '%s ' "$k" ;; esac
+	done
+}
+keys_ok=1
+for f in skills/*/SKILL.md; do
+	bad=$(unknown_keys "$f" "$skill_keys")
+	[ -z "$bad" ] || { fail "$f has frontmatter keys Claude Code doesn't know: $bad"; keys_ok=0; }
+done
+for f in agents/*.md; do
+	bad=$(unknown_keys "$f" "$agent_keys")
+	[ -z "$bad" ] || { fail "$f has frontmatter keys a plugin agent can't use: $bad"; keys_ok=0; }
+done
+if ! command -v jq >/dev/null 2>&1; then
+	fail "jq isn't installed, so hooks/hooks.json wasn't checked"
+	keys_ok=0
+else
+	bad=$(jq -r '
+		(keys - ["description", "hooks"])[],
+		(.hooks | keys - ["SessionStart", "Setup", "UserPromptSubmit", "UserPromptExpansion", "PreToolUse", "PermissionRequest", "PermissionDenied", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "Notification", "MessageDisplay", "SubagentStart", "SubagentStop", "TaskCreated", "TaskCompleted", "Stop", "StopFailure", "TeammateIdle", "InstructionsLoaded", "ConfigChange", "CwdChanged", "DirectoryAdded", "FileChanged", "WorktreeCreate", "WorktreeRemove", "PreCompact", "PostCompact", "PreModelSwitch", "PostModelSwitch", "Elicitation", "ElicitationResult", "SessionEnd"])[],
+		(.hooks[][] | keys - ["matcher", "hooks"])[],
+		(.hooks[][].hooks[] | keys - ["type", "command", "args", "timeout", "if", "statusMessage", "once", "async", "asyncRewake", "shell", "onFailure"])[]
+	' hooks/hooks.json 2>&1 | tr '\n' ' ')
+	[ -z "$bad" ] || { fail "hooks/hooks.json has keys Claude Code doesn't know: $bad"; keys_ok=0; }
+fi
+[ "$keys_ok" = 1 ] && pass "frontmatter and hooks.json keys"
+
+# The README's counts of skills, agents and hooks.
+words='one two three four five six seven eight nine ten eleven twelve'
+word() { set -- "$1" $words; i=$1; shift; [ "$i" -ge 1 ] && [ "$i" -le 12 ] && eval "printf '%s' \"\${$i}\"" || printf '%s' "$i"; }
+skills_n=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+hooks_n=$(jq '.hooks | length' hooks/hooks.json 2>/dev/null)
+counts_ok=1
+grep -oiE "(^|[^a-z])($(printf '%s' "$words" | tr ' ' '|')) (skills|review agents|agents|hooks)" README.md | sed 's/^[^a-zA-Z]*//' >"$tmp/counts"
+while read -r w noun rest; do
+	case $noun in skills) want=$(word "$skills_n") ;; review | agents) want=$(word "$n") ;; hooks) want=$(word "$hooks_n") ;; esac
+	[ "$(printf '%s' "$w" | tr '[:upper:]' '[:lower:]')" = "$want" ] || { fail "README says \"$w $noun${rest:+ $rest}\", but there are $want"; counts_ok=0; }
+done <"$tmp/counts"
+[ -s "$tmp/counts" ] || { fail "README names no counts of skills, agents or hooks"; counts_ok=0; }
+[ "$counts_ok" = 1 ] && pass "README counts: $skills_n skills, $n agents, $hooks_n hooks"
+
+# No email addresses but reserved example ones, in tracked files and in new
+# files not added yet.
+emails=$(git ls-files -z --cached --others --exclude-standard | xargs -0 grep -hoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' 2>/dev/null |
+	grep -vE '@example\.(com|org|net)$|^git@github\.com$' | sort -u | tr '\n' ' ')
+if [ -n "$emails" ]; then fail "email addresses in files git tracks or would add: $emails"; else pass "no email addresses"; fi
+
 # Skill sizes: compaction keeps about the first 5,000 tokens of each skill.
 for f in skills/*/SKILL.md; do
 	c=$(chars <"$f")
@@ -93,11 +143,21 @@ hook=hooks/track-intent.sh
 command -v dash >/dev/null 2>&1 || fail "dash isn't installed, so the hook can't be tested under it"
 shells=
 for s in dash sh bash; do command -v "$s" >/dev/null 2>&1 && shells="$shells $s"; done
-long=$tmp/a-folder-name-long-enough-to-stand-for-a-deep-home-directory-and-project-path-on-a-real-machine
-mkdir -p "$long/project" "$long/state"
+# A long path for the state folder and project, 172 characters whatever
+# TMPDIR's length, so the size checks measure the same everywhere.
+long=$tmp/$(awk -v n=$((171 - ${#tmp})) 'BEGIN { if (n < 20) n = 20; while (n-- > 0) printf "a" }')
+mkdir -p "$long/project" "$long/state" "$tmp/home"
+# The project is a git repository with a worktree, as most users' are, and
+# HOME is a fresh folder, so the user's git config doesn't apply. Both come
+# back before the version check, which needs the user's git ignores.
+real_home=$HOME
+nosystem=${GIT_CONFIG_NOSYSTEM-}
+export HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1
+git -C "$long/project" init -q && git -C "$long/project" -c user.name=check -c user.email=check@example.com commit -q --allow-empty -m init &&
+	git -C "$long/project" worktree add -q "$long/worktree" 2>/dev/null || fail "couldn't make a git repository and worktree to test the hook in"
 sid=00000000-0000-0000-0000-000000000000
 run() { # <shell> <mode> <event> [state]
-	printf '%s' "$3" | env -u KNACKPACK_INTENT CLAUDE_CODE_SESSION_ATTENDED=1 \
+	printf '%s' "$3" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
 		XDG_STATE_HOME="${4:-$long/state}" CLAUDE_PROJECT_DIR="$long/project" \
 		"$1" "$hook" "$2" >"$tmp/out" 2>"$tmp/err"
 	code=$?
@@ -118,15 +178,53 @@ for s in $shells; do
 		else
 			run "$s" "$m" "$event" || hook_ok=0
 		fi
+		if [ "$m" = stop ] && ! jq -e '.hookSpecificOutput.additionalContext | type == "string"' "$tmp/out" >/dev/null 2>&1; then
+			fail "hook stop under $s printed something other than its JSON: $(head -c 200 "$tmp/out")"
+			hook_ok=0
+		fi
 		if [ "$m" = rules ]; then
 			size=$(wc -c <"$tmp/out" | tr -d ' ')
-			if [ "$size" -gt 9900 ] || grep -q 'too long to print here' "$tmp/out"; then
+			if grep -q 'too long to print here' "$tmp/out"; then
+				fail "hook rules output passed 9,900 bytes with long paths, so the hook printed its pointer instead; shorten the track-intent body"
+				hook_ok=0
+			elif [ "$size" -gt 9900 ]; then
 				fail "hook rules output is $size bytes with long paths; keep it under 9,900"
 				hook_ok=0
 			fi
 		fi
 	done
 	run "$s" prompt '' || hook_ok=0
+	# Files skills save in Claude Code's scratchpad or knackpack's fallback
+	# folder don't count as work.
+	for f in "/tmp/claude-501/-proj/$sid/scratchpad/PLAN.md" "/tmp/claude-$sid/PLAN.md"; do
+		run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$f\"}}" && run "$s" prompt "$event" || hook_ok=0
+		if grep -q 'edited files but not the record' "$tmp/out"; then
+			fail "hook under $s counts a file saved to $f as work"
+			hook_ok=0
+		fi
+	done
+	# A worktree shares its repository's records.
+	for d in project worktree; do
+		env XDG_STATE_HOME="$long/state" "$s" "$hook" manual "$sid" "$long/$d" 2>/dev/null | grep "records:" >"$tmp/$d.records"
+	done
+	if [ ! -s "$tmp/project.records" ] || ! cmp -s "$tmp/project.records" "$tmp/worktree.records"; then
+		fail "hook under $s gives a worktree other records than its repository: $(cat "$tmp/project.records" "$tmp/worktree.records")"
+		hook_ok=0
+	fi
+	# Off, or in a session nobody attends, it prints nothing and writes nothing.
+	for v in CLAUDE_CODE_SESSION_ATTENDED=0 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_INTENT=off' CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
+		rm -rf "$tmp/quiet"
+		for m in rules state prompt tool stop; do
+			# shellcheck disable=SC2086 # $v holds one or two assignments
+			printf '%s' "$event" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT $v \
+				XDG_STATE_HOME="$tmp/quiet" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" "$m" >>"$tmp/quiet.out" 2>&1
+		done
+		if [ -s "$tmp/quiet.out" ] || [ -e "$tmp/quiet" ]; then
+			fail "hook under $s with $v printed or wrote something: $(head -c 200 "$tmp/quiet.out" | tr '\n' ' ')"
+			hook_ok=0
+		fi
+		rm -f "$tmp/quiet.out"
+	done
 	# Open proposals: a status follows "by <who>. ", and a reason may follow it.
 	for d in "$long/state/knackpack/intent"/*/; do
 		printf '%s\n' '# Intent record: test' '' '## Not agreed' \
@@ -182,6 +280,8 @@ for s in $shells; do
 	grep -q 'tracking is stopped for this session' "$tmp/out" || { fail "hook rules under $s ignores a stopped record"; hook_ok=0; }
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with long paths: rules $size bytes, state $state_size)"
+export HOME="$real_home"
+if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
 
 # A changed plugin needs a new version, or installed copies never update.
 cur=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json)

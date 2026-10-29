@@ -10,6 +10,8 @@ mkdir -p app tests
 cat > app/webhooks.py <<'PY'
 """Receives signed webhook deliveries."""
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 
