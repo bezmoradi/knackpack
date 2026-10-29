@@ -73,7 +73,7 @@ for f in agents/*.md; do
 		agents_ok=0
 	}
 done
-[ "$n" = 6 ] || { fail "expected 6 agents, found $n"; agents_ok=0; }
+[ "$n" = 7 ] || { fail "expected 7 agents, found $n"; agents_ok=0; }
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd and the review protocol's source"
 
 # Keys: Claude Code ignores a frontmatter or hook key it doesn't know without
@@ -128,6 +128,95 @@ done <"$tmp/counts"
 emails=$(git ls-files -z --cached --others --exclude-standard | xargs -0 grep -hoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' 2>/dev/null |
 	grep -vE '@example\.(com|org|net)$|^git@github\.com$' | sort -u | tr '\n' ' ')
 if [ -n "$emails" ]; then fail "email addresses in files git tracks or would add: $emails"; else pass "no email addresses"; fi
+
+# Every eval case loads and is complete: a prompt, frontmatter and grader keys
+# from the documented lists (the runner rejects an unknown key, but only once
+# the run starts), a fixture that exists and parses, grader regexes that
+# compile as JavaScript, and at least one grader, so a half-written case fails
+# here and not half an hour into a run.
+case_keys='schema_version name description tags plugins runs expected_outcome model max_turns timeout_seconds allowed_tools append_system_prompt env'
+yaml_keys='schema_version name description tags plugins runs expected_outcome context scaffold_script history_file add_dirs execution prompt model max_turns timeout_seconds allowed_tools append_system_prompt env graders'
+grader_keys='type weight arm pattern flags match target tool input_match min max before after path exists criteria focus baseline_file'
+grader_types='regex tool_used tool_order file_exists llm baseline'
+# A YAML scalar without its quotes or, when unquoted, its trailing comment.
+# (BSD sed reads a label to the end of the line, so `b` gets its own -e.)
+unquote() {
+	sed -e '/^"/{' -e 's/^\("[^"]*"\).*/\1/' -e 's/^"//' -e 's/"$//' -e b -e '}' \
+		-e "/^'/{" -e "s/^\\('.*'\\)[^']*\$/\\1/" -e "s/^'//" -e "s/'\$//" -e "s/''/'/g" -e b -e '}' \
+		-e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//'
+}
+value() { sed -n "s/^[[:space:]]*$1:[[:space:]]*//p" | unquote; } # <key>, at any depth, from YAML on stdin
+unknown_yaml_keys() { # <file> <keys>: keys at any depth that aren't in the list, skipping block scalars
+	awk '
+		function indent(s) { match(s, /^ */); return RLENGTH }
+		inblock && (NF == 0 || indent($0) > bi) { next }
+		{ inblock = 0 }
+		/^ *(- +)?[A-Za-z_][A-Za-z0-9_]*:/ {
+			k = $0; sub(/^ *(- +)?/, "", k); sub(/:.*/, "", k); print k
+			if ($0 ~ /: *[|>][-+0-9]* *(#.*)?$/) { inblock = 1; bi = indent($0) }
+		}' "$1" | while read -r k; do
+		case " $2 " in *" $k "*) ;; *) printf '%s ' "$k" ;; esac
+	done
+}
+have_bash=; command -v bash >/dev/null 2>&1 && have_bash=1
+have_node=; command -v node >/dev/null 2>&1 && have_node=1
+evals_ok=1
+for d in evals/*/; do
+	c=${d%/}
+	[ "$c" = evals/results ] && continue
+	[ -f "$c/prompt.md" ] || [ -f "$c/case.yaml" ] || { fail "$c has neither prompt.md nor case.yaml"; evals_ok=0; continue; }
+	if [ -f "$c/prompt.md" ]; then
+		bad=$(unknown_keys "$c/prompt.md" "$case_keys")
+		[ -z "$bad" ] || { fail "$c/prompt.md has frontmatter keys claude plugin eval doesn't know: $bad"; evals_ok=0; }
+		[ -n "$(body "$c/prompt.md" | tr -d '[:space:]')" ] || grep -q '^[[:space:]]*prompt:' "$c/case.yaml" 2>/dev/null || { fail "$c has no prompt"; evals_ok=0; }
+	else
+		grep -q '^[[:space:]]*prompt:' "$c/case.yaml" || { fail "$c has no prompt"; evals_ok=0; }
+	fi
+	if [ -f "$c/case.yaml" ]; then
+		bad=$(unknown_yaml_keys "$c/case.yaml" "$yaml_keys $grader_keys")
+		[ -z "$bad" ] || { fail "$c/case.yaml has keys claude plugin eval doesn't know: $bad"; evals_ok=0; }
+		fixture=$(value scaffold_script <"$c/case.yaml")
+		if [ -n "$fixture" ]; then
+			if [ ! -f "$c/$fixture" ]; then fail "$c/case.yaml names a fixture that doesn't exist: $fixture"; evals_ok=0
+			elif [ -n "$have_bash" ] && ! bash -n "$c/$fixture" 2>"$tmp/err"; then fail "$c/$fixture doesn't parse: $(head -c 200 "$tmp/err")"; evals_ok=0
+			fi
+		fi
+	fi
+	if [ -z "$(ls "$c"/graders/*.md 2>/dev/null)" ] && ! grep -q '^graders:' "$c/case.yaml" 2>/dev/null; then fail "$c has no graders"; evals_ok=0; fi
+	for g in "$c"/graders/*.md; do
+		[ -f "$g" ] || continue
+		t=$(frontmatter "$g" | value type)
+		case " $grader_types " in *" $t "*) ;; *) fail "$g has type '$t', not one of: $grader_types"; evals_ok=0 ;; esac
+		# Each type's own key, without which the grader can't grade.
+		case $t in
+		regex) need=pattern ;; tool_used) need=tool ;; tool_order) need="before after" ;; file_exists) need=path ;; baseline) need=baseline_file ;; *) need= ;;
+		esac
+		for k in $need; do
+			[ -n "$(frontmatter "$g" | value "$k")" ] || { fail "$g is a $t grader without $k"; evals_ok=0; }
+		done
+		if [ "$t" = llm ] && [ -z "$(frontmatter "$g" | value criteria)" ] && [ -z "$(body "$g" | tr -d '[:space:]')" ]; then
+			fail "$g is an llm grader with no criteria and an empty body"; evals_ok=0
+		fi
+		bad=$(unknown_keys "$g" "$grader_keys")
+		[ -z "$bad" ] || { fail "$g has keys claude plugin eval doesn't know: $bad"; evals_ok=0; }
+		a=$(frontmatter "$g" | value arm)
+		case $a in ''|with-only|both) ;; *) fail "$g has arm '$a', not with-only or both"; evals_ok=0 ;; esac
+		for k in target focus; do
+			v=$(frontmatter "$g" | value "$k")
+			case $v in ''|last_message|trace|files|mock_calls|'{'*source:*file*,*path:*'}') ;; *) fail "$g has $k '$v', which isn't a documented value"; evals_ok=0 ;; esac
+		done
+		if [ -n "$have_node" ]; then
+			for k in pattern input_match; do
+				v=$(frontmatter "$g" | value "$k")
+				[ -z "$v" ] || P="$v" node -e 'new RegExp(process.env.P)' 2>/dev/null || { fail "$g's $k isn't a valid JavaScript regex: $v"; evals_ok=0; }
+			done
+		fi
+	done
+done
+note=
+[ -n "$have_bash" ] || note="$note, fixtures not parsed: no bash"
+[ -n "$have_node" ] || note="$note, regexes not compiled: no node"
+[ "$evals_ok" = 1 ] && pass "eval cases: $(ls -d evals/*/ | grep -vc '^evals/results/$') complete$note"
 
 # Skill sizes: compaction keeps about the first 5,000 tokens of each skill.
 for f in skills/*/SKILL.md; do
@@ -203,6 +292,38 @@ for s in $shells; do
 			hook_ok=0
 		fi
 	done
+	# Updating the record counts as a record edit, also when the state path
+	# isn't in the normalized form Claude Code hands hooks, and a look-alike
+	# path beside the record doesn't.
+	rec=$(env XDG_STATE_HOME="$long/state" "$s" "$hook" manual "$sid" "$long/project" 2>/dev/null | sed -n 's/^- Current record: `\(.*\)` .*/\1/p')
+	[ -n "$rec" ] || { fail "hook manual under $s doesn't print the record's path"; hook_ok=0; }
+	for st in "$long/state" "$long/state/" "$long//state" "$long/./state" "/$long/state"; do
+		run "$s" prompt "$event" "$st" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" "$st" && run "$s" stop "$event" "$st" || hook_ok=0
+		if [ -s "$tmp/out" ]; then
+			fail "hook under $s with XDG_STATE_HOME=$st doesn't count an update of the record as one: $(head -c 200 "$tmp/out")"
+			hook_ok=0
+		fi
+		run "$s" prompt "$event" "$st" || hook_ok=0
+		if grep -q 'edited files but not the record' "$tmp/out"; then
+			fail "hook under $s with XDG_STATE_HOME=$st reports a record update as a missed one"
+			hook_ok=0
+		fi
+	done
+	run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec-notes.txt\"}}" && run "$s" stop "$event" || hook_ok=0
+	if ! grep -q "record wasn't updated" "$tmp/out"; then
+		fail "hook under $s counts an edit of a file named after the record as a record update"
+		hook_ok=0
+	fi
+	# With `..` after a symbolic link, the folder the hook checks and the folder
+	# its normalized path names differ; it must check the second one too and
+	# never write through a link.
+	rm -rf "$tmp/sym"
+	mkdir -p "$tmp/sym/real/x" "$tmp/sym/elsewhere" "$tmp/sym/st/knackpack" && ln -s "$tmp/sym/real/x" "$tmp/sym/link" && ln -s "$tmp/sym/elsewhere" "$tmp/sym/st/knackpack/intent" || fail "couldn't set up the symbolic links to test the hook with"
+	run "$s" prompt "$event" "$tmp/sym/link/../st" || hook_ok=0
+	if [ -n "$(find "$tmp/sym/elsewhere" -mindepth 1 2>/dev/null)" ]; then
+		fail "hook under $s wrote through a symbolic link when the state path has .. after a link"
+		hook_ok=0
+	fi
 	# A worktree shares its repository's records.
 	for d in project worktree; do
 		env XDG_STATE_HOME="$long/state" "$s" "$hook" manual "$sid" "$long/$d" 2>/dev/null | grep "records:" >"$tmp/$d.records"
@@ -283,13 +404,21 @@ done
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
 
-# A changed plugin needs a new version, or installed copies never update.
+# A changed plugin needs a new version, or installed copies never update, and
+# a version below origin/main's means a merge or rebase went wrong.
+higher() { # <a> <b>: a is a higher x.y.z than b
+	printf '%s\n%s\n' "$1" "$2" | awk -F. '
+		NR == 1 { for (i = 1; i <= 3; i++) a[i] = $i + 0; next }
+		{ for (i = 1; i <= 3; i++) { if (a[i] > $i + 0) exit 0; if (a[i] < $i + 0) exit 1 }; exit 1 }'
+}
 cur=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json)
 pub=$(git show origin/main:.claude-plugin/plugin.json 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 if [ -z "$pub" ]; then
 	fail "can't read the version on origin/main"
 elif [ "$cur" = "$pub" ] && { ! git diff --quiet origin/main -- . || [ -n "$(git ls-files --others --exclude-standard)" ]; }; then
 	fail "the plugin changed since origin/main but its version is still $cur"
+elif [ "$cur" != "$pub" ] && ! higher "$cur" "$pub"; then
+	fail "version $cur is lower than origin/main's $pub"
 else
 	pass "version $cur (origin/main has $pub)"
 fi

@@ -37,7 +37,7 @@ Keep these apart even when people use them loosely: signing in (authentication) 
 
 ## Keep the record
 
-Write the record only when the agreement changes: something is agreed, assumed, answered, replaced, withdrawn or built, or a question is left open on purpose. Update it in the same turn, before you start any work the message approves. Read the file before each update and change only what the message changed, with your file-editing tools, never shell commands, which knackpack's hooks can't see. When the agreement itself changed, say so in one short line that starts with "Noted:"; never write "Noted:" without updating the record. Don't show file paths unless the developer asks. Act on whatever knackpack's hooks flag.
+Write the record only when the agreement changes: something is agreed, assumed, answered, replaced, withdrawn or built, or a question is left open on purpose. Update it in the same turn, before you start any work the message approves. Read the file before each update and change only what the message changed, with your file-editing tools, not shell commands, which the hooks can't see. When the agreement itself changed, say so in your final message, in one short line that starts with "Noted:"; never write "Noted:" without updating the record. Don't show file paths unless the developer asks. Act on whatever knackpack's hooks flag.
 
 Use this layout, leaving out empty sections:
 

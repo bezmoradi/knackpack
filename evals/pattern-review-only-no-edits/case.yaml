@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: pattern-review-only-no-edits
+context:
+  scaffold_script: fixture.sh

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: pattern-go-callbacks-not-channels
+context:
+  scaffold_script: fixture.sh

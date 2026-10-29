@@ -124,6 +124,17 @@ root=$base/knackpack/intent
 if [ ! -d "$root" ]; then mkdir -p "$root" 2>/dev/null || exit 0; fi
 [ -d "$root" ] && [ ! -L "$root" ] && [ -O "$root" ] || exit 0
 chmod 700 "$root" 2>/dev/null || exit 0
+# Claude Code normalizes a tool's file path before a hook sees it, and the
+# paths below are compared as text, so collapse `//`, `.`, `..` and a trailing
+# slash here too, without resolving symbolic links.
+root=$(CDPATH='' cd -- "$root" 2>/dev/null && pwd -L) || exit 0
+# A leading `//` survives `pwd`, since POSIX leaves it to the implementation,
+# but Claude Code collapses it, so cut it down to one slash.
+case $root in //*) root=/${root#"${root%%[!/]*}"} ;; esac
+# The normalized path can name another folder than the one checked above when
+# `..` follows a symbolic link, so check it too before writing anything.
+[ -d "$root" ] && [ ! -L "$root" ] && [ -O "$root" ] || exit 0
+chmod 700 "$root" 2>/dev/null || exit 0
 repo_dir=$root/$name-$hash
 glossary=$repo_dir/glossary.md
 
@@ -391,7 +402,7 @@ prompt)
 		open=$(open_items "$record")
 		assumed=$(assumed_items "$record")
 	fi
-	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, with your file-editing tools, then do the work, and if the agreement itself changed, say so in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
+	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, with your file-editing tools, then do the work, and if the agreement itself changed, say so in your final message, in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
 	[ -n "$assumed" ] && printf '%s\n' "$assumed"
 	[ "$missed" = 1 ] && printf '%s\n' "Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
@@ -400,12 +411,14 @@ tool)
 	turn_ok || exit 0
 	# Judge the edit by the edited file's path, since the content of an edit
 	# can quote the record's path too; only an event without one is searched
-	# whole.
+	# whole. Only the current record counts, not an earlier task's or a file
+	# named after the session: the hook runs after the edit, so a record
+	# created this turn is already the current one.
 	path=$(field file_path)
 	[ -n "$path" ] || path=$(field notebook_path)
 	if [ -n "$path" ]; then event="\"$path\""; else event=$input; fi
 	case $event in
-	*"\"$repo_dir/$sid"*) echo record 2>/dev/null >>"$turn" ;;
+	*"\"$record\""*) echo record 2>/dev/null >>"$turn" ;;
 	*"\"$root/"* | *"/claude-$sid/"* | *"/$sid/scratchpad/"* | *'/.claude/rules/glossary.md"'*) ;;
 	*) echo work 2>/dev/null >>"$turn" ;;
 	esac

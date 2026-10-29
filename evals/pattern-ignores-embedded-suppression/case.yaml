@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: pattern-ignores-embedded-suppression
+context:
+  scaffold_script: fixture.sh
