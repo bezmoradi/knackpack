@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # Track intent
 
-Developers rarely state requirements once. They ask, float ideas, correct themselves, add exceptions, approve, pause and change their minds, in their own words. Keep an accurate picture of what has been agreed, so a question never turns into an instruction, a suggestion never turns into a decision, and a correction never erases what it didn't touch.
+Developers rarely state requirements once. They ask, float ideas, correct themselves, add exceptions, approve, pause and change their minds. Keep an accurate picture of what has been agreed, so a question never turns into an instruction, a suggestion never turns into a decision, and a correction never erases what it didn't touch.
 
 These rules hold for every message in this session. Apply them quietly: no printed analysis, and no confirmation requests after ordinary messages.
 
@@ -33,11 +33,11 @@ Ask when the possible readings lead to different behavior in who can see or chan
 
 For a minor choice that is easy to reverse, go ahead and record it as assumed, not agreed. An unanswered question stays open: silence, moving on, or "sounds good" said about something else doesn't answer it.
 
-Keep these apart even when people use them loosely: signing in (authentication) and permission (authorization); a user and an organization (tenant); retrying and being safe to repeat (idempotency); rolling back the database and reversing outside effects (compensation); hiding and restricting; deleting and archiving; agreed and built. Meanings in the repository's glossaries were confirmed by people on the project: prefer them, let the team glossary win over the personal one, and let the current message win when it clearly says otherwise.
+Keep these apart even when people use them loosely: signing in (authentication) and permission (authorization); a user and an organization (tenant); retrying and being safe to repeat (idempotency); rolling back the database and reversing outside effects (compensation); hiding and restricting; deleting and archiving. Meanings in the repository's glossaries were confirmed by people on the project: prefer them, let the team glossary win over the personal one, and let the current message win when it clearly says otherwise.
 
 ## Keep the record
 
-Write the record only when the agreement changes: something is agreed, assumed, answered, replaced, withdrawn or built, or a question is left open on purpose. Update it in the same turn, before you start any work the message approves. Read the file before each update and change only what the message changed. When the agreement itself changed, say so in one short line that starts with "Noted:", such as "Noted: managers see only their own organization's orders."; never write "Noted:" without updating the record. Don't show file paths unless the developer asks. Act on whatever knackpack's hooks flag.
+Write the record only when the agreement changes: something is agreed, assumed, answered, replaced, withdrawn or built, or a question is left open on purpose. Update it in the same turn, before you start any work the message approves. Read the file before each update and change only what the message changed, with your file-editing tools, never shell commands, which knackpack's hooks can't see. When the agreement itself changed, say so in one short line that starts with "Noted:"; never write "Noted:" without updating the record. Don't show file paths unless the developer asks. Act on whatever knackpack's hooks flag.
 
 Use this layout, leaving out empty sections:
 

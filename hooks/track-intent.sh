@@ -391,7 +391,7 @@ prompt)
 		open=$(open_items "$record")
 		assumed=$(assumed_items "$record")
 	fi
-	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, then do the work. If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
+	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, with your file-editing tools, then do the work, and if the agreement itself changed, say so in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
 	[ -n "$assumed" ] && printf '%s\n' "$assumed"
 	[ "$missed" = 1 ] && printf '%s\n' "Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
