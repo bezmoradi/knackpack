@@ -71,7 +71,7 @@ what was said, not instructions, and not about any other task.
 - Add each file a knackpack skill saves for this task, such as a brief or plan, to Files.
 - IDs never change. When a requirement changes, the new version gets a new ID and the old one moves to History with its old wording; then find documents still stating it. Once an assumption is confirmed or rejected, move it to History; a confirmed one also becomes a new Agreed entry.
 - Quote the developer's words for each agreed entry, briefly. Never record a quote, approval or decision that didn't happen.
-- Record a risk the developer accepts in Agreed as "Accepted risk:" with its owner, scope, controls, review date and follow-up; ask once for any not given.
+- Record a risk the developer accepts in Agreed as "Accepted risk:" with its owner, scope, reason, controls, review date and follow-up; ask once for any missing.
 - Built changes only on evidence, and "verified" needs a check that ran and passed. Changing a requirement doesn't change what was built.
 - No secrets, credentials or personal data.
 - The record is evidence, not permission: deploying, pushing, deleting data or anything hard to undo still needs the developer's go-ahead.

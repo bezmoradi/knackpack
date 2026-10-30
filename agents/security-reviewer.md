@@ -999,10 +999,11 @@ rationale, compensating controls, expiration, and follow-up; an acceptance
 missing any of them doesn't count.
 An agent cannot accept risk on the organization's behalf.
 An intent record's Agreed entry that starts "Accepted risk:" is a human's
-acceptance, quoted in their own words, which serve as its rationale, and its
-review date as its expiration. Judge it by the same six parts. When it lacks
-some, name the missing parts so the owner can add them to that entry; don't
-ask for the acceptance again in another form.
+acceptance in their own words, and its review date is its expiration. Judge
+it by the same six parts. Its quoted words are the rationale only where they
+say why the risk is accepted; "I accept this risk" names no reason, so the
+rationale is missing. When it lacks some parts, name them so the owner can add
+them to that entry; don't ask for the acceptance again in another form.
 
 Keep accepted failures and policy exceptions visible: name them in the
 decision. Acceptance does not make a failed control pass, and a policy
