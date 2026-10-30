@@ -600,6 +600,56 @@ else
 	fail ".github/rulesets/main.json needs \"bypass_actors\": [], so no one can bypass the merge gate"
 fi
 
+# Claude's review of pull requests only reviews, as .claude/CLAUDE.md says:
+# its token can't push or merge, it has no tool that edits files, it may run
+# only its three commands and Claude Code's read-only ones, and nothing sets it
+# up to commit. Comment lines are left out, as the action leaves them out of
+# claude_args.
+wf=.github/workflows/claude-code-review.yml
+review_ok=1
+review_fail() {
+	fail "$wf: $1"
+	review_ok=0
+}
+grep -v '^[[:space:]]*#' "$wf" >"$tmp/wf"
+# The review job, from its key to the next job's.
+awk '/^[^[:space:]]/ { injobs = ($0 ~ /^jobs:/); job = ""; next }
+	injobs && /^  [^[:space:]]/ { job = $0; sub(/^  /, "", job); sub(/:.*/, "", job); next }
+	injobs && job == "review"' "$tmp/wf" >"$tmp/review"
+[ -s "$tmp/review" ] || review_fail "has no review job"
+# Its permissions, one per line under the job's permissions key.
+perms=$(awk '
+	function indent(s) { match(s, /^ */); return RLENGTH }
+	/^    permissions:/ { on = 1; v = $0; sub(/^    permissions:[[:space:]]*/, "", v); sub(/[[:space:]]*#.*/, "", v); if (v != "") print v; next }
+	on && NF && indent($0) <= 4 { on = 0 }
+	on && NF { v = $0; sub(/[[:space:]]+#.*/, "", v); gsub(/[[:space:]]/, "", v); print v }' "$tmp/review" | LC_ALL=C sort | tr '\n' ' ')
+[ "$perms" = 'contents:read pull-requests:write ' ] ||
+	review_fail "the review job's permissions must be exactly contents: read and pull-requests: write, one per line, not: ${perms:-none}"
+grep -Eq '^[[:space:]]+github_token:[[:space:]]*[$][{][{][[:space:]]*github[.]token[[:space:]]*[}][}][[:space:]]*(#.*)?$' "$tmp/review" ||
+	review_fail "the review must pass github_token: \${{ github.token }}, or the action may use the Claude app's token, which can push"
+# The tool rules, each a double-quoted, comma-separated list after its flag.
+tool_list() { # <flag, as a sed pattern>
+	sed -n "s/.*--$1[[:space:]=]*\"\([^\"]*\)\".*/\1/p" "$tmp/review" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d'
+}
+denied=$(tool_list 'disallowed-\{0,1\}[Tt]ools')
+missing=
+for t in Edit Write MultiEdit NotebookEdit; do
+	printf '%s\n' "$denied" | grep -qx "$t" || missing="$missing $t"
+done
+[ -z "$missing" ] || review_fail "--disallowedTools, as one double-quoted list, doesn't name:$missing"
+grep -e '--allowed-\{0,1\}[Tt]ools' "$tmp/review" | grep -qv -e '--allowed-\{0,1\}[Tt]ools[[:space:]=]*"' &&
+	review_fail "write --allowedTools as one double-quoted, comma-separated list, which this check can read"
+pr='${{ github.event.pull_request.number }}'
+extra=$(tool_list 'allowed-\{0,1\}[Tt]ools' | grep -vxF -e "Bash(gh pr diff $pr)" -e "Bash(gh pr diff $pr --name-only)" -e "Bash(gh pr view $pr)" \
+	-e mcp__github_inline_comment__create_inline_comment | tr '\n' ' ')
+[ -z "$extra" ] || review_fail "--allowedTools approves more than the three gh pr commands and the inline-comment tool: $extra"
+# Anywhere in the workflow: the inputs and tools that let Claude commit, push
+# or merge, and the permission modes that would run commands nobody approved.
+bad=$(grep -oE -e 'use_commit_signing|ssh_signing_key|mcp__github_file_ops|mcp__github(__|[^_[:alnum:]]|$)' \
+	-e 'dangerously-skip-permissions|--permission-mode|bypassPermissions' "$tmp/wf" | sed 's/[^_[:alnum:]-]$//' | LC_ALL=C sort -u | tr '\n' ' ')
+[ -z "$bad" ] || review_fail "gives Claude a way to commit, push or merge, or to run commands nobody approved: $bad"
+[ "$review_ok" = 1 ] && pass "Claude's pull request review can't edit files or push: its token, tool rules and permission mode"
+
 # Linters, each run when it's installed, on the files git tracks or would add
 # outside evals/, whose fixtures hold the defects their cases are about, and
 # outside npm's lockfile. CI's Linux job installs the versions pinned in
