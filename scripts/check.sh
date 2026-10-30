@@ -310,6 +310,10 @@ run() { # <shell> <mode> <event> [state]
 	fi
 }
 event="{\"session_id\":\"$sid\",\"source\":\"startup\",\"prompt\":\"hi\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"},\"last_assistant_message\":\"Noted: x\"}"
+# The end of a turn whose final message claims nothing, and a final message.
+done_event="{\"session_id\":\"$sid\",\"stop_hook_active\":false,\"last_assistant_message\":\"Done.\"}"
+said() { printf '{"session_id":"%s","stop_hook_active":false,"last_assistant_message":"%s"}' "$sid" "$1"; }
+version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-plugin/plugin.json)
 hook_ok=1
 for s in $shells; do
 	"$s" -n "$hook" 2>"$tmp/err" || { fail "hook syntax under $s: $(cat "$tmp/err")"; hook_ok=0; }
@@ -334,13 +338,18 @@ for s in $shells; do
 				fail "hook rules output is $size bytes with long paths; keep it under 9,900"
 				hook_ok=0
 			fi
+			# A compaction can re-attach an older copy of the skill, so the
+			# rules say which version they are.
+			head -n 1 "$tmp/out" | grep -qF "from knackpack $version, replace any older copy" ||
+				{ fail "hook rules under $s don't start with the plugin's version: $(head -n 1 "$tmp/out")"; hook_ok=0; }
 		fi
 	done
 	run "$s" prompt '' || hook_ok=0
 	# Files skills save in Claude Code's scratchpad or knackpack's fallback
 	# folder don't count as work.
 	for f in "/tmp/claude-501/-proj/$sid/scratchpad/PLAN.md" "/tmp/claude-$sid/PLAN.md"; do
-		run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$f\"}}" && run "$s" prompt "$event" || hook_ok=0
+		run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$f\"}}" &&
+			run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 		if grep -q 'edited files but not the record' "$tmp/out"; then
 			fail "hook under $s counts a file saved to $f as work"
 			hook_ok=0
@@ -372,9 +381,33 @@ for s in $shells; do
 	# plain claim of an update that didn't happen is caught like "Noted:".
 	run "$s" prompt "$event" && printf '%s\n' '- 2026-10-30: changed by a shell command' >>"$rec" && run "$s" stop "$event" || hook_ok=0
 	[ -s "$tmp/out" ] && { fail "hook under $s doesn't see a record update made with a shell command"; hook_ok=0; }
-	claim=$(printf '%s' "$event" | sed 's/Noted: x/I have recorded this as an open proposal./')
-	run "$s" prompt "$event" && run "$s" stop "$claim" || hook_ok=0
-	grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s misses a claimed record update in plain words"; hook_ok=0; }
+	for claim in 'I have recorded this as an open proposal.' 'I added it to the intent record.' 'Noted it under Open questions.'; do
+		run "$s" prompt "$event" && run "$s" stop "$(said "$claim")" || hook_ok=0
+		grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s misses a claimed record update in plain words: $claim"; hook_ok=0; }
+	done
+	# Records of other kinds aren't the intent record, and only Claude's final
+	# message counts, not another field such as a background task's.
+	for claim in 'The provider added it to the record set.' "I recorded it as an open question in the report's section D." 'I added that to the records table.'; do
+		run "$s" prompt "$event" && run "$s" stop "$(said "$claim")" || hook_ok=0
+		[ -s "$tmp/out" ] && { fail "hook under $s reads \"$claim\" as a claimed update of the intent record"; hook_ok=0; }
+	done
+	run "$s" prompt "$event" && run "$s" stop "{\"session_id\":\"$sid\",\"last_assistant_message\":\"Done.\",\"background_tasks\":[{\"description\":\"Noted: x\"}]}" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s reads a claimed update outside Claude's final message"; hook_ok=0; }
+	# A subagent's edit, which carries the session's ID too, isn't this
+	# conversation's.
+	run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"agent_id\":\"a1\",\"agent_type\":\"Explore\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"}}" &&
+		run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s counts a subagent's edit as this conversation's"; hook_ok=0; }
+	# A message queued while Claude works runs the prompt hook mid-turn. The
+	# turn's record update still counts at Stop, and its edits aren't flagged
+	# until the turn ends.
+	run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" &&
+		run "$s" prompt "$event" && run "$s" stop "$event" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s forgets a record update made before a message queued mid-turn"; hook_ok=0; }
+	run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"}}" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s flags a turn's edits while the turn is still running"; hook_ok=0; }
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" || { fail "hook under $s misses a finished turn that edited files but not the record"; hook_ok=0; }
 	# A background-task notification gets a short note, not the full reminder.
 	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"<task-notification>\\n<status>completed<\/status>"/')" || hook_ok=0
 	{ grep -q 'background-task notification' "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
@@ -387,6 +420,13 @@ for s in $shells; do
 	printf '%s\n' '- edited' >>"$two"
 	run "$s" prompt "$event" || hook_ok=0
 	grep -qF "Record: $two (exists)" "$tmp/out" || { fail "hook under $s doesn't switch to the record edited last"; hook_ok=0; }
+	grep -qF "Other records of this session that aren't done: $rec (" "$tmp/out" || { fail "hook under $s doesn't name the session's other record that isn't done"; hook_ok=0; }
+	# A side task's record that's done gives way to one that isn't, even when
+	# it was edited last.
+	printf '%s\n' '- Status: done · Updated: 2026-10-30' >>"$two"
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qF "Record: $rec (exists)" "$tmp/out" || { fail "hook under $s keeps a finished side task's record current"; hook_ok=0; }
+	grep -q '^Other records' "$tmp/out" && { fail "hook under $s names a finished side task's record among those not done"; hook_ok=0; }
 	rm -f "$two"
 	# With `..` after a symbolic link, the folder the hook checks and the folder
 	# its normalized path names differ; it must check the second one too and
@@ -420,7 +460,9 @@ for s in $shells; do
 		fi
 		rm -f "$tmp/quiet.out"
 	done
-	# Open proposals: a status follows "by <who>. ", and a reason may follow it.
+	# Open proposals: a status follows "by <who>. ", or a full stop, "?" or "!"
+	# with or without a closing quote, and a reason may follow it. A proposal
+	# without one is named, not dropped.
 	for d in "$long/state/knackpack/intent"/*/; do
 		printf '%s\n' '# Intent record: test' '' '## Not agreed' \
 			'- PROP-01: Reopen the rejected ticket, by Claude. open' \
@@ -428,20 +470,33 @@ for s in $shells; do
 			'- PROP-03: Keep the open flag, by Claude. rejected' \
 			'- PROP-04: Add a cache, by Claude. rejected for now: leaves it open' \
 			'- PROP-05: Keep it, by Claude. open (raised again, by the developer)' \
-			'- PROP-06: Add it, by Claude. rejected: too slow. Open questions moved.' >"$d$sid.md"
+			'- PROP-06: Add it, by Claude. rejected: too slow. Open questions moved.' \
+			'- PROP-07: "Would it taste better?" open' \
+			'- PROP-08: "Add it to everything." open (research first)' \
+			'- PROP-09: "Drop the cache." rejected' \
+			'- PROP-10: Add a queue (open)' >"$d$sid.md"
 	done
 	run "$s" prompt "$event" || hook_ok=0
-	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05\.$' "$tmp/out" || { fail "hook prompt under $s lists the wrong open proposals: $(grep -o 'Open proposals:.*' "$tmp/out")"; hook_ok=0; }
+	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
+		{ fail "hook prompt under $s lists the wrong open proposals: $(grep -o 'Open proposals:.*' "$tmp/out")"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
-	# A full glossary and record still fit under the cap with long paths.
+	# A full glossary and record, and the other records that aren't done, still
+	# fit under the cap with long paths.
 	for d in "$long/state/knackpack/intent"/*/; do
 		awk 'BEGIN { for (i = 0; i < 200; i++) print "- term" i ": a meaning long enough to fill the glossary" }' >"${d}glossary.md"
+		# Older than the record below, which stays current, but not old enough
+		# for the session-start cleanup.
+		for i in 2 3 4 5; do
+			printf '%s\n' "# Intent record: a side task whose title is long enough to come close to the limit on titles $i" '- Status: active' >"$d$sid.$i.md"
+			touch -r "$long/project" "$d$sid.$i.md"
+		done
 		awk 'BEGIN { print "# Intent record: test"; for (i = 0; i < 200; i++) print "- REQ-" i ": a requirement long enough to fill the record" }' >"$d$sid.md"
 	done
 	run "$s" state "$event" || hook_ok=0
 	state_size=$(wc -c <"$tmp/out" | tr -d ' ')
 	[ "$state_size" -le 9900 ] || { fail "hook state output is $state_size bytes with long paths; keep it under 9,900"; hook_ok=0; }
-	rm -f "$long/state/knackpack/intent"/*/glossary.md "$long/state/knackpack/intent"/*/"$sid.md"
+	grep -q '^- and 1 more$' "$tmp/out" || { fail "hook state under $s doesn't list the session's other records that aren't done"; hook_ok=0; }
+	rm -f "$long/state/knackpack/intent"/*/glossary.md "$long/state/knackpack/intent"/*/"$sid".*md
 	# A record too long to print keeps its open questions and Built, and drops
 	# rejected proposals and the oldest History first, saying so.
 	for d in "$long/state/knackpack/intent"/*/; do
@@ -457,6 +512,21 @@ for s in $shells; do
 	{ grep -q '^- Q-01: still open$' "$tmp/out" && grep -q '^- 2026-10-30: history entry 149$' "$tmp/out" &&
 		! grep -q 'PROP-01' "$tmp/out" && grep -q '^\[Shortened from .*left out: rejected proposals, older History entries' "$tmp/out"; } ||
 		{ fail "hook state under $s didn't shorten a long record by dropping rejected proposals and old History first"; hook_ok=0; }
+	# It keeps or drops a History entry whole, with the line under it. Two
+	# record sizes, since the room left decides where a cut would fall.
+	for n in 40 41; do
+		for d in "$long/state/knackpack/intent"/*/; do
+			awk -v n="$n" 'BEGIN {
+				print "# Intent record: test"; print "## Agreed"
+				for (i = 0; i < n; i++) print "- REQ-" i ": a requirement long enough to fill the record"
+				print "## History"
+				for (i = 0; i < 80; i++) { print "- 2026-10-30: history entry " i ", whose first line is far longer than the line under it"; print "  - detail " i }
+			}' >"$d$sid.md"
+		done
+		run "$s" state "$event" || hook_ok=0
+		sed -n '/^## History/{n;p;}' "$tmp/out" | grep -q '^- 2026' ||
+			{ fail "hook state under $s starts a shortened History inside an entry: $(sed -n '/^## History/{n;p;}' "$tmp/out")"; hook_ok=0; }
+	done
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# After a compaction, and only then, it points to the session's checkpoint.
 	mkdir -p "$tmp/tmpdir/claude-$sid" && : >"$tmp/tmpdir/claude-$sid/CHECKPOINT.md"
@@ -477,15 +547,15 @@ for s in $shells; do
 	printf 'KEEP\n' >"$tmp/sentinel"
 	mkdir -p "$turns" "$tmp/elsewhere"
 	ln -s "$tmp/sentinel" "$turns/$sid"
-	for m in prompt tool; do run "$s" "$m" "$event" || hook_ok=0; done
-	for m in prompt tool; do
+	for m in prompt tool stop; do run "$s" "$m" "$event" || hook_ok=0; done
+	for m in prompt tool stop; do
 		rm -f "$turns/$sid"
 		ln "$tmp/sentinel" "$turns/$sid"
 		run "$s" "$m" "$event" || hook_ok=0
 	done
 	rm -rf "$turns"
 	ln -s "$tmp/elsewhere" "$turns"
-	for m in prompt tool; do run "$s" "$m" "$event" || hook_ok=0; done
+	for m in prompt tool stop; do run "$s" "$m" "$event" || hook_ok=0; done
 	rm -f "$turns"
 	if [ "$(cat "$tmp/sentinel")" != KEEP ] || [ -n "$(ls -A "$tmp/elsewhere")" ]; then
 		fail "hook under $s writes through a link"

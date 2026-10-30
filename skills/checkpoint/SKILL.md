@@ -21,6 +21,8 @@ Go back through the whole conversation, not just the last few turns, and record 
 
 If knackpack's intent tracking keeps a record for this session, give its path under Context rather than copying its requirements: it already survives compaction.
 
+If your last reply asked the user something or offered options, copy those questions and lists under Open questions word for word, keeping each list's numbering and the heading it sat under, and note that the user may answer by number. After compaction the user often answers with just "1", and relabeled or merged lists make that answer ambiguous, or point it at the wrong option.
+
 Use these sections in this order, and leave out any that would be empty:
 
 ```markdown
