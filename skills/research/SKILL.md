@@ -113,7 +113,7 @@ Put each citation next to the claim it supports, using real URLs, file paths and
 
 ## Save and hand off
 
-Give the brief in the conversation, and always save it as `RESEARCH.md`, or as `RESEARCH-<short-name>.md` if one for another question is already there, with each experiment in its own folder beside it. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks.
+Give the brief in the conversation, and save it as `RESEARCH.md`, or as `RESEARCH-<short-name>.md` if one for another question is already there, with each experiment in its own folder beside it. If the user asks for the brief in a file of their own, such as a document in the repository, write it only there and give that path, so there's one copy to edit; the experiments stay in the folder below. If the repository's guidance or docs name one document as the source of truth for requirements or decisions, say so, and offer to add the brief there as a section instead of keeping a separate file; a scratch brief kept for handing to other agents is a snapshot, so say that it is. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks.
 
 Then give the user the brief's absolute path, and tell them the folder belongs to this session and the operating system may clean it up, so they should copy anything they want to keep.
 
@@ -122,4 +122,4 @@ A recommendation is a proposal, not an agreed requirement and not permission to 
 - requirements that turned out unclear: `/knackpack:challenge-requirements`;
 - the chosen approach: `/knackpack:plan-implementation Plan from the research at <absolute path>`;
 - a consequential structural choice: the `knackpack:architecture-reviewer` agent;
-- a security control: the `knackpack:asvs-security-reviewer` agent in plan mode.
+- a security control: the `knackpack:security-reviewer` agent in plan mode.

@@ -361,8 +361,8 @@ Challenge designs that rely solely on:
 - A shared privileged identity for unrelated workloads.
 - Unverified identity fields carried in messages.
 
-Use the ASVS security gate (knackpack's `asvs-security-reviewer` agent) for
-detailed control verification. Do not treat an architecture review as a
+Use the security gate (knackpack's `security-reviewer` agent) for detailed
+control verification. Do not treat an architecture review as a
 substitute for that assessment.
 
 If a proposed boundary requires security controls not yet designed, identify

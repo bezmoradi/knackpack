@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: security-mcp-server-authority
+context:
+  scaffold_script: fixture.sh

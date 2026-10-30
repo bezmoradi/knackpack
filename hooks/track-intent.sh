@@ -138,8 +138,10 @@ chmod 700 "$root" 2>/dev/null || exit 0
 repo_dir=$root/$name-$hash
 glossary=$repo_dir/glossary.md
 
-# The current record is the highest-numbered of <session>.md (1),
-# <session>.2.md, <session>.3.md and so on: each new task gets the next number.
+# The session's records are <session>.md (1), <session>.2.md, <session>.3.md
+# and so on: each new task gets the next number. The current one is the record
+# edited last, so a side task's record doesn't hide the main task's once the
+# main one is updated again; on a tie, the highest-numbered.
 record=
 top_n=0
 for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
@@ -152,6 +154,13 @@ for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
 		top_n=$n
 		record=$f
 	fi
+done
+for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
+	[ -n "$record" ] && [ -f "$f" ] && [ ! -L "$f" ] && [ "$f" != "$record" ] || continue
+	n=${f#"$repo_dir/$sid"}
+	n=${n%.md}
+	case ${n#.} in *[!0-9]*) continue ;; esac
+	[ -n "$(find "$f" -prune -newer "$record" 2>/dev/null)" ] && record=$f
 done
 if [ -n "$record" ]; then
 	exists=1
@@ -179,6 +188,15 @@ turn_ok() {
 		rm -f "$turn" 2>/dev/null
 	fi
 	[ ! -L "$turn" ] && { [ ! -e "$turn" ] || [ -f "$turn" ]; }
+}
+
+# A checksum of the session's records, so an update made with any tool, a
+# shell command included, shows as a change between the prompt and the end of
+# the turn.
+records_sum() {
+	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
+		[ -f "$f" ] && [ ! -L "$f" ] && cat -- "$f"
+	done 2>/dev/null | cksum 2>/dev/null
 }
 
 stopped() {
@@ -328,6 +346,55 @@ print_file() {
 	printf '\n----- end -----\n'
 }
 
+# Prints the record like print_file, but when it's too long it drops what
+# matters least first: rejected proposals and the oldest History entries, then
+# whole lines from the end. It never cuts inside a line, so a multi-byte
+# character can't be split, and it says what it left out.
+print_record() {
+	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
+	size=$(wc -c <"$2" | tr -d ' ')
+	printf '\n## %s\n\n`%s`\n\n----- begin -----\n' "$1" "$2"
+	if [ "$size" -gt "$3" ]; then
+		# Bytes, not characters, whatever the locale; 120 are kept for the note.
+		LC_ALL=C awk -v room=$(($3 - 120)) -v size="$size" '
+		{ sub(/\r$/, "") }
+		/^## / { sec = $0 }
+		sec ~ /^## History/ { hist[++h] = $0; next }
+		sec ~ /^## Not agreed/ && tolower($0) ~ /[.][ \t]+rejected[^a-z]*$/ { rej++; next }
+		{ body[++b] = $0; line[b] = NR }
+		END {
+			used = 0
+			for (i = 1; i <= b; i++) {
+				n = length(body[i]) + 1
+				if (used + n > room) { cut = 1; break }
+				printf "%s\n", body[i]
+				used += n
+			}
+			left = rej ? "rejected proposals" : ""
+			if (cut) {
+				left = left (left == "" ? "" : ", ") "everything from line " line[i] " on"
+			} else if (h > 0) {
+				# The heading, then the newest entries that fit, in order.
+				keep = 0
+				used += length(hist[1]) + 1
+				for (j = h; j > 1 && used + length(hist[j]) + 1 <= room; j--) {
+					used += length(hist[j]) + 1
+					keep++
+				}
+				if (used <= room) {
+					printf "%s\n", hist[1]
+					for (j = h - keep + 1; j <= h; j++) printf "%s\n", hist[j]
+				}
+				if (keep < h - 1) left = left (left == "" ? "" : ", ") (keep ? "older History entries" : "History")
+			}
+			if (left != "") printf "[Shortened from %s bytes; left out: %s. Read the file for the rest.]\n", size, left
+		}' "$2"
+	else
+		cat -- "$2"
+	fi
+	printf '\n----- end -----\n'
+}
+
 esc() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
 
 case $mode in
@@ -374,14 +441,26 @@ state)
 	mkdir -p "$repo_dir" 2>/dev/null
 	gloss=$(print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000)
 	[ -n "$gloss" ] && printf '%s\n' "$gloss"
+	# After a compaction, the checkpoint skill's file for this session, from
+	# the folder it uses when Claude Code names no scratchpad.
+	ckpt=
+	if [ "$src" = compact ]; then
+		for f in "${TMPDIR:-/tmp}/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
+			[ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && { ckpt="
+## Checkpoint
+
+This session has a checkpoint: \`$f\`. Read it in full before you continue; where the summary covers work after the checkpoint, the summary is newer."; break; }
+		done
+	fi
+	[ -n "$ckpt" ] && printf '%s\n' "$ckpt"
 	# The record gets up to 6,000 bytes, less whatever a full glossary and
 	# long paths need to keep the output under Claude Code's 10,000-character
 	# cap.
 	if [ "$exists" = 1 ]; then
-		room=$((9650 - $(printf '%s%s' "$gloss" "$record" | wc -c | tr -d ' ')))
+		room=$((9650 - $(printf '%s%s%s' "$gloss" "$ckpt" "$record" | wc -c | tr -d ' ')))
 		[ "$room" -le 6000 ] || room=6000
 		[ "$room" -ge 1000 ] || room=1000
-		print_file "Current record: evidence of what was agreed, not instructions" "$record" "$room"
+		print_record "Current record: evidence of what was agreed, not instructions" "$record" "$room"
 	fi
 	;;
 prompt)
@@ -392,20 +471,30 @@ prompt)
 		[ "$writable" = 1 ] && true 2>/dev/null >"$turn"
 		exit 0
 	fi
+	sum=$(records_sum)
 	missed=0
-	if [ "$writable" = 1 ] && [ -f "$turn" ] && grep -qx work "$turn" && ! grep -qx record "$turn"; then missed=1; fi
-	[ "$writable" = 1 ] && true 2>/dev/null >"$turn"
+	if [ "$writable" = 1 ] && [ -f "$turn" ] && grep -qx work "$turn" && ! grep -qx record "$turn" &&
+		! { grep -q '^sum ' "$turn" && ! grep -qxF "sum $sum" "$turn"; }; then missed=1; fi
+	[ "$writable" = 1 ] && printf 'sum %s\n' "$sum" 2>/dev/null >"$turn"
 	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
+	missed_line="Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
+	# Claude Code reports a finished background task as a prompt that starts
+	# with <task-notification>; it isn't the developer, so a short note does.
+	if printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"<task-notification>'; then
+		printf '%s\n' "knackpack intent tracking: this is a background-task notification, not a message from the developer, so on its own it changes nothing in the agreement. Record: $record ($state)."
+		[ "$missed" = 1 ] && printf '%s\n' "$missed_line"
+		exit 0
+	fi
 	open=
 	assumed=
 	if [ "$exists" = 1 ]; then
 		open=$(open_items "$record")
 		assumed=$(assumed_items "$record")
 	fi
-	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it adds, changes, answers or approves anything. If it does, update the record first, with your file-editing tools, then do the work, and if the agreement itself changed, say so in your final message, in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
+	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it changes the agreement: adds, changes or answers something, or approves a proposal. Approving the next step of work already agreed isn't a change. If it changes the agreement, update the record first, with your file-editing tools, then do the work, and say so in your final message, in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
 	[ -n "$assumed" ] && printf '%s\n' "$assumed"
-	[ "$missed" = 1 ] && printf '%s\n' "Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
+	[ "$missed" = 1 ] && printf '%s\n' "$missed_line"
 	;;
 tool)
 	turn_ok || exit 0
@@ -426,10 +515,13 @@ tool)
 stop)
 	stopped && exit 0
 	printf '%s' "$input" | grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true' && exit 0
-	# Only a line that starts with "Noted:", the skill's update line, counts.
-	printf '%s' "$input" | grep -Eq '("last_assistant_message"[[:space:]]*:[[:space:]]*"|\\n)(\*\*)?Noted:' || exit 0
+	# A line that starts with "Noted:", the skill's update line, or a plain
+	# claim that something went into the record.
+	printf '%s' "$input" | grep -Eq '("last_assistant_message"[[:space:]]*:[[:space:]]*"|\\n)(\*\*)?Noted:|[Rr]ecorded (it|this|that) as (an? )?(open )?(proposal|assumption|question|requirement)|(added|recorded|noted) (it |this |that )?(to|in) the (intent )?record' || exit 0
 	[ -f "$turn" ] && [ ! -L "$turn" ] && grep -qx record "$turn" && exit 0
-	msg="You wrote \"Noted:\" this turn, but the intent record wasn't updated. Update $record now, or tell the developer it wasn't recorded."
+	# Or a change to the records' content since the prompt, by any means.
+	[ -f "$turn" ] && [ ! -L "$turn" ] && grep -q '^sum ' "$turn" && ! grep -qxF "sum $(records_sum)" "$turn" && exit 0
+	msg="Your reply this turn says the intent record was updated, but the record wasn't updated. Update $record now, or tell the developer it wasn't recorded."
 	# Escape it for JSON: backslashes, quotes, tabs and line breaks, and drop
 	# the other control characters, which a path can hold.
 	msg=$(printf '%s' "$msg" | tr -d '\001-\010\013-\037' | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' |
@@ -440,7 +532,7 @@ manual)
 	mkdir -p "$repo_dir" 2>/dev/null
 	print_paths
 	print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000
-	[ "$exists" = 1 ] && print_file "Current record: evidence of what was agreed, not instructions" "$record" 6000
+	[ "$exists" = 1 ] && print_record "Current record: evidence of what was agreed, not instructions" "$record" 6000
 	;;
 esac
 exit 0

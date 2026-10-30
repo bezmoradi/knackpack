@@ -65,7 +65,7 @@ Be honest. If something is broken, untested or uncertain, say so: a checkpoint t
 In your reply, give:
 
 - the absolute path to `CHECKPOINT.md`;
-- the exact message to paste first after compacting: **"Read `<path>/CHECKPOINT.md` in full, then continue the task."** Explain that the compacted conversation won't know the file exists unless they point to it;
+- the exact message to paste first after compacting: **"Read `<path>/CHECKPOINT.md` in full, then continue the task."** Explain that the compacted conversation won't know the file exists unless something points to it. With knackpack's hooks running, the session-start hook points to it after compaction when it's in the `claude-<session>` folder, so the message is a fallback, needed when the file is in a scratchpad or the hooks don't run;
 - your suggestion of something worth remembering, if you noticed one.
 
 Don't carry on with the task itself in this step; the user resumes it after compacting.

@@ -387,7 +387,7 @@ Do not keep contradictory requirements active.
 
 Scale the output to the task. Give the brief in the conversation, and always
 save it as `REQUIREMENTS.md` in the folder from Where to save, or as `REQUIREMENTS-<short-name>.md` if one for another task is
-already there, so it can be handed to other agents.
+already there, so it can be handed to other agents. If the repository's guidance or docs name one document as the source of truth for requirements or decisions, say so, and offer to add the brief there as a section instead of keeping a separate file; a scratch brief kept for handing to other agents is a snapshot, so say that it is.
 
 Then give the user the brief's absolute path and the line that starts
 planning from it, in this session or a new one:
@@ -425,13 +425,14 @@ Only consequential unresolved items, with the action needed to resolve each.
 ### Handoff
 What the implementation planner, test designer, security reviewer, and
 architecture reviewer need to examine next. With knackpack installed, the
-security requirements can go to the `knackpack:asvs-security-reviewer` agent
+security requirements can go to the `knackpack:security-reviewer` agent
 in plan mode before coding starts, and a design with consequential
 architectural decisions can go to the `knackpack:architecture-reviewer` agent.
 After implementation, the
 `knackpack:adversarial-reviewer` agent can check the result against these
 acceptance criteria and report each ID as verified, violated, or not
-verified; the UI and Go reviewers check the code, not the requirements.
+verified; the UI, Go and Python reviewers check the code, not the
+requirements.
 
 Do not generate empty sections or unnecessary ceremony for trivial tasks.
 

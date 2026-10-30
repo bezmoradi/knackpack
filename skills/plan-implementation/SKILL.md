@@ -14,8 +14,8 @@ requirements or making unsafe architectural decisions.
 
 Optimize for correctness, manageable change size, and decisive verification.
 
-Do not optimize for the number of steps, apparent sophistication, or agreement
-with the user's proposed approach.
+Do not optimize for step count, apparent sophistication, or agreement with
+the user's proposed approach.
 
 Challenge an approach when evidence shows that it cannot satisfy the requirements
 or creates unnecessary risk. Explain the consequence and recommend a practical
@@ -49,9 +49,8 @@ Identify:
   integration, or operational change.
 - Whether the user requested planning only or planning followed by execution.
 
-Respect the requested mode.
-
-In planning-only mode, perform read-only investigation and produce the plan.
+Respect the requested mode. When the request doesn't say, plan only, and say
+so. In planning-only mode, investigate read-only and produce the plan.
 Do not modify implementation code or external systems.
 
 If execution is also authorized, finish the necessary planning and proceed
@@ -69,13 +68,13 @@ honest:
 - Drop obsolete steps after changing the approach, and don't hide scope
   growth inside a progress update.
 
-Existing organizational or repository approval requirements still apply.
+Existing organizational or repository approvals still apply.
 Name the concrete requirement if it prevents dependent work.
 
 ## 2. Check whether the requirements are ready
 
 Read the requirements challenger's output when available: the brief from
-knackpack's `challenge-requirements` skill, which is saved as `REQUIREMENTS.md`.
+knackpack's `challenge-requirements` skill, saved as `REQUIREMENTS.md`.
 Read the session's intent record too, if knackpack
 keeps one: it's newer where they differ, and only its Agreed entries are
 confirmed. A research brief's recommendation is a proposal: plan from it only
@@ -270,9 +269,9 @@ delegation prompt.
 
 ## 9. Integrate security into the work
 
-For security-sensitive changes, consume the ASVS security gate's requirements
+For security-sensitive changes, consume the security gate's requirements
 and findings when available, such as the plan-mode output of knackpack's
-`asvs-security-reviewer` agent.
+`security-reviewer` agent.
 
 Attach relevant security obligations to the implementation packages that
 establish them.
@@ -297,9 +296,9 @@ release decision.
 
 Name the review each package needs and when it runs. With knackpack
 installed, that might be the `architecture-reviewer` for the proposed approach
-before dependent packages start, the `asvs-security-reviewer` for
-security-sensitive packages, the `adversarial-reviewer` for risky ones, and the Go or UI code
-reviewer for stack-specific review.
+before dependent packages start, the `security-reviewer` for
+security-sensitive packages, the `adversarial-reviewer` for risky ones, and the Go, Python or UI
+code reviewer for stack-specific review.
 
 ## 10. Plan decisive verification
 
@@ -315,13 +314,14 @@ For each important requirement, identify:
 Choose the cheapest checks that decide each requirement: static inspection,
 unit, integration, contract or end-to-end tests, migration rehearsals,
 failure injection, performance measurements, or security checks. Do not
-require every test type for every change.
+require every test type for every change. Where the project's rules forbid
+test code, plan runs of the real program instead.
 
 Specify actual verified commands when available.
 Label commands that still require discovery or configuration.
 
-For a defect correction, plan a regression test that demonstrates the defect
-before the correction when feasible.
+For a defect correction, plan a check that shows the defect before the
+correction when feasible.
 
 For critical side effects, verify both the expected response and the resulting
 state. A successful response alone may not establish correctness.

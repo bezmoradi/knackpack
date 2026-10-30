@@ -66,7 +66,7 @@ for f in agents/*.md; do
 	esac
 	tool_is 'Edit|Write|NotebookEdit|MultiEdit' && { fail "$name has a file-editing tool"; agents_ok=0; }
 	if tool_is 'Agent|Task'; then
-		case $name in adversarial-reviewer | asvs-security-reviewer | architecture-reviewer) ;; *) fail "$name has the Agent tool"; agents_ok=0 ;; esac
+		case $name in adversarial-reviewer | security-reviewer | architecture-reviewer) ;; *) fail "$name has the Agent tool"; agents_ok=0 ;; esac
 	fi
 	grep -qx 'omitClaudeMd: true' "$tmp/fm" || { fail "$name lacks omitClaudeMd: true"; agents_ok=0; }
 	body "$f" | sed '/^## Review protocol$/,$d' | grep -qF "\`$name.md\`" || {
@@ -79,8 +79,23 @@ for f in agents/*.md; do
 		agents_ok=0
 	}
 done
-[ "$n" = 8 ] || { fail "expected 8 agents, found $n"; agents_ok=0; }
+[ "$n" = 9 ] || { fail "expected 9 agents, found $n"; agents_ok=0; }
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd, report file names and the review protocol's source"
+
+# Every knackpack:<name> and `<name>-reviewer` in the docs, agents, skills and
+# eval cases is an agent or skill that exists (or, for the second form, an eval
+# tag), since Claude Code has no alias for an old agent name. A name in plain
+# prose, without either form, isn't caught.
+refs_ok=1
+eval_tags=" $(sed -n 's/^tags:[[:space:]]*\[\(.*\)\][[:space:]]*$/\1/p' evals/*/prompt.md | tr ',' ' ' | tr -s ' \n' '  ') "
+for ref in $(grep -rhoE --exclude-dir=results 'knackpack:[a-z0-9-]+|`[a-z0-9-]+-reviewer`' README.md .claude/CLAUDE.md agents skills evals | sort -u); do
+	name=$(printf '%s' "$ref" | tr -d '`' | sed 's/^knackpack://')
+	[ -f "agents/$name.md" ] || [ -d "skills/$name" ] && continue
+	case $ref in knackpack:*) ;; *) case $eval_tags in *" $name "*) continue ;; esac ;; esac
+	fail "$ref is mentioned, but no agent or skill has that name"
+	refs_ok=0
+done
+[ "$refs_ok" = 1 ] && pass "mentions of knackpack's agents and skills name ones that exist"
 
 # Keys: Claude Code ignores a frontmatter or hook key it doesn't know without
 # a word, so one that isn't documented fails here. Plugin agents can't use
@@ -333,6 +348,26 @@ for s in $shells; do
 		fail "hook under $s counts an edit of a file named after the record as a record update"
 		hook_ok=0
 	fi
+	# A record changed with a shell command still counts as updated, and a
+	# plain claim of an update that didn't happen is caught like "Noted:".
+	run "$s" prompt "$event" && printf '%s\n' '- 2026-10-30: changed by a shell command' >>"$rec" && run "$s" stop "$event" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s doesn't see a record update made with a shell command"; hook_ok=0; }
+	claim=$(printf '%s' "$event" | sed 's/Noted: x/I have recorded this as an open proposal./')
+	run "$s" prompt "$event" && run "$s" stop "$claim" || hook_ok=0
+	grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s misses a claimed record update in plain words"; hook_ok=0; }
+	# A background-task notification gets a short note, not the full reminder.
+	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"<task-notification>\\n<status>completed<\/status>"/')" || hook_ok=0
+	{ grep -q 'background-task notification' "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
+		{ fail "hook under $s gives a background-task notification the full reminder"; hook_ok=0; }
+	# The current record is the one edited last, not the highest-numbered.
+	two=${rec%.md}.2.md
+	printf '%s\n' '# Intent record: side task' >"$two" && touch -t 202601010000 "$two" && printf '%s\n' '- edited' >>"$rec"
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qF "Record: $rec (exists)" "$tmp/out" || { fail "hook under $s doesn't treat the record edited last as the current one"; hook_ok=0; }
+	printf '%s\n' '- edited' >>"$two"
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qF "Record: $two (exists)" "$tmp/out" || { fail "hook under $s doesn't switch to the record edited last"; hook_ok=0; }
+	rm -f "$two"
 	# With `..` after a symbolic link, the folder the hook checks and the folder
 	# its normalized path names differ; it must check the second one too and
 	# never write through a link.
@@ -387,6 +422,31 @@ for s in $shells; do
 	state_size=$(wc -c <"$tmp/out" | tr -d ' ')
 	[ "$state_size" -le 9900 ] || { fail "hook state output is $state_size bytes with long paths; keep it under 9,900"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/glossary.md "$long/state/knackpack/intent"/*/"$sid.md"
+	# A record too long to print keeps its open questions and Built, and drops
+	# rejected proposals and the oldest History first, saying so.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN {
+			print "# Intent record: test"; print "## Agreed"
+			for (i = 0; i < 60; i++) print "- REQ-" i ": a requirement long enough to fill the record"
+			print "## Not agreed"; print "- PROP-01: Drop it, by Claude. rejected"
+			print "## Open questions"; print "- Q-01: still open"; print "## Built"; print "- REQ-1: verified"
+			print "## History"; for (i = 0; i < 150; i++) print "- 2026-10-30: history entry " i
+		}' >"$d$sid.md"
+	done
+	run "$s" state "$event" || hook_ok=0
+	{ grep -q '^- Q-01: still open$' "$tmp/out" && grep -q '^- 2026-10-30: history entry 149$' "$tmp/out" &&
+		! grep -q 'PROP-01' "$tmp/out" && grep -q '^\[Shortened from .*left out: rejected proposals, older History entries' "$tmp/out"; } ||
+		{ fail "hook state under $s didn't shorten a long record by dropping rejected proposals and old History first"; hook_ok=0; }
+	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
+	# After a compaction, and only then, it points to the session's checkpoint.
+	mkdir -p "$tmp/tmpdir/claude-$sid" && : >"$tmp/tmpdir/claude-$sid/CHECKPOINT.md"
+	for src in compact startup; do
+		printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
+			TMPDIR="$tmp/tmpdir" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >"$tmp/out" 2>/dev/null
+		if grep -q '^## Checkpoint' "$tmp/out"; then got=compact; else got=startup; fi
+		[ "$got" = "$src" ] || { fail "hook state under $s on $src $( [ "$src" = compact ] && echo "didn't point" || echo pointed) to the checkpoint"; hook_ok=0; }
+	done
+	rm -rf "$tmp/tmpdir"
 	# A turn file that can't be written must not stop the hook.
 	rm -rf "$long/state/knackpack/intent/.turns"
 	: >"$long/state/knackpack/intent/.turns"
