@@ -35,6 +35,8 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Runs that Dependabot starts get a read-only token unless the workflow
+    # raises it, as these permissions do: https://docs.github.com/en/code-security/dependabot/troubleshooting-dependabot/troubleshooting-dependabot-on-github-actions#changing-github_token-permissions
     permissions:
       contents: read # check out the pull request
       pull-requests: write # read it, and post inline comments and the summary
@@ -126,6 +128,7 @@ jobs:
           DRAFT: ${{ github.event.pull_request.draft }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
+          # The account that started the first run. A re-run keeps it, and its secrets.
           ACTOR: ${{ github.actor }}
         run: |
           # Approved means the verdict is approve and no problem is listed as blocking.
