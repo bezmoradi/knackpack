@@ -1,0 +1,34 @@
+# Dependabot proposes, once a week, the actions and linters pinned in
+# .github/ at releases that have been out for a week or more, one pull
+# request per kind. Its pull requests don't get the secret Claude's review
+# needs, so an admin merges them once the checks pass, by bypassing the review
+# gate. The three release archives in linters/install.sh aren't covered.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: /.github/linters
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      python-linters:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /.github/linters
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      markdownlint:
+        patterns: ["*"]
