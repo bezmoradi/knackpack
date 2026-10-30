@@ -100,7 +100,7 @@ Save it as the rules above say, in this layout:
 <Blocks the change or not, in one line, then the counts: fix now, decision needed, won't fix, unproven.>
 
 ## Target and reviewers
-<Pinned revision and base; whether the repository changed during the run.>
+<Pinned revision and base; whether the repository changed during the run; what the reports say the reviewers left on the machine, such as Docker images they pulled.>
 | Reviewer | Verdict | Findings | Report |
 <One row per reviewer started, and one line for each skipped, with why.>
 
