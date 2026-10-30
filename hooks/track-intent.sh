@@ -90,9 +90,9 @@ if [ -z "$dir" ] || [ ! -d "$dir" ]; then dir=$(pwd -P); fi
 # two repositories with the same name don't. A repository at the home folder,
 # such as one for dotfiles, doesn't count: every folder under it would share
 # its records, and its .claude/rules/ loads in every project.
-home=$(cd "${HOME:-/nonexistent}" 2>/dev/null && pwd -P)
+home=$(CDPATH='' cd -- "${HOME:-/nonexistent}" 2>/dev/null && pwd -P)
 if top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] && [ "$top" != "$home" ]; then
-	common=$(cd "$dir" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)
+	common=$(CDPATH='' cd -- "$dir" 2>/dev/null && CDPATH='' cd -- "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)
 	[ -n "$common" ] || common=$top
 	case $common in
 	*/.git)
@@ -107,7 +107,7 @@ if top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] &
 	id=$common
 	project=$top
 else
-	id=$(cd "$dir" 2>/dev/null && pwd -P) || exit 0
+	id=$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P) || exit 0
 	name=${id##*/}
 	project=$id
 fi
@@ -149,7 +149,7 @@ for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
 	n=${f#"$repo_dir/$sid"}
 	n=${n%.md}
 	n=${n#.}
-	case $n in '') n=1 ;; *[!0-9]*) continue ;; esac
+	case $n in '') n=1 ;; *[!0-9]* | ??????????*) continue ;; esac
 	if [ "$n" -gt "$top_n" ]; then
 		top_n=$n
 		record=$f
@@ -159,7 +159,7 @@ for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
 	[ -n "$record" ] && [ -f "$f" ] && [ ! -L "$f" ] && [ "$f" != "$record" ] || continue
 	n=${f#"$repo_dir/$sid"}
 	n=${n%.md}
-	case ${n#.} in *[!0-9]*) continue ;; esac
+	case ${n#.} in *[!0-9]* | ??????????*) continue ;; esac
 	[ -n "$(find "$f" -prune -newer "$record" 2>/dev/null)" ] && record=$f
 done
 if [ -n "$record" ]; then
