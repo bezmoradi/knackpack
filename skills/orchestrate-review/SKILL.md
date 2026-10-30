@@ -116,7 +116,7 @@ Save it as the rules above say, in this layout:
 <What each reviewer said it didn't check, and checks nobody ran.>
 
 ## Cost
-<Each report's cost line as it gives it, the adjudicators' too, and the total; say which reports gave none.>
+<Each report's cost line as it gives it, the adjudicators' too, and beside it the duration and token count Claude Code gave you when that agent finished, where it gave them, which include writing the report. Then a total of each kind, kept apart because they're counted differently. Say which agents had neither.>
 ```
 
 Each issue under Fix now, Decision needed and Won't fix gives its ID, title, location, severity and the sources' grades when they differ, the evidence in a sentence or two with the report it comes from, the adjudication verdict, and the correction with whether it was tested. Adjudication is HOLDS, HOLDS ONLY IF, REFUTED, UNRESOLVED or not adjudicated; Fix is works, doesn't work or untested. Write `\|` for a `|` inside a cell.
