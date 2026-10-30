@@ -581,11 +581,14 @@ if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset G
 files_ok=1
 bad=$(git grep --untracked -lE '^(<{7}|\|{7}|>{7})( |$)' -- . ':(exclude)evals' | tr '\n' ' ')
 [ -z "$bad" ] || { fail "merge-conflict markers in: $bad"; files_ok=0; }
-bad=$(git ls-files --eol -- . ':(exclude)evals' | awk '$1 ~ /^i\/(crlf|mixed)$/ { print $NF }' | tr '\n' ' ')
+# The name follows a tab in --eol's output, and the size the first spaces in
+# wc's, so a name with spaces in it comes out whole.
+bad=$(git -c core.quotePath=false ls-files --eol -- . ':(exclude)evals' | awk -F '\t' '$1 ~ /^i\/(crlf|mixed) / { print $2 }' | tr '\n' ' ')
 [ -z "$bad" ] || { fail "CRLF line endings in: $bad"; files_ok=0; }
-bad=$(git ls-files | tr '[:upper:]' '[:lower:]' | sort | uniq -d | tr '\n' ' ')
+bad=$(git -c core.quotePath=false ls-files | tr '[:upper:]' '[:lower:]' | sort | uniq -d | tr '\n' ' ')
 [ -z "$bad" ] || { fail "file names that differ only in case: $bad"; files_ok=0; }
-bad=$(git ls-files -z --cached --others --exclude-standard | xargs -0 wc -c 2>/dev/null | awk '$2 != "total" && $1 > 524288 { print $2 }' | tr '\n' ' ')
+bad=$(git ls-files -z --cached --others --exclude-standard | xargs -0 wc -c 2>/dev/null |
+	awk '{ size = $1; sub(/^ *[0-9]+ /, "") } $0 != "total" && size > 524288' | tr '\n' ' ')
 [ -z "$bad" ] || { fail "files over 512 KiB: $bad"; files_ok=0; }
 [ "$files_ok" = 1 ] && pass "no conflict markers, CRLF line endings, names differing only in case or files over 512 KiB"
 
@@ -601,8 +604,9 @@ bad=$(git ls-files -z --cached --others --exclude-standard | xargs -0 wc -c 2>/d
 # required check mustn't fail at random. With GITHUB_TOKEN set, zizmor runs
 # its online audits too and lychee gets GitHub's higher rate limit. gitleaks
 # prints what it finds redacted.
-git ls-files --cached --others --exclude-standard -- . ':(exclude)evals' ':(exclude,glob)**/package-lock.json' |
+git -c core.quotePath=false ls-files --cached --others --exclude-standard -- . ':(exclude)evals' ':(exclude,glob)**/package-lock.json' |
 	while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done >"$tmp/files"
+each() { tr '\n' '\0' | xargs -0 "$@"; } # <command>...: runs it on the names on stdin, one per line
 skipped=
 lint() { # <tool>
 	if [ "${KNACKPACK_LINTERS-}" = off ] || ! command -v "$1" >/dev/null 2>&1; then
@@ -610,12 +614,12 @@ lint() { # <tool>
 		return
 	fi
 	case $1 in
-	shellcheck) grep '\.sh$' "$tmp/files" | xargs shellcheck -s sh -S warning ;;
-	actionlint) grep '^\.github/workflows/[^/]*\.ya\{0,1\}ml$' "$tmp/files" | xargs actionlint -no-color ;;
+	shellcheck) grep '\.sh$' "$tmp/files" | each shellcheck -s sh -S warning ;;
+	actionlint) grep '^\.github/workflows/[^/]*\.ya\{0,1\}ml$' "$tmp/files" | each actionlint -no-color ;;
 	zizmor) zizmor --persona pedantic --strict-collection --no-progress --color never .github ;;
-	codespell) xargs codespell <"$tmp/files" ;;
-	markdownlint-cli2) grep '\.md$' "$tmp/files" | sed 's/^/:/' | xargs markdownlint-cli2 --config .github/linters/markdownlint-cli2.jsonc ;;
-	lychee) xargs lychee --no-progress --include-verbatim --include-fragments --exclude-loopback --max-retries 3 --retry-wait-time 2 --timeout 20 \
+	codespell) each codespell <"$tmp/files" ;;
+	markdownlint-cli2) grep '\.md$' "$tmp/files" | sed 's/^/:/' | each markdownlint-cli2 --config .github/linters/markdownlint-cli2.jsonc ;;
+	lychee) each lychee --no-progress --include-verbatim --include-fragments --exclude-loopback --max-retries 3 --retry-wait-time 2 --timeout 20 \
 		--accept '100..=103,200..=299,429,500..=599' --accept-timeouts <"$tmp/files" ;;
 	gitleaks) mkdir "$tmp/scan" && tar -cf - -T "$tmp/files" | tar -xf - -C "$tmp/scan" &&
 		(cd "$tmp/scan" && gitleaks dir --no-banner --no-color --redact --verbose --log-level warn .) ;;
