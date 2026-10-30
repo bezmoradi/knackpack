@@ -79,7 +79,7 @@ for f in agents/*.md; do
 		agents_ok=0
 	}
 done
-[ "$n" = 7 ] || { fail "expected 7 agents, found $n"; agents_ok=0; }
+[ "$n" = 8 ] || { fail "expected 8 agents, found $n"; agents_ok=0; }
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd, report file names and the review protocol's source"
 
 # Keys: Claude Code ignores a frontmatter or hook key it doesn't know without
@@ -152,6 +152,15 @@ unquote() {
 		-e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//'
 }
 value() { sed -n "s/^[[:space:]]*$1:[[:space:]]*//p" | unquote; } # <key>, at any depth, from YAML on stdin
+# Frontmatter keys whose plain, unquoted value holds ": " or ends in ":", which
+# YAML can't parse; the runner then refuses to load the case and runs the rest
+# without it.
+colon_values() {
+	frontmatter "$1" | awk '/^[A-Za-z_][A-Za-z0-9_]*:[[:space:]]/ {
+		v = $0; sub(/^[^:]*:[[:space:]]*/, "", v)
+		if (v !~ /^["\047[{|>]/ && v ~ /: |:$/) { k = $0; sub(/:.*/, "", k); printf "%s ", k }
+	}'
+}
 unknown_yaml_keys() { # <file> <keys>: keys at any depth that aren't in the list, skipping block scalars
 	awk '
 		function indent(s) { match(s, /^ */); return RLENGTH }
@@ -174,6 +183,8 @@ for d in evals/*/; do
 	if [ -f "$c/prompt.md" ]; then
 		bad=$(unknown_keys "$c/prompt.md" "$case_keys")
 		[ -z "$bad" ] || { fail "$c/prompt.md has frontmatter keys claude plugin eval doesn't know: $bad"; evals_ok=0; }
+		bad=$(colon_values "$c/prompt.md")
+		[ -z "$bad" ] || { fail "$c/prompt.md has unquoted values holding \": \" or ending in \":\", which YAML can't parse: $bad"; evals_ok=0; }
 		[ -n "$(body "$c/prompt.md" | tr -d '[:space:]')" ] || grep -q '^[[:space:]]*prompt:' "$c/case.yaml" 2>/dev/null || { fail "$c has no prompt"; evals_ok=0; }
 	else
 		grep -q '^[[:space:]]*prompt:' "$c/case.yaml" || { fail "$c has no prompt"; evals_ok=0; }
@@ -205,6 +216,8 @@ for d in evals/*/; do
 		fi
 		bad=$(unknown_keys "$g" "$grader_keys")
 		[ -z "$bad" ] || { fail "$g has keys claude plugin eval doesn't know: $bad"; evals_ok=0; }
+		bad=$(colon_values "$g")
+		[ -z "$bad" ] || { fail "$g has unquoted values holding \": \" or ending in \":\", which YAML can't parse: $bad"; evals_ok=0; }
 		a=$(frontmatter "$g" | value arm)
 		case $a in ''|with-only|both) ;; *) fail "$g has arm '$a', not with-only or both"; evals_ok=0 ;; esac
 		for k in target focus; do

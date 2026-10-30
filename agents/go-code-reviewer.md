@@ -317,11 +317,12 @@ Assume a hostile security researcher will audit every change. An exploitable wea
 - Elapsed-time checks and in-process TTLs use values straight from `time.Now()` with `time.Since` and `time.Until`. `.UTC()`, `.In()`, `.Local()` and a round trip through a string all strip the monotonic clock reading that protects those comparisons from wall-clock jumps.
 - Time-boxed toggles (a debug window, an expiring override) are evaluated against the current time on every request, never collapsed into a boolean when a cache is filled.
 
-**YAGNI and dead code (zero tolerance):**
+**YAGNI and dead code:**
 
-- Only code that is used: no speculative features or "just in case" abstractions, no commented-out blocks, no unused functions, types, constants or imports, and no compatibility shims kept "for later" unless the project documents a deprecation window.
-- Removing a feature removes all of it: handlers, service, port and repository methods, domain types, constants, configuration.
-- Dead code is **[Medium, blocks]**: it obscures the code base and can hide security issues.
+- Only code that is used: no speculative features or "just in case" abstractions, no commented-out blocks, no unused functions, types or constants, and no compatibility shims kept "for later" unless the project documents a deprecation window. The compiler already rejects unused imports and local variables.
+- Before calling code dead, check the ways Go reaches code that a search for calls misses: files for every platform and build tag the project ships, methods that satisfy an interface, method values, `init` registrations and blank imports, templates and reflection-based codecs, `//go:linkname`, generated code and scripts. An exported name outside `internal/` in a module others import is public API, not dead code (Phase 2a).
+- Removing a feature removes all of it: handlers, service, port and repository methods, domain types, constants, configuration. A route still registered for a removed feature isn't dead code but a live path; grade it by what it exposes.
+- Dead code the change adds obscures the code base and can hide security issues, so report every instance, grouped into one finding. It's **[Low]**, or **[Medium]** for a whole unused feature path or configuration surface, and **[Medium, blocks]** when the project's lint config or guidance forbids it, such as an `unused` linter its CI runs. Speculative features, options and abstractions are graded the same way.
 
 **Names in Go code:**
 

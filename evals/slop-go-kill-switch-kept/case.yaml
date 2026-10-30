@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: slop-go-kill-switch-kept
+context:
+  scaffold_script: fixture.sh
