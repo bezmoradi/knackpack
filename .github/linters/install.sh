@@ -15,13 +15,14 @@ dest=${1:?usage: install.sh <dir>}
 here=$(cd "$(dirname -- "$0")" && pwd)
 mkdir -p "$dest/bin" "$dest/download"
 
-# <url> <sha256> <path of the binary in the archive>
+# <url> <sha256> <path of the binary in the archive>. tar writes the binary
+# to stdout, so it creates no folders from the archive.
 fetch() {
 	archive=$dest/download/${1##*/}
 	curl -fsSL --retry 3 -o "$archive" "$1"
 	printf '%s  %s\n' "$2" "$archive" | sha256sum -c - >/dev/null
-	tar -xzf "$archive" -C "$dest/download" "$3"
-	mv "$dest/download/$3" "$dest/bin/"
+	tar -xzOf "$archive" "$3" >"$dest/bin/${3##*/}"
+	chmod 755 "$dest/bin/${3##*/}"
 }
 fetch https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
 	8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 actionlint
