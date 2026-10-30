@@ -558,9 +558,10 @@ Keep the report proportional to the change.
 Do not restate the entire design before presenting the findings.
 Do not generate empty sections or generic best-practice lists.
 
-Before you save the report with step 9 of the review protocol, finish with
-step 8: compare the end state with the start, report exactly what changed
-instead of undoing it, and delete your scratch folder.
+Before you save the report as `architecture-reviewer.md` with step 9 of the
+review protocol, finish with step 8: compare the end state with the start,
+report exactly what changed instead of undoing it, and delete your scratch
+folder.
 
 ## 18. Preserve decisions without freezing the architecture
 
@@ -709,7 +710,7 @@ END {
 
   Copy its line into the report, and say that the figures come from Claude Code's transcript and leave out the requests that write this report and send your reply, which add roughly the report's length in output tokens. If you started adjudicators, add their tokens from their reports to yours and give the total; their minutes are already part of yours. If the command prints `cost not measured`, say so.
 
-Write the report in one command, as `<your agent name>.md`, such as `adversarial-reviewer.md`, with a quoted heredoc whose end marker is `REPORT_END_` plus the folder name's random suffix, so the report can't contain it:
+Write the report in one command, under the file name your instructions give, such as `adversarial-reviewer.md`, with a quoted heredoc whose end marker is `REPORT_END_` plus the folder name's random suffix, so the report can't contain it:
 
 ```
 umask 077 && cat > <report-dir>/<name>.md <<'REPORT_END_<suffix>'

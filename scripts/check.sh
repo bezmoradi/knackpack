@@ -42,8 +42,10 @@ for f in .mcp.json bin settings.json; do
 	[ -e "$f" ] && fail "$f exists at the root"
 done
 
-# The agents: report-only, no CLAUDE.md, and each with an exact copy of the
-# review protocol's one source.
+# The agents: report-only, no CLAUDE.md, each naming the file it saves its
+# report to (a subagent doesn't see its own name, and the protocol asks for the
+# name its instructions give), and each with an exact copy of the review
+# protocol's one source.
 # Claude Code splits tools on commas and on spaces outside parentheses. What's
 # in parentheses doesn't narrow Agent in a subagent, so it's dropped, and Task
 # is the Agent tool's old name.
@@ -67,6 +69,10 @@ for f in agents/*.md; do
 		case $name in adversarial-reviewer | asvs-security-reviewer | architecture-reviewer) ;; *) fail "$name has the Agent tool"; agents_ok=0 ;; esac
 	fi
 	grep -qx 'omitClaudeMd: true' "$tmp/fm" || { fail "$name lacks omitClaudeMd: true"; agents_ok=0; }
+	body "$f" | sed '/^## Review protocol$/,$d' | grep -qF "\`$name.md\`" || {
+		fail "$name doesn't name its report file, \`$name.md\`, above the review protocol"
+		agents_ok=0
+	}
 	sed -n '/^## Review protocol$/,$p' "$f" >"$tmp/protocol"
 	cmp -s "$tmp/protocol" scripts/review-protocol.md || {
 		fail "$name's review protocol differs from scripts/review-protocol.md; edit that file and run sh scripts/sync-protocol.sh"
@@ -74,7 +80,7 @@ for f in agents/*.md; do
 	}
 done
 [ "$n" = 7 ] || { fail "expected 7 agents, found $n"; agents_ok=0; }
-[ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd and the review protocol's source"
+[ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd, report file names and the review protocol's source"
 
 # Keys: Claude Code ignores a frontmatter or hook key it doesn't know without
 # a word, so one that isn't documented fails here. Plugin agents can't use
