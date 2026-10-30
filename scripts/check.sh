@@ -592,6 +592,14 @@ bad=$(git ls-files -z --cached --others --exclude-standard | xargs -0 wc -c 2>/d
 [ -z "$bad" ] || { fail "files over 512 KiB: $bad"; files_ok=0; }
 [ "$files_ok" = 1 ] && pass "no conflict markers, CRLF line endings, names differing only in case or files over 512 KiB"
 
+# The merge gate binds everyone, admins included. The file sets the empty
+# list outright, so applying it with PUT also removes a bypass added on GitHub.
+if jq -e '.bypass_actors == []' .github/rulesets/main.json >/dev/null 2>&1; then
+	pass "the ruleset lets no one bypass the merge gate"
+else
+	fail ".github/rulesets/main.json needs \"bypass_actors\": [], so no one can bypass the merge gate"
+fi
+
 # Linters, each run when it's installed, on the files git tracks or would add
 # outside evals/, whose fixtures hold the defects their cases are about, and
 # outside npm's lockfile. CI's Linux job installs the versions pinned in

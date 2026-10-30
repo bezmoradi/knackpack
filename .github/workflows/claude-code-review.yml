@@ -5,12 +5,15 @@
 # a verdict, and the job posts a summary comment. The "Claude approval" job
 # passes only on an approve verdict, and a ruleset on main requires it.
 #
-# The gate fails closed. Drafts, pull requests from forks and from Dependabot
-# (neither gets this repository's secrets), and a review that fails, times
-# out, is cancelled or returns no verdict all fail "Claude approval"; an admin
-# merges such a pull request by bypassing the ruleset. The gate shows that a
-# review approved the change. It isn't a security boundary: a pull request
-# can change this file.
+# The gate fails closed, and the ruleset lets no one bypass it, admins
+# included. Drafts, pull requests from forks (which get none of this
+# repository's secrets), and a review that fails, times out, is cancelled or
+# returns no verdict all fail "Claude approval". To merge a fork's change,
+# open a pull request from a copy of its branch in this repository.
+# Dependabot's pull requests are reviewed like any other, but runs it starts
+# get only Dependabot secrets, so CLAUDE_CODE_OAUTH_TOKEN has to be saved
+# there too. The gate shows that a review approved the change. It isn't a
+# security boundary: a pull request can change this file.
 name: Claude review
 
 on:
@@ -29,10 +32,11 @@ jobs:
     name: Claude review
     if: >-
       !github.event.pull_request.draft &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.user.login != 'dependabot[bot]'
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Runs that Dependabot starts get a read-only token unless the workflow
+    # raises it, as these permissions do: https://docs.github.com/en/code-security/dependabot/troubleshooting-dependabot/troubleshooting-dependabot-on-github-actions#changing-github_token-permissions
     permissions:
       contents: read # check out the pull request
       pull-requests: write # read it, and post inline comments and the summary
@@ -52,6 +56,8 @@ jobs:
           # Claude app's token instead, the action would skip every pull
           # request that changes this file.
           github_token: ${{ github.token }}
+          # The action refuses to run for a bot it isn't told to allow.
+          allowed_bots: dependabot[bot]
           prompt: |
             Review pull request #${{ github.event.pull_request.number }} in ${{ github.repository }} at commit ${{ github.event.pull_request.head.sha }}, and decide whether it can merge.
 
@@ -122,7 +128,8 @@ jobs:
           DRAFT: ${{ github.event.pull_request.draft }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           REPO: ${{ github.repository }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
+          # The account that started the first run. A re-run keeps it, and its secrets.
+          ACTOR: ${{ github.actor }}
         run: |
           # Approved means the verdict is approve and no problem is listed as blocking.
           approved=$(jq '.verdict == "approve" and .blocking == []' <<<"${REVIEW:-null}" 2>/dev/null) || approved=
@@ -133,8 +140,10 @@ jobs:
           fi
           if [ "$DRAFT" = true ]; then
             why="It's a draft; mark it ready for review to start one."
-          elif [ "$HEAD_REPO" != "$REPO" ] || [ "$AUTHOR" = 'dependabot[bot]' ]; then
-            why="Pull requests from forks and Dependabot don't get the secret Claude needs. Review it yourself; an admin can merge it by bypassing the ruleset."
+          elif [ "$HEAD_REPO" != "$REPO" ]; then
+            why="Pull requests from forks don't get the secret Claude needs, and no one can bypass this check. Read its commits, push them to a branch in this repository and open a pull request from that branch."
+          elif [ "$RESULT" != success ] && [ "$ACTOR" = 'dependabot[bot]' ]; then
+            why="The review job ended as $RESULT. Runs that Dependabot starts read CLAUDE_CODE_OAUTH_TOKEN from the Dependabot secrets, so check that it's set there, then re-run all jobs."
           elif [ "$RESULT" != success ]; then
             why="The review job ended as $RESULT. Re-run all jobs to try again."
           elif [ -n "$verdict" ]; then
