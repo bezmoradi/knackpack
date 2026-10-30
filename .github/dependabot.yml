@@ -1,8 +1,9 @@
 # Dependabot proposes, once a week, the actions and linters pinned in
 # .github/ at releases that have been out for a week or more, one pull
-# request per kind. Its pull requests don't get the secret Claude's review
-# needs, so an admin merges them once the checks pass, by bypassing the review
-# gate. The three release archives in linters/install.sh aren't covered.
+# request per kind. Claude reviews them like any other pull request, using
+# CLAUDE_CODE_OAUTH_TOKEN from the repository's Dependabot secrets, the only
+# secrets runs Dependabot starts get. The three release archives in
+# linters/install.sh aren't covered.
 version: 2
 updates:
   - package-ecosystem: github-actions
