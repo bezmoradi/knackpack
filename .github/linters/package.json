@@ -1,0 +1,8 @@
+{
+  "name": "knackpack-linters",
+  "private": true,
+  "description": "The markdownlint-cli2 version scripts/check.sh runs in CI; Dependabot keeps it current.",
+  "dependencies": {
+    "markdownlint-cli2": "0.24.0"
+  }
+}

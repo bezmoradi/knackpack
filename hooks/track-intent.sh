@@ -35,6 +35,9 @@
 # KNACKPACK_INTENT=off turns the hooks off. KNACKPACK_INTENT=on also runs them
 # in sessions nobody attends, such as `claude -p`, which they skip by default.
 
+# test -O isn't POSIX, but dash and bash both have it. Before the first
+# command, this directive covers the whole script.
+# shellcheck disable=SC3067
 umask 077
 # Exit 0 however the script ends, even when the shell itself stops it.
 trap 'exit 0' EXIT

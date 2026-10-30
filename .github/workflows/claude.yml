@@ -1,7 +1,15 @@
-name: Claude Code
+# Answers @claude in issues, pull requests and reviews. The action starts
+# Claude only for people with write access to the repository, and Claude
+# works with the Claude GitHub app's token, which can comment and push
+# branches; the ruleset on main keeps it from pushing there.
+name: Claude
 
 on:
-  issue_comment:
+  # These triggers run with the repository's secrets. That's acceptable here
+  # because the action checks the commenter's write access before Claude
+  # starts, and nothing runs the pull request's code: no step does, and
+  # Claude's default tools allow no shell commands beyond git's.
+  issue_comment: # zizmor: ignore[dangerous-triggers]
     types: [created]
   pull_request_review_comment:
     types: [created]
@@ -10,41 +18,37 @@ on:
   pull_request_review:
     types: [submitted]
 
+permissions: {}
+
+# One answer at a time per issue or pull request; a later mention waits.
+concurrency:
+  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   claude:
+    name: Claude
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
-      contents: read
-      pull-requests: read
-      issues: read
-      id-token: write
-      actions: read # Required for Claude to read CI results on PRs
+      contents: read # check out the repository
+      pull-requests: read # read the pull request Claude was asked about
+      issues: read # read the issue Claude was asked about
+      id-token: write # exchange the workflow's identity for the Claude app's token
+      actions: read # let Claude read CI results on pull requests
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
-
+          persist-credentials: false
       - name: Run Claude Code
-        id: claude
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33 # v1.0.261
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-
-          # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
             actions: read
-
-          # Optional: Give a custom prompt to Claude. If this is not specified, Claude will perform the instructions specified in the comment that tagged it.
-          # prompt: 'Update the pull request description to include a summary of changes.'
-
-          # Optional: Add claude_args to customize behavior and configuration
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
-          # claude_args: '--allowed-tools Bash(gh pr *)'
-

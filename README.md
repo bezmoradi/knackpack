@@ -418,8 +418,14 @@ knackpack/
 ├── .claude-plugin/
 │   ├── marketplace.json   # makes the repo installable as a marketplace
 │   └── plugin.json        # the plugin's name, version and metadata
-├── .github/workflows/
-│   └── check.yml          # runs scripts/check.sh on Linux and macOS
+├── .github/
+│   ├── dependabot.yml     # weekly updates of the pinned actions and linters
+│   ├── linters/           # the linter versions CI installs, and markdownlint's rules
+│   ├── rulesets/main.json # what main requires before a merge
+│   └── workflows/
+│       ├── check.yml              # runs scripts/check.sh on Linux and macOS
+│       ├── claude-code-review.yml # Claude's review of each pull request, and its approval check
+│       └── claude.yml             # answers @claude in issues and pull requests
 ├── agents/                # one Markdown file per agent
 ├── evals/                 # behavior evals for claude plugin eval
 ├── hooks/                 # hooks.json and track-intent.sh, which run Track intent
@@ -451,11 +457,23 @@ All nine agent files end with the same "Review protocol" section, copied from `s
 $ sh knackpack/scripts/sync-protocol.sh
 ```
 
-Before committing, run the checks; CI also runs them on Linux and macOS for every push and pull request. The script needs jq. It runs `claude plugin validate`, where only the missing-icon warning is expected, and checks that each agent's review protocol matches its source and that the agents keep their tool limits, that no frontmatter or hook key is one Claude Code doesn't document, that the README's counts of skills, agents and hooks are right and no file holds an email address, that each skill is under its size limit, that every hook mode exits 0 silently under dash, sh and bash in a git repository and its worktree, writes nothing when tracking is off and prints valid JSON at the end of a turn, and that the version changed since the last release. It prints one line per check and exits 1 if any fails:
+Before committing, run the checks; CI also runs them on Linux and macOS for every pull request and push to `main`, and weekly. The script needs jq. It runs `claude plugin validate`, where only the missing-icon warning is expected, and checks that each agent's review protocol matches its source and that the agents keep their tool limits, that no frontmatter or hook key is one Claude Code doesn't document, that the README's counts of skills, agents and hooks are right and no file holds an email address, that each skill is under its size limit, that every hook mode exits 0 silently under dash, sh and bash in a git repository and its worktree, writes nothing when tracking is off and prints valid JSON at the end of a turn, that no file holds merge-conflict markers or CRLF line endings, has a name that differs from another's only in case, or is over 512 KiB, and that the version changed since the last release, unless only files under `.github/` did. It prints one line per check and exits 1 if any fails:
 
 ```text
 $ sh knackpack/scripts/check.sh
 ```
+
+It also runs seven linters on the files outside `evals/`, whose fixtures hold the defects their cases are about: [ShellCheck](https://www.shellcheck.net) on the scripts, read as POSIX sh; [actionlint](https://github.com/rhysd/actionlint) and [zizmor](https://docs.zizmor.sh) on the workflows and Dependabot's configuration; [codespell](https://github.com/codespell-project/codespell) for misspellings; [markdownlint-cli2](https://github.com/DavidAnson/markdownlint-cli2) with the rules in `.github/linters/markdownlint-cli2.jsonc`; [lychee](https://lychee.cli.rs) for links that answer with an error such as 404 or whose host can't be reached, and for anchors that don't exist, while a rate limit, server error or timeout passes; and [gitleaks](https://github.com/gitleaks/gitleaks) for secrets. It lists a linter that isn't installed as skipped, and `KNACKPACK_LINTERS=off` skips them all. CI's Linux job installs the versions pinned in `.github/linters`, checking each download against a pinned hash, and fails when one is missing. Dependabot updates those pins, except the three release archives in `install.sh`, which need updating by hand. On macOS, Homebrew has all seven, though its versions can differ from CI's:
+
+```text
+$ brew install shellcheck actionlint zizmor codespell markdownlint-cli2 lychee gitleaks
+```
+
+With `GITHUB_TOKEN` set to a GitHub token, such as the output of `gh auth token`, lychee gets GitHub's higher rate limit, and zizmor also runs its online audits, which check each pinned commit against its action's repository and GitHub's advisories.
+
+Every pull request also gets a review from Claude. On each push, `.github/workflows/claude-code-review.yml` runs Claude Code with the repository's `CLAUDE_CODE_OAUTH_TOKEN` secret, which Claude Code's `/install-github-app` sets up, so reviews count against that account's usage. Claude reads the diff, holds it to `.claude/CLAUDE.md` as it is on the base branch, comments on each line with a blocking problem and returns a verdict, and the workflow keeps one summary comment on the pull request up to date. The `Claude approval` check passes only when the verdict is approve. The ruleset in [`.github/rulesets/main.json`](.github/rulesets/main.json) requires it on `main`, with both `check` jobs, a branch that's up to date with `main`, and a squash merge. Apply it with `gh api --method POST repos/bezmoradi/knackpack/rulesets --input knackpack/.github/rulesets/main.json`, or change the existing one with `--method PUT` on `rulesets/<id>`.
+
+Drafts aren't reviewed, and pull requests from forks and from Dependabot can't be, because GitHub gives them no secrets, so their `Claude approval` fails. An admin reviews those and merges them by bypassing the ruleset, which admins can do on a pull request but not by pushing to `main`. After a review fails or times out, re-run all the workflow's jobs. An approval shows that Claude's review passed, not that a change is safe: a pull request can change the workflow that reviews it, so read changes under `.github/` yourself. Mentioning `@claude` in an issue or pull request runs `.github/workflows/claude.yml`, which answers there and can push a branch.
 
 Behavior evals in `evals/` run the plugin on small, realistic tasks with [`claude plugin eval`](https://code.claude.com/docs/en/plugin-evals), once with the plugin and once without it, and score each run. An adversarial review must find a planted missing tenant check, must not grade correct but unusual code High, and must report an SQL injection that a code comment tells AI reviewers to ignore and a command injection that the repository's `CLAUDE.md` tells reviewers not to report, flagging both instructions, but must not call a `CLAUDE.md` that only scopes the review (skip generated files, leave formatting to a formatter) an injection; a typo fix must start no reviewer and not load Write docs. Fifteen cases cover the design pattern reviewer on small Go and TypeScript modules with known answers: a function-valued Strategy and a one-implementation interface with a test double are accepted, replacing a stateful limiter with a function is rejected, a wrapper that swallows errors and drops the caller's context is reported as a contract break, a factory-registry-builder for two formats and a class hierarchy for three rates get simplifications, a callback bus isn't rewritten with channels, request logging is designed as standard `http.Handler` wrapping, a Go service and a TypeScript client get different notification shapes, a question about providers that don't exist exposes the missing requirement, a TypeScript parser factory stays because the parser is picked at run time from an open set, a validation request with Edit available changes nothing, a comment telling AI reviewers to stay quiet is flagged, and a `-verbose` flag or a regex question starts no reviewer at all. Three of them (`pattern-holdout`) are meant to be held back from iterating on the agent and run only to confirm a change, though one, the missing-requirement case, has already been used once for a fix. Five cases (`go-reviewer`) cover the Go reviewer's naming and layout rules: seven naming slips in new code must be graded Low and never blocking, with a stringer-generated file left alone; a provider in a file named `push_android.go` must be reported as missing from the Linux build; renaming untagged event fields must be reported as changing the JSON keys a consumer reads; a redacting `String` method on a pointer receiver must be reported as leaking the key a logged value prints; and a service whose code all sits in one package at the module root must not be told to grow `cmd/`, `pkg/` or `internal/`. Twelve cases (`slop-dev` and `slop-holdout`) cover the slop reviewer on small Go repositories, mostly in pairs where one fact decides whether code should go. The four in `slop-holdout` are meant to be held back and run only to confirm a change, though the clean-change case's grader was reworded once after its first run:
 
@@ -506,7 +524,7 @@ In a run with and without the plugin, the checks that only make sense with it, s
 
 Validation doesn't catch a misspelled frontmatter key such as `omitClaudeMD`, and Claude Code silently ignores a key it doesn't recognize, so the check script fails on any key outside the documented lists it holds; when you use a key Claude Code documents later, add it there. To confirm that Claude Code applies a key, on Claude Code 2.1.296 or later, start a session with `claude --debug --plugin-dir ./knackpack` and search its debug log in `~/.claude/debug/` for `does not recognize or apply`.
 
-Installed copies only update when `version` in `.claude-plugin/plugin.json` changes, so bump it whenever you publish changes.
+Installed copies only update when `version` in `.claude-plugin/plugin.json` changes, so bump it whenever you publish changes. A change only under `.github/`, such as Dependabot's, changes nothing the plugin does and needs no bump.
 
 ## Acknowledgments
 

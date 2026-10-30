@@ -1,33 +1,58 @@
 # Runs scripts/check.sh, the pre-publish checks, on Linux and macOS for every
-# push and pull request. It needs no secrets: `claude plugin validate` works
-# without signing in.
+# pull request and push to main, and weekly, since links rot and advisories
+# for pinned actions appear without any change here. The Linux job installs
+# the linters pinned in .github/linters and requires them; the macOS job
+# turns them off, since they read files and don't depend on the platform, and
+# a copy its image might carry wouldn't be the pinned version. It needs
+# no secrets: `claude plugin validate` works without signing in, and the
+# job's read-only token only raises zizmor's and lychee's GitHub rate limits.
 name: check
 
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
+
+# A new push to a pull request cancels its older run; runs on main finish.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
+    # The ruleset on main requires these two names.
+    name: check (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    # A run takes under a minute; a hung step shouldn't hold a runner for six hours.
+    # A run takes a few minutes; a hung step shouldn't hold a runner for six hours.
     timeout-minutes: 15
+    permissions:
+      contents: read # check out the repository
     steps:
       # The full history gives the version check an origin/main to compare with.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Install the linters
+        if: runner.os == 'Linux'
+        run: |
+          sh .github/linters/install.sh "$RUNNER_TEMP/linters"
+          echo "$RUNNER_TEMP/linters/bin" >> "$GITHUB_PATH"
       - name: Install Claude Code
         run: |
           curl -fsSL https://claude.ai/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Run the pre-publish checks
+        env:
+          KNACKPACK_LINTERS: ${{ runner.os == 'Linux' && 'required' || 'off' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: sh scripts/check.sh

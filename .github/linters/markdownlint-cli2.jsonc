@@ -1,0 +1,29 @@
+// The markdownlint rules scripts/check.sh applies to every Markdown file
+// outside evals/. Every rule is on except those below, which the repository
+// breaks on purpose; a rule a new markdownlint version adds is on too.
+{
+  "config": {
+    "default": true,
+    // One paragraph per line.
+    "MD013": false,
+    // Commands are shown with "$ " and without their output.
+    "MD014": false,
+    // Headings and lists may follow a line of text directly; GitHub renders
+    // them the same.
+    "MD022": false,
+    "MD032": false,
+    // The review protocol quotes the value prefix `git-lfs `, trailing space
+    // included.
+    "MD038": false,
+    // Fences that hold prompts or plain text name no language.
+    "MD040": false,
+    // Agent files and the review protocol start with a section heading.
+    "MD041": false,
+    // Table pipes aren't aligned.
+    "MD060": false,
+    // Go and shell examples indent with tabs.
+    "MD010": { "code_blocks": false },
+    // The security reviewer writes ASVS IDs as v5.0.0-<chapter>.<section>.<requirement>.
+    "MD033": { "allowed_elements": ["chapter", "section", "requirement"] }
+  }
+}
