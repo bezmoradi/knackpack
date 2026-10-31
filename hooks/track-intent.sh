@@ -187,12 +187,38 @@ pick() { # <1 to pass over records that are done>
 }
 pick 1
 [ -n "$record" ] || pick 0
+# Claude Code keeps CLAUDE_PROJECT_DIR at the folder the session started in,
+# but when it's missing or names another folder, or manual mode runs from
+# one, the folder above isn't the session's repository's. A session ID is
+# unique, so when that folder has no record of the session and exactly one
+# other folder has its first record, that folder is the session's; its team
+# glossary is then unknown.
+moved=
+if [ -z "$record" ]; then
+	k=0
+	for f in "$root"/*/"$sid.md"; do
+		[ -f "$f" ] && [ ! -L "$f" ] && [ ! -L "${f%/*}" ] || continue
+		k=$((k + 1))
+		found=${f%/*}
+	done
+	if [ "$k" = 1 ]; then
+		repo_dir=$found
+		glossary=$repo_dir/glossary.md
+		team_glossary=
+		moved=1
+		pick 1
+		[ -n "$record" ] || pick 0
+	fi
+fi
 if [ -n "$record" ]; then
 	exists=1
+	state=exists
 else
 	exists=0
 	record=$repo_dir/$sid.md
+	state='not created yet'
 fi
+[ -z "$moved" ] || state="$state, found by its session ID: the working directory has left the session's repository"
 
 # The turn file starts with "sum <checksum>" of the session's records at the
 # turn's first prompt, then holds one line per file edit in the turn: "record"
@@ -390,13 +416,14 @@ assumed_items() { # <record> [ids]
 }
 
 print_paths() {
-	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	if [ -f "$glossary" ]; then gstate='exists'; else gstate='none yet'; fi
 	if [ -f "$team_glossary" ]; then tstate='exists; Claude Code loads it'; else tstate='none'; fi
 	printf '\n## This session\n\n'
 	printf '%s\n' "- Current record: \`$record\` ($state)"
 	printf '%s\n' "- This repository's records: \`$repo_dir/\`"
-	if [ -n "$team_glossary" ]; then
+	if [ -n "$moved" ]; then
+		printf '%s\n' "- This repository's team glossary: unknown, since the working directory has left the session's repository"
+	elif [ -n "$team_glossary" ]; then
 		printf '%s\n' "- This repository's team glossary: \`$team_glossary\` ($tstate)"
 	else
 		printf '%s\n' "- This repository's team glossary: none, since a home folder's \`.claude/rules/\` loads in every project"
@@ -582,7 +609,6 @@ prompt)
 			! { grep -q '^sum ' "$turn" && ! grep -qxF "sum $sum" "$turn"; }; then missed=1; fi
 		printf 'sum %s\n' "$sum" 2>/dev/null >"$turn"
 	fi
-	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	missed_line="Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	# Claude Code reports a finished background task as a prompt that starts
 	# with <task-notification>; it isn't the developer, so a short note does.

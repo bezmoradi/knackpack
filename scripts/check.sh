@@ -340,9 +340,9 @@ export HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1
 git -C "$long/project" init -q && git -C "$long/project" -c user.name=check -c user.email=check@example.com commit -q --allow-empty -m init &&
 	git -C "$long/project" worktree add -q "$long/worktree" 2>/dev/null || fail "couldn't make a git repository and worktree to test the hook in"
 sid=00000000-0000-0000-0000-000000000000
-run() { # <shell> <mode> <event> [state]
+run() { # <shell> <mode> <event> [state] [project]
 	printf '%s' "$3" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
-		XDG_STATE_HOME="${4:-$long/state}" CLAUDE_PROJECT_DIR="$long/project" \
+		XDG_STATE_HOME="${4:-$long/state}" CLAUDE_PROJECT_DIR="${5:-$long/project}" \
 		"$1" "$hook" "$2" >"$tmp/out" 2>"$tmp/err"
 	code=$?
 	if [ "$code" != 0 ] || [ -s "$tmp/err" ]; then
@@ -473,6 +473,26 @@ for s in $shells; do
 	grep -qF "Record: $rec (exists)" "$tmp/out" || { fail "hook under $s keeps a finished side task's record current"; hook_ok=0; }
 	grep -q '^Other records' "$tmp/out" && { fail "hook under $s names a finished side task's record among those not done"; hook_ok=0; }
 	rm -f "$two"
+	# Run from another folder than the session's repository, as a manual run
+	# can be, the hook finds the session's record by its ID, says so, and
+	# counts an update of it. With two folders holding one, it doesn't guess.
+	printf '%s\n' '# Intent record: test' '' '## Open questions' '- Q-14: still open' >"$rec"
+	away=$real/away
+	mkdir -p "$away"
+	run "$s" prompt "$event" "" "$away" || hook_ok=0
+	grep -qxF "Record: $rec (exists, found by its session ID: the working directory has left the session's repository). Open questions: Q-14." "$tmp/out" ||
+		{ fail "hook prompt under $s, outside the session's repository, doesn't find its record: $(grep '^Record:' "$tmp/out")"; hook_ok=0; }
+	(cd "$away" && env XDG_STATE_HOME="$long/state" "$s" "$hook" manual "$sid") >"$tmp/out" 2>/dev/null
+	{ grep -qF -- "- Current record: \`$rec\` (exists, found by its session ID" "$tmp/out" && grep -q '^- This repository.s team glossary: unknown' "$tmp/out"; } ||
+		{ fail "hook manual under $s, run from another folder, doesn't find the session's record: $(grep 'Current record' "$tmp/out")"; hook_ok=0; }
+	run "$s" stop "$done_event" "" "$away" && run "$s" prompt "$event" "" "$away" &&
+		run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" "" "$away" && run "$s" stop "$event" "" "$away" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s, outside the session's repository, doesn't count an update of its record"; hook_ok=0; }
+	mkdir -p "$long/state/knackpack/intent/other-1" && cp "$rec" "$long/state/knackpack/intent/other-1/$sid.md"
+	run "$s" prompt "$event" "" "$away" || hook_ok=0
+	grep -q "^Record: .*/away-[0-9]*/$sid\\.md (not created yet)\\.\$" "$tmp/out" ||
+		{ fail "hook prompt under $s picks one of two folders holding the session's record: $(grep '^Record:' "$tmp/out")"; hook_ok=0; }
+	rm -rf "$away" "$long/state/knackpack/intent/other-1" "$long/state/knackpack/intent"/away-*
 	# With `..` after a symbolic link, the folder the hook checks and the folder
 	# its normalized path names differ; it must check the second one too and
 	# never write through a link.
@@ -694,21 +714,21 @@ for s in $shells; do
 	rm -f "$long/state/knackpack/intent"/*/glossary.md
 	# A project folder whose name holds shell syntax never gets into a command
 	# the hook tells Claude to run, tracked or stopped, and the rules fill in
-	# every placeholder.
+	# every placeholder. Its own state folder holds no other record of the
+	# session, which the hook would otherwise find.
 	evil=$real/'evil"$(touch PWNED)"`touch PWNED`'
 	mkdir -p "$evil"
-	erec=$(env XDG_STATE_HOME="$long/state" "$s" "$hook" manual "$sid" "$evil" 2>/dev/null | sed -n 's/^- Current record: `\(.*\)` .*/\1/p')
+	erec=$(env XDG_STATE_HOME="$tmp/evil-state" "$s" "$hook" manual "$sid" "$evil" 2>/dev/null | sed -n 's/^- Current record: `\(.*\)` .*/\1/p')
 	for st in active stopped; do
 		[ "$st" = active ] || printf '# Intent record: test\n\n- Status: stopped\n' >"$erec"
 		printf '%s' "$event" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
-			XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$evil" "$s" "$hook" rules >"$tmp/out" 2>/dev/null
+			XDG_STATE_HOME="$tmp/evil-state" CLAUDE_PROJECT_DIR="$evil" "$s" "$hook" rules >"$tmp/out" 2>/dev/null
 		{ grep -q " manual $sid" "$tmp/out" && ! grep 'manual' "$tmp/out" | grep -qF 'PWNED'; } ||
 			{ fail "hook rules under $s, $st, puts the project's folder into the command it tells Claude to run: $(grep -o '`sh [^`]*manual[^`]*' "$tmp/out")"; hook_ok=0; }
-		[ "$st" = stopped ] || ! grep -qF '${CLAUDE_' "$tmp/out" ||
+		[ "$st" = stopped ] || { grep -q '^## This session' "$tmp/out" && ! grep -qF '${CLAUDE_' "$tmp/out"; } ||
 			{ fail "hook rules under $s leave a placeholder unfilled: $(grep -oF '${CLAUDE_' "$tmp/out" | head -n 1)"; hook_ok=0; }
 	done
-	[ -n "$erec" ] && rm -rf "${erec%/*}"
-	rm -rf "$evil"
+	rm -rf "$evil" "$tmp/evil-state"
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 export HOME="$real_home"
