@@ -249,12 +249,13 @@ others() { # <character to put around each path, or none>
 }
 
 # Lists the record's open questions and open proposals by ID. The layout ends
-# a proposal with ", by <who>. open" or "... rejected", so its status is the
-# word right after the last such attribution, or, failing that, the last one
-# after a full stop, "?" or "!" that follows the last ", by ", where a closing
-# quote or bracket may sit between the two. The proposal, and a note after the
-# status, can contain either word. A proposal whose status still can't be
-# found is named as such rather than left out.
+# a proposal with ", by <who>." and its status: open, rejected, "accepted as
+# REQ-<n>" or "replaced by PROP-<n>", the last three settled. So its status is
+# the word right after the last such attribution, or, failing that, the last
+# one after a full stop, "?" or "!" that follows the last ", by ", where a
+# closing quote or bracket may sit between the two. The proposal, and a note
+# after the status, can contain any of the words. A proposal whose status
+# still can't be found is named as such rather than left out.
 open_items() {
 	awk '
 	function flush(   s, r, i, st) {
@@ -262,7 +263,7 @@ open_items() {
 			s = tolower(t) " "
 			st = ""
 			r = s
-			while (match(r, /, by [^.]*\.[ \t]+(open|rejected)[^a-z]/)) {
+			while (match(r, /, by [^.]*\.[ \t]+(open|rejected|accepted|replaced)[^a-z]/)) {
 				st = substr(r, RSTART, RLENGTH)
 				r = substr(r, RSTART + RLENGTH)
 			}
@@ -270,7 +271,7 @@ open_items() {
 				# An attribution with a full stop of its own, or none, or
 				# a quote of the developer before the status.
 				while ((i = index(s, ", by ")) > 0) s = substr(s, i + 5)
-				while (match(s, /[.?!][")]*[ \t]+(open|rejected)[^a-z]/)) {
+				while (match(s, /[.?!][")]*[ \t]+(open|rejected|accepted|replaced)[^a-z]/)) {
 					st = substr(s, RSTART, RLENGTH)
 					s = substr(s, RSTART + RLENGTH)
 				}

@@ -298,7 +298,8 @@ fallback=$(printf '%s\n' "$save_folder" | sed -n 's/.*`\([A-Za-z0-9._-]*\)${CLAU
 [ -n "$fallback" ] || { fail "check.sh's save-folder words name no folder for the hook tests"; contract_ok=0; }
 layout=$(sed -n '/^```markdown$/,/^```$/p' skills/track-intent/SKILL.md)
 for s in '# Intent record: ' '- Status: active | paused | stopped | done' '## Assumed' '- ASM-01: <assumption>. Why: ' '## Not agreed' \
-	'- PROP-01: <suggestion>, by <developer or Claude>. open | rejected' '## Open questions' '- Q-01: ' '## History'; do
+	'- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n>' \
+	'## Open questions' '- Q-01: ' '## History'; do
 	printf '%s\n' "$layout" | grep -qF -- "$s" || { fail "track-intent's record layout no longer has \"$s\", which the hook reads"; contract_ok=0; }
 done
 [ "$contract_ok" = 1 ] && pass "the skills' save folder and record layout match what the hook reads"
@@ -505,8 +506,9 @@ for s in $shells; do
 		rm -f "$tmp/quiet.out"
 	done
 	# Open proposals: a status follows "by <who>. ", or a full stop, "?" or "!"
-	# with or without a closing quote, and a reason may follow it. A proposal
-	# without one is named, not dropped.
+	# with or without a closing quote, and a reason may follow it. Accepted and
+	# replaced ones are settled. A proposal without a status is named, not
+	# dropped.
 	for d in "$long/state/knackpack/intent"/*/; do
 		printf '%s\n' '# Intent record: test' '' '## Not agreed' \
 			'- PROP-01: Reopen the rejected ticket, by Claude. open' \
@@ -518,10 +520,14 @@ for s in $shells; do
 			'- PROP-07: "Would it taste better?" open' \
 			'- PROP-08: "Add it to everything." open (research first)' \
 			'- PROP-09: "Drop the cache." rejected' \
-			'- PROP-10: Add a queue (open)' >"$d$sid.md"
+			'- PROP-10: Add a queue (open)' \
+			'- PROP-11: Queue the exports, by Claude. accepted as REQ-43 (REQ-33, REQ-32); its wording is in History' \
+			'- PROP-12: Cache the totals, by Claude. replaced by PROP-13' \
+			'- PROP-13: Cache the totals per day, by the developer. open' \
+			'- PROP-14: "Ship it as it is." Accepted as REQ-44' >"$d$sid.md"
 	done
 	run "$s" prompt "$event" || hook_ok=0
-	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
+	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08, PROP-13\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
 		{ fail "hook prompt under $s lists the wrong open proposals: $(grep -o 'Open proposals:.*' "$tmp/out")"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# A full glossary and record, and the other records that aren't done, still
