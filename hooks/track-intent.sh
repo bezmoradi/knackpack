@@ -314,24 +314,29 @@ open_items() {
 }
 
 # Lists the record's assumptions with their text, since an ID alone doesn't
-# say what was assumed, one per line and as written. An entry that wraps onto
-# more lines is joined, never cut at the break. Past about 1,000 characters,
-# only their IDs.
+# say what was assumed, one per line and as written, in order of number. An
+# entry that wraps onto more lines is joined, never cut at the break. Past
+# about 1,000 characters, the oldest get only their IDs, so the newest keep
+# their text.
 assumed_items() {
 	awk '
-	function flush() {
+	function flush(   j, v) {
 		if (id == "") return
 		# Cut at the last " Why:", so text that contains one is not lost.
 		w = 0
 		while ((i = index(substr(t, w + 1), " Why:")) > 0) w += i
 		if (w > 0) t = substr(t, 1, w - 1)
 		sub(/[ \t]+$/, "", t)
-		if (used + length(t) <= 1000) {
-			a = a "\n- " t
-			used += length(t) + 3
-		} else {
-			more = more (more == "" ? "" : ", ") id
+		# Sorted by number as they come, equal numbers in file order.
+		v = substr(id, 5) + 0
+		for (j = ++k; j > 1 && num[j - 1] > v; j--) {
+			num[j] = num[j - 1]
+			name[j] = name[j - 1]
+			text[j] = text[j - 1]
 		}
+		num[j] = v
+		name[j] = id
+		text[j] = t
 		id = ""
 	}
 	{ sub(/\r$/, "") }
@@ -361,8 +366,18 @@ assumed_items() {
 	}
 	END {
 		flush()
-		if (a == "" && more == "") exit
-		printf "Assumed, not confirmed; check this message and your next step against them:%s", a
+		if (k == 0) exit
+		# The newest that fit are shown in full.
+		for (j = k; j >= 1; j--) {
+			if (used + length(text[j]) > 1000) continue
+			full[j] = 1
+			used += length(text[j]) + 3
+		}
+		printf "Assumed, not confirmed; check this message and your next step against them:"
+		for (j = 1; j <= k; j++) {
+			if (full[j]) printf "\n- %s", text[j]
+			else more = more (more == "" ? "" : ", ") name[j]
+		}
 		if (more != "") printf "\nMore in the record: %s.", more
 	}' "$1" 2>/dev/null
 }

@@ -529,6 +529,21 @@ for s in $shells; do
 	run "$s" prompt "$event" || hook_ok=0
 	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08, PROP-13\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
 		{ fail "hook prompt under $s lists the wrong open proposals: $(grep -o 'Open proposals:.*' "$tmp/out")"; hook_ok=0; }
+	# Assumptions, each up to its "Why:": the newest by number in full, within
+	# about 1,000 characters, in order of number, and the oldest by ID.
+	for d in "$long/state/knackpack/intent"/*/; do
+		{
+			printf '%s\n' '# Intent record: test' '' '## Assumed (not confirmed)'
+			for n in 02 03 04 05 06 07 08 09 11 14 13 19 20 21; do
+				printf '%s\n' "- ASM-$n: assumption $n, with enough words to make the entry about one hundred characters. Why: x"
+			done
+		} >"$d$sid.md"
+	done
+	run "$s" prompt "$event" || hook_ok=0
+	got=$(sed -n 's/^- \(ASM-[0-9]*\): assumption [0-9]*, with .* characters\.$/\1/p' "$tmp/out" | tr '\n' ' ')
+	{ [ "$got" = 'ASM-05 ASM-06 ASM-07 ASM-08 ASM-09 ASM-11 ASM-13 ASM-14 ASM-19 ASM-20 ASM-21 ' ] &&
+		grep -qx 'More in the record: ASM-02, ASM-03, ASM-04\.' "$tmp/out"; } ||
+		{ fail "hook prompt under $s doesn't give the newest assumptions in full, by number: $got$(grep 'More in the record' "$tmp/out")"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# A full glossary and record, and the other records that aren't done, still
 	# fit under the cap with long paths.
