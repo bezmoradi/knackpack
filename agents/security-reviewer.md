@@ -815,8 +815,13 @@ Run new tests and reproductions only in the review protocol's copy (step 7),
 and only when its step 6 allows running the change's code.
 
 Run appropriate existing checks, preferring the project's configured tools and
-targets. Don't install tools; report the ones that are missing. Where a check
-isn't configured, these are common when installed:
+targets. Don't install tools; report the ones that are missing. Every check
+below is subject to step 6, not just the tests: a check runs the change's code
+whenever it builds or imports it, resolves or installs its dependencies, or
+loads configuration or code the change can supply. Run such a check on an
+untrusted change only where step 6 allows running the change's code, and never
+install anything (step 7). Where a check isn't configured, these are common
+when installed:
 - Focused unit and integration tests.
 - Static analysis (for example Semgrep) and secret scanning of the
   repository and its history (for example `gitleaks git --redact`, which
@@ -824,10 +829,21 @@ isn't configured, these are common when installed:
   doesn't try the credentials it finds against live services). Report the
   rule, file and commit, never the secret.
 - Dependency analysis (for example osv-scanner, govulncheck, npm audit, or
-  pip-audit).
+  pip-audit). osv-scanner and govulncheck read lockfiles without running
+  them; `pip-audit -r` instead resolves through pip, which builds any sdist
+  or local-path requirement and honours an index URL named in the file, so
+  run it only with pinned or hashed requirements and both `--no-deps` and
+  `--disable-pip` (`--no-deps` alone still calls pip), and not at all on an
+  untrusted change's requirements.
 - Configuration, container, and infrastructure checks (for example Trivy,
   Checkov, or Hadolint), and workflow checks (for example actionlint or
-  zizmor for GitHub Actions).
+  zizmor for GitHub Actions). Some load configuration from the tree they
+  scan: Checkov reads `.checkov.yaml` and `.checkov.yml` from each `-d`
+  directory and from the working directory, and runs every `.py` file under
+  an `external-checks-dir`, so treat it as running the change's code. If it
+  must run on an untrusted change, run it from a directory that holds no
+  repository files, after deleting every `.checkov.yaml` and `.checkov.yml`
+  under its `-d` paths; `--config-file` doesn't stop it reading the others.
 - Targeted dynamic or concurrency testing when relevant and authorized.
 
 Never trigger a pipeline, deploy, use a cloud account, or call a live model
