@@ -602,7 +602,7 @@ for s in $shells; do
 		awk 'BEGIN { for (i = 0; i < 60; i++) printf "- Ausgabepr\303\274fung %d: die Pr\303\274fung der Ausgabe f\303\274r gro\303\237e \303\204nderungen\n", i }' >"${d}glossary.md"
 		run "$s" state "$event" || hook_ok=0
 		LC_ALL=C sed -n '/^## Personal glossary/,/^----- end -----$/p' "$tmp/out" | LC_ALL=C sed '1,/^----- begin -----$/d; /^----- end -----$/d; /^$/d' >"$tmp/gloss"
-		bad=$(LC_ALL=C grep -vxF -f "${d}glossary.md" "$tmp/gloss" | grep -v '^\[Shortened from [0-9]* bytes; left out: everything from line [0-9]* on\. Read the file for the rest\.\]$')
+		bad=$(LC_ALL=C grep -vxF -f "${d}glossary.md" "$tmp/gloss" | LC_ALL=C grep -v '^\[Shortened from [0-9]* bytes; left out: everything from line [0-9]* on\. Read the file for the rest\.\]$')
 		{ [ -s "$tmp/gloss" ] && [ -z "$bad" ] && grep -q '^\[Shortened from' "$tmp/gloss"; } ||
 			{ fail "hook state under $s cuts a long glossary inside a line: $(printf '%s' "$bad" | head -c 100)"; hook_ok=0; }
 		rm -f "${d}glossary.md"
@@ -725,8 +725,8 @@ for s in $shells; do
 			XDG_STATE_HOME="$tmp/evil-state" CLAUDE_PROJECT_DIR="$evil" "$s" "$hook" rules >"$tmp/out" 2>/dev/null
 		{ grep -q " manual $sid" "$tmp/out" && ! grep 'manual' "$tmp/out" | grep -qF 'PWNED'; } ||
 			{ fail "hook rules under $s, $st, puts the project's folder into the command it tells Claude to run: $(grep -o '`sh [^`]*manual[^`]*' "$tmp/out")"; hook_ok=0; }
-		[ "$st" = stopped ] || { grep -q '^## This session' "$tmp/out" && ! grep -qF '${CLAUDE_' "$tmp/out"; } ||
-			{ fail "hook rules under $s leave a placeholder unfilled: $(grep -oF '${CLAUDE_' "$tmp/out" | head -n 1)"; hook_ok=0; }
+		[ "$st" = stopped ] || { ! grep -q 'too long to print here' "$tmp/out" && ! grep -qF '${CLAUDE_' "$tmp/out"; } ||
+			{ fail "hook rules under $s, for that folder, aren't the rules with every placeholder filled: $(grep -oE 'too long to print here|[$][{]CLAUDE_[A-Z_]*[}]' "$tmp/out" | head -n 1)"; hook_ok=0; }
 	done
 	rm -rf "$evil" "$tmp/evil-state"
 done
