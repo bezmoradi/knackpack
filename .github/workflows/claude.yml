@@ -53,5 +53,12 @@ jobs:
         uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33 # v1.0.261
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Only the maintainer's comments, reviews and review comments go into
+          # Claude's prompt. Everyone else's are left out, bots' included, such
+          # as Claude's own earlier replies and the review workflow's comments.
+          # It filters nothing else: the issue's or pull request's title and
+          # body reach the prompt whoever wrote them, and on a pull request
+          # Claude works in its branch. Names match exactly, case included.
+          include_comments_by_actor: bezmoradi
           additional_permissions: |
             actions: read
