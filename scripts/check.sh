@@ -627,9 +627,9 @@ bad=$(git ls-files -z --cached --others --exclude-standard | xargs -0 wc -c 2>/d
 # The merge gate binds everyone, admins included. The file sets the empty
 # list outright, so applying it with PUT also removes a bypass added on GitHub.
 if jq -e '.bypass_actors == []' .github/rulesets/main.json >/dev/null 2>&1; then
-	pass "the ruleset lets no one bypass the merge gate"
+	pass "the ruleset lists no bypass actors"
 else
-	fail ".github/rulesets/main.json needs \"bypass_actors\": [], so no one can bypass the merge gate"
+	fail ".github/rulesets/main.json needs \"bypass_actors\": [], so the ruleset binds everyone, admins included"
 fi
 
 # Claude's review of pull requests only reviews, as .claude/CLAUDE.md says:
