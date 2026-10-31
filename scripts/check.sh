@@ -607,14 +607,21 @@ for s in $shells; do
 	fi
 	rm -rf "$tmp/elsewhere"
 	# A stopped session gets the short note instead of the rules, however the
-	# Status word is capitalized.
+	# Status word is capitalized, and after a compaction or on resuming it
+	# loads neither its record nor the glossary.
 	for st in stopped Stopped; do
 		for d in "$long/state/knackpack/intent"/*/; do
 			printf '# Intent record: test\n\n- Status: %s · Updated: 2026-01-01\n' "$st" >"$d$sid.md"
+			printf '%s\n' '- term: a meaning' >"${d}glossary.md"
 		done
 		run "$s" rules "$event" || hook_ok=0
 		grep -q 'tracking is stopped for this session' "$tmp/out" || { fail "hook rules under $s ignores a record whose Status is $st"; hook_ok=0; }
+		for src in compact resume; do
+			run "$s" state "$(printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/")" || hook_ok=0
+			[ -s "$tmp/out" ] && { fail "hook state under $s on $src loads a session whose Status is $st: $(head -c 100 "$tmp/out" | tr '\n' ' ')"; hook_ok=0; }
+		done
 	done
+	rm -f "$long/state/knackpack/intent"/*/glossary.md
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 export HOME="$real_home"

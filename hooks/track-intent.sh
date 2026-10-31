@@ -8,7 +8,8 @@
 #   track-intent.sh state    (SessionStart) print the developer's personal
 #                            glossary for the repository and this session's
 #                            current record, if they exist, and name its
-#                            other records that aren't done
+#                            other records that aren't done, or nothing if
+#                            the session's record is stopped
 #   track-intent.sh prompt   (UserPromptSubmit) print a short reminder to
 #                            update the record, with the open items and
 #                            assumptions, and flag a last turn that edited
@@ -502,6 +503,8 @@ state)
 		# folder another open session has just created.
 		find "$root" -mindepth 1 -type d -empty -mtime +0 -exec rmdir {} + 2>/dev/null
 	fi
+	# A stopped session loads only the rules' one-line note.
+	stopped && exit 0
 	mkdir -p "$repo_dir" 2>/dev/null
 	gloss=$(print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000)
 	[ -n "$gloss" ] && printf '%s\n' "$gloss"
