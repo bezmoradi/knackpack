@@ -59,7 +59,7 @@ Start them all in one message, each with `subagent_type: knackpack:<name>`, with
 
 When every report has arrived, read each one in full. Then build one list:
 
-1. **Collect every row** of each report's `## Findings table` (`sed -n '/^## Findings table$/,/^## /p' <report>`), plus its open risks and questions, which stay apart from findings. Prefix each ID with its reviewer so IDs stay distinct: `ADV-F1`, `ARCH-F1`, `SEC-F1`, `SLOP-F1`, `DP-F1`, `GO-F1`, `PY-F1`, `UI-F1`.
+1. **Collect every row** of each report's `## Findings table` (`sed -n '/^## Findings table$/,/^## /p' <report>`), plus its open risks and questions, which stay apart from findings, and the issues it lists apart from its findings as pre-existing or outside the target, which go under Outside the target. Prefix each ID with its reviewer so IDs stay distinct: `ADV-F1`, `ARCH-F1`, `SEC-F1`, `SLOP-F1`, `DP-F1`, `GO-F1`, `PY-F1`, `UI-F1`.
 2. **Group duplicates.** Two findings are one issue when they describe the same defect: the same mechanism at the same place, or one root cause reported from different places. Use the location (path and overlapping lines) and the kind of defect as a first sort, then read both findings to confirm; two different defects on one line stay separate, and one defect stays one issue however many reviewers found it. Give each merged issue an ID, `M1`, `M2` and so on, and keep every source ID.
 3. **Reconcile the severity.** All reviewers grade on the same four levels, but each applies its own release gate: the slop reviewer keeps High and Critical for defects, and the security reviewer's gate can block a Low that fails a required control. Give the merged issue the highest severity a source's evidence supports, and when the sources differ, give each source's grade and say why you chose yours. It blocks if any source's gate blocks it; name that gate.
 4. **Keep each reviewer's verdict as written.** List every reviewer's verdict word and report path in the report; don't translate one reviewer's verdict into another's terms.
@@ -108,6 +108,7 @@ Save it as the rules above say, in this layout:
 ## Decision needed
 ## Won't fix
 ## Unproven concerns
+## Outside the target
 
 ## Findings table
 | ID | Severity | Blocks | Adjudication | Fix | Sources | Location | Finding |
@@ -119,7 +120,7 @@ Save it as the rules above say, in this layout:
 <Each report's cost line as it gives it, the adjudicators' too, and beside it the duration and token count Claude Code gave you when that agent finished, where it gave them, which include writing the report. Then a total of each kind, kept apart because they're counted differently. Say which agents had neither.>
 ```
 
-Each issue under Fix now, Decision needed and Won't fix gives its ID, title, location, severity and the sources' grades when they differ, the evidence in a sentence or two with the report it comes from, the adjudication verdict, and the correction with whether it was tested. Adjudication is HOLDS, HOLDS ONLY IF, REFUTED, UNRESOLVED or not adjudicated; Fix is works, doesn't work or untested. Write `\|` for a `|` inside a cell.
+Each issue under Fix now, Decision needed and Won't fix gives its ID, title, location, severity and the sources' grades when they differ, the evidence in a sentence or two with the report it comes from, the adjudication verdict, and the correction with whether it was tested. Adjudication is HOLDS, HOLDS ONLY IF, REFUTED, UNRESOLVED or not adjudicated; Fix is works, doesn't work or untested. Outside the target gives each such issue once, duplicates grouped, with the reviewers that listed it, its location and any severity they gave; these aren't adjudicated or triaged and don't block. Write `\|` for a `|` inside a cell.
 
 Check every `path:line` you cite against the pinned revision, and correct or drop any that fails.
 
