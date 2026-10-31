@@ -52,6 +52,7 @@ done
 # is the Agent tool's old name.
 tool_is() { printf '%s\n' "$tools" | sed 's/([^)]*)//g' | tr ', \t' '\n\n\n' | grep -Ex "$1" >/dev/null; }
 agents_ok=1
+brief_ok=1
 n=0
 for f in agents/*.md; do
 	n=$((n + 1))
@@ -68,6 +69,12 @@ for f in agents/*.md; do
 	tool_is 'Edit|Write|NotebookEdit|MultiEdit' && { fail "$name has a file-editing tool"; agents_ok=0; }
 	if tool_is 'Agent|Task'; then
 		case $name in adversarial-reviewer | security-reviewer | architecture-reviewer) ;; *) fail "$name has the Agent tool"; agents_ok=0 ;; esac
+		# An agent that can start the adjudicator must not start it when its
+		# brief says the caller adjudicates; the brief's check below reports it.
+		body "$f" | sed '/^## Review protocol$/,$d' | grep -qF 'Unless your brief says the caller adjudicates' || {
+			fail "$name starts the adjudicator even when its brief says the caller adjudicates"
+			brief_ok=0
+		}
 	fi
 	grep -qx 'omitClaudeMd: true' "$tmp/fm" || { fail "$name lacks omitClaudeMd: true"; agents_ok=0; }
 	body "$f" | sed '/^## Review protocol$/,$d' | grep -qF "\`$name.md\`" || {
@@ -80,13 +87,11 @@ for f in agents/*.md; do
 		agents_ok=0
 	}
 done
-[ "$n" = 9 ] || { fail "expected 9 agents, found $n"; agents_ok=0; }
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd, report file names and the review protocol's source"
 
 # Orchestrate review tells each reviewer that it adjudicates, so the same
-# finding isn't adjudicated once per reviewer; the protocol, and the three
-# reviewers that otherwise start the adjudicator, must recognize that brief.
-brief_ok=1
+# finding isn't adjudicated once per reviewer; the protocol, and every agent
+# with the Agent tool (checked in the loop above), must recognize that brief.
 grep -qF "The caller adjudicates: don't start the adjudicator." skills/orchestrate-review/SKILL.md || {
 	fail "skills/orchestrate-review/SKILL.md no longer gives reviewers the sentence \"The caller adjudicates: don't start the adjudicator.\""
 	brief_ok=0
@@ -95,13 +100,20 @@ grep -qF 'When your brief says the caller adjudicates' scripts/review-protocol.m
 	fail "scripts/review-protocol.md no longer says what to do when the brief says the caller adjudicates"
 	brief_ok=0
 }
-for name in adversarial-reviewer security-reviewer architecture-reviewer; do
-	body "agents/$name.md" | sed '/^## Review protocol$/,$d' | grep -qF 'Unless your brief says the caller adjudicates' || {
-		fail "$name starts the adjudicator even when its brief says the caller adjudicates"
-		brief_ok=0
-	}
-done
 [ "$brief_ok" = 1 ] && pass "reviewers leave adjudication to orchestrate-review when its brief says so"
+
+# Agents cite the review protocol's steps by number, as in "the copy from step
+# 7 of the review protocol", so its nine steps keep their numbers and opening
+# words. To renumber or rename one, first update each agent that cites it.
+steps=$(sed -n 's/^\*\*\([0-9][0-9]*\. [^*]*\)\*\*.*/\1/p' scripts/review-protocol.md | sed 's/\.$//')
+want=$(printf '%s\n' '1. Make a scratch folder' '2. Record the starting state' '3. Find the base' '4. Read the change' \
+	'5. Read the guidance yourself' "6. Decide whether you may run the change's code" '7. Experiment only in a copy' '8. Finish' \
+	'9. Save the report to a file')
+if [ "$steps" = "$want" ]; then
+	pass "the review protocol keeps the nine numbered steps the agents cite"
+else
+	fail "scripts/review-protocol.md's numbered steps changed, but the agents cite them by number: update each agent that cites a moved or renamed step, then this check's list. Steps now: $(printf '%s' "$steps" | tr '\n' '|')"
+fi
 
 # Every knackpack:<name> and `<name>-reviewer` in the docs, agents, skills and
 # eval cases is an agent or skill that exists (or, for the second form, an eval
