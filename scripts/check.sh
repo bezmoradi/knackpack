@@ -610,6 +610,20 @@ for s in $shells; do
 	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 	grep -qx -- '- ASM-22: assumption 22, recorded later in the turn\.' "$tmp/out" ||
 		{ fail "hook prompt under $s doesn't list the assumptions again in a new turn"; hook_ok=0; }
+	# A newer assumption too long for the space left is cut at a space, not
+	# passed over for older, shorter ones, which are named by ID.
+	for d in "$long/state/knackpack/intent"/*/; do
+		{
+			printf '%s\n' '# Intent record: test' '' '## Assumed (not confirmed)'
+			for n in 01 02 03 04 05; do printf '%s\n' "- ASM-$n: old assumption $n. Why: x"; done
+			awk 'BEGIN { s = "- ASM-06: a long assumption"; while (length(s) < 900) s = s " with more words"; print s " and its end. Why: y" }'
+			awk 'BEGIN { s = "- ASM-07: the newest assumption"; while (length(s) < 300) s = s " with more words"; print s ". Why: z" }'
+		} >"$d$sid.md"
+	done
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	{ grep -q '^- ASM-06: a long assumption with more words.* \[\.\.\.\]$' "$tmp/out" && grep -q '^- ASM-07: the newest assumption' "$tmp/out" &&
+		! grep -q 'and its end' "$tmp/out" && grep -qx 'More in the record: ASM-01, ASM-02, ASM-03, ASM-04, ASM-05\.' "$tmp/out"; } ||
+		{ fail "hook prompt under $s doesn't cut a long newer assumption to keep it ahead of older ones: $(grep -o '^- ASM-0[0-9]' "$tmp/out" | tr '\n' ' ')"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# A full glossary and record, and the other records that aren't done, still
 	# fit under the cap with long paths.
@@ -684,6 +698,28 @@ for s in $shells; do
 	{ [ "$cut" != "$st" ] && [ "${#cut}" -le 400 ] && case $(grep '^- Status:' "$d$sid.md") in "$cut "*) ;; *) false ;; esac &&
 		grep -q '^- REQ-40: ' "$tmp/out" && grep -q '^\[Shortened from [0-9]* bytes; left out: the end of the Status line\. ' "$tmp/out"; } ||
 		{ fail "hook state under $s doesn't cut a long Status line at a space to keep the Agreed entries: $(printf '%s' "$st" | tail -c 60)"; hook_ok=0; }
+	# So is any other line past 1,000 bytes, such as a Goal written as one
+	# paragraph, which would otherwise hide every section after it.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN {
+			print "# Intent record: test"; print ""; print "## Goal"
+			s = "Ship the export"; while (length(s) < 7000) s = s " and keep it small"; print s
+			print "## Agreed"; print "- REQ-1: a requirement"; print "## Open questions"; print "- Q-01: still open"
+		}' >"$d$sid.md"
+	done
+	run "$s" state "$event" || hook_ok=0
+	g=$(grep '^Ship the export' "$tmp/out")
+	{ [ "${#g}" -le 1006 ] && case $g in *' [...]') ;; *) false ;; esac && grep -q '^- Q-01: still open$' "$tmp/out" &&
+		grep -q '^\[Shortened from [0-9]* bytes; left out: the ends of long lines\. ' "$tmp/out"; } ||
+		{ fail "hook state under $s doesn't cut a long line at a space to keep the sections after it: $(printf '%s' "$g" | tail -c 60)"; hook_ok=0; }
+	# It names the files on the record's Files line that are gone, at most
+	# three, whether or not a path is in backticks or holds a space.
+	for d in "$long/state/knackpack/intent"/*/; do
+		printf '%s\n' '# Intent record: test' "- Files: $long/project, \`$real/gone 1.md\`, $real/gone2.md, $real/gone3.md, $real/gone4.md" >"$d$sid.md"
+	done
+	run "$s" state "$event" || hook_ok=0
+	grep -qxF "The record's Files line names files that no longer exist: \`$real/gone 1.md\`, \`$real/gone2.md\`, \`$real/gone3.md\` and 1 more." "$tmp/out" ||
+		{ fail "hook state under $s doesn't name the record's missing files: $(grep 'no longer exist' "$tmp/out")"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# After a compaction, and only then, it points to the session's checkpoint,
 	# by the same path whether TMPDIR ends in a slash, as macOS's does, or not.

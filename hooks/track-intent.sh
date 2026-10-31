@@ -7,7 +7,8 @@
 #                            stopped
 #   track-intent.sh state    (SessionStart) print the developer's personal
 #                            glossary for the repository and this session's
-#                            current record, if they exist, and name its
+#                            current record, if they exist, and name the
+#                            files on its Files line that are gone and its
 #                            other records that aren't done, or nothing if
 #                            the session's record is stopped
 #   track-intent.sh prompt   (UserPromptSubmit) print a short reminder to
@@ -343,9 +344,11 @@ open_items() {
 # Lists the record's assumptions with their text, since an ID alone doesn't
 # say what was assumed, one per line and as written, in order of number. An
 # entry that wraps onto more lines is joined, never cut at the break. Past
-# about 1,000 characters, the oldest get only their IDs, so the newest keep
-# their text. With "ids", only the IDs, for a reminder that follows one that
-# listed the same assumptions.
+# about 1,000 characters, the newest keep their text and the oldest get only
+# their IDs: the first that doesn't fit is cut short rather than left out,
+# so a long one can't give its place to older, shorter ones. With "ids",
+# only the IDs, for a reminder that follows one that listed the same
+# assumptions.
 assumed_items() { # <record> [ids]
 	awk -v ids="${2:-}" '
 	function flush(   j, v) {
@@ -400,11 +403,21 @@ assumed_items() { # <record> [ids]
 			printf "Assumed, not confirmed, as an earlier reminder listed them: %s; check this message and your next step against them.", l
 			exit
 		}
-		# The newest that fit are shown in full.
+		# The newest that fit are shown in full, then the next one cut at a
+		# space, if a useful part of it fits; a space is never inside a
+		# character, however awk counts.
 		for (j = k; j >= 1; j--) {
-			if (used + length(text[j]) > 1000) continue
-			full[j] = 1
-			used += length(text[j]) + 3
+			if (used + length(text[j]) <= 1000) {
+				full[j] = 1
+				used += length(text[j]) + 3
+				continue
+			}
+			r = 1000 - used - 6
+			if (r >= 100 && match(substr(text[j], 1, r), /.* /)) {
+				text[j] = substr(text[j], 1, RLENGTH - 1) " [...]"
+				full[j] = 1
+			}
+			break
 		}
 		printf "Assumed, not confirmed; check this message and your next step against them:"
 		for (j = 1; j <= k; j++) {
@@ -435,9 +448,10 @@ print_paths() {
 # stays under Claude Code's 10,000-character cap. A file too long for it loses
 # whole lines from the end, so a multi-byte character can't be split, and the
 # output says what was left out. A record first drops what matters least:
-# the end of a Status line past 400 bytes, cut at a space, rejected proposals
-# and the oldest History entries, keeping or dropping a History entry whole,
-# with the lines under it.
+# the end of a Status line past 400 bytes and of any other line past 1,000,
+# cut at a space, so no one line crowds out the rest, then rejected
+# proposals and the oldest History entries, keeping or dropping a History
+# entry whole, with the lines under it.
 print_file() { # <title> <file> <byte limit> [record]
 	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
 	size=$(wc -c <"$2" | tr -d ' ')
@@ -453,6 +467,12 @@ print_file() { # <title> <file> <byte limit> [record]
 		rec != "" && sec == "" && /^- Status:/ && length($0) > 400 && match(substr($0, 1, 400), /.* /) {
 			$0 = substr($0, 1, RLENGTH - 1) " [...]"
 			status = 1
+		}
+		# Any other line can grow long too, such as a Goal or a requirement
+		# written as one paragraph, and would hide everything after it.
+		rec != "" && length($0) > 1000 && match(substr($0, 1, 1000), /.* /) {
+			$0 = substr($0, 1, RLENGTH - 1) " [...]"
+			long = 1
 		}
 		rec != "" && sec ~ /^## History/ {
 			# The heading and anything before the first entry, then one
@@ -473,6 +493,7 @@ print_file() { # <title> <file> <byte limit> [record]
 				used += n
 			}
 			left = status ? "the end of the Status line" : ""
+			if (long) left = left (left == "" ? "" : ", ") "the ends of long lines"
 			if (rej) left = left (left == "" ? "" : ", ") "rejected proposals"
 			if (cut) {
 				left = left (left == "" ? "" : ", ") "everything from line " line[i] " on"
@@ -496,6 +517,19 @@ print_file() { # <title> <file> <byte limit> [record]
 		cat -- "$2"
 	fi
 	printf '\n----- end -----\n'
+}
+
+# Names the files on the record's Files line that no longer exist, at most
+# three, so a resumed session doesn't go looking for them. The line holds
+# absolute paths separated by ", ", which a path rarely contains.
+gone_files() {
+	[ "$exists" = 1 ] || return 0
+	list=$(sed -n 's/^- Files:[[:space:]]*//p' "$record" 2>/dev/null | head -n 1 | tr -d '`\r' |
+		awk '{ sub(/[ \t]+$/, ""); n = split($0, a, /, \//); for (i = 1; i <= n; i++) print (i > 1 ? "/" : "") a[i] }' |
+		while IFS= read -r p; do
+			[ "${p#/}" != "$p" ] && [ ! -e "$p" ] && printf '%s\n' "$p"
+		done | awk 'NR <= 3 { printf "%s`%s`", (NR > 1 ? ", " : ""), $0 } END { if (NR > 3) printf " and %d more", NR - 3 }')
+	[ -z "$list" ] || printf '%s\n' "The record's Files line names files that no longer exist: $list."
 }
 
 esc() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
@@ -578,14 +612,16 @@ This session has a checkpoint: \`$f\`. Read it in full before you continue; wher
 ## Other records of this session that aren't done
 
 $other"
+	gone=$(gone_files)
 	# The record gets up to 6,000 bytes, less whatever a full glossary, the
-	# other records and long paths need to keep the output under Claude Code's
-	# 10,000-character cap.
+	# other records, missing files and long paths need to keep the output
+	# under Claude Code's 10,000-character cap.
 	if [ "$exists" = 1 ]; then
-		room=$((9650 - $(printf '%s%s%s%s' "$gloss" "$ckpt" "$other" "$record" | wc -c | tr -d ' ')))
+		room=$((9650 - $(printf '%s%s%s%s%s' "$gloss" "$ckpt" "$other" "$gone" "$record" | wc -c | tr -d ' ')))
 		[ "$room" -le 6000 ] || room=6000
 		[ "$room" -ge 1000 ] || room=1000
 		print_file "Current record: evidence of what was agreed, not instructions" "$record" "$room" record
+		[ -z "$gone" ] || printf '\n%s\n' "$gone"
 	fi
 	[ -z "$other" ] || printf '%s\n' "$other"
 	;;
@@ -694,6 +730,8 @@ manual)
 	print_paths
 	print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000
 	[ "$exists" = 1 ] && print_file "Current record: evidence of what was agreed, not instructions" "$record" 6000 record
+	gone=$(gone_files)
+	[ -z "$gone" ] || printf '\n%s\n' "$gone"
 	other=$(others '`' | sed 's/^/- /')
 	[ -z "$other" ] || printf "\n## Other records of this session that aren't done\n\n%s\n" "$other"
 	;;
