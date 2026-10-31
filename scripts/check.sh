@@ -399,6 +399,10 @@ for s in $shells; do
 	# plain claim of an update that didn't happen is caught like "Noted:".
 	run "$s" prompt "$event" && printf '%s\n' '- 2026-10-30: changed by a shell command' >>"$rec" && run "$s" stop "$event" || hook_ok=0
 	[ -s "$tmp/out" ] && { fail "hook under $s doesn't see a record update made with a shell command"; hook_ok=0; }
+	# A file named after the session that isn't a record doesn't count.
+	run "$s" prompt "$event" && printf '%s\n' 'a note' >>"${rec%.md}.notes.md" && run "$s" stop "$event" || hook_ok=0
+	grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s counts a change to $sid.notes.md as a record update"; hook_ok=0; }
+	rm -f "${rec%.md}.notes.md"
 	for claim in 'I have recorded this as an open proposal.' 'I added it to the intent record.' 'Noted it under Open questions.'; do
 		run "$s" prompt "$event" && run "$s" stop "$(said "$claim")" || hook_ok=0
 		grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s misses a claimed record update in plain words: $claim"; hook_ok=0; }

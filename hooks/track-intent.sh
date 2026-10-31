@@ -145,21 +145,32 @@ repo_dir=$root/$name-$hash
 glossary=$repo_dir/glossary.md
 
 # The session's records are <session>.md (1), <session>.2.md, <session>.3.md
-# and so on: each new task gets the next number. The current one is the record
-# edited last that isn't done, so a side task's record gives way to the main
-# task's once either the main one is updated again or the side task is done;
-# on a tie, the highest-numbered. When every record is done, the one edited
-# last. A stopped record isn't passed over, so stopping tracking holds.
+# and so on: each new task gets the next number. Every loop over them goes
+# through record_n, which passes a regular file with such a name, not a link,
+# and sets n to its number, so a file such as <session>.notes.md is never one.
+record_n() {
+	[ -f "$1" ] && [ ! -L "$1" ] || return 1
+	case ${1#"$repo_dir/$sid"} in
+	.md) n=1 ;;
+	.*.md)
+		n=${1#"$repo_dir/$sid."}
+		n=${n%.md}
+		case $n in '' | *[!0-9]* | ??????????*) return 1 ;; esac
+		;;
+	*) return 1 ;;
+	esac
+}
+# The current one is the record edited last that isn't done, so a side task's
+# record gives way to the main task's once either the main one is updated
+# again or the side task is done; on a tie, the highest-numbered. When every
+# record is done, the one edited last. A stopped record isn't passed over, so
+# stopping tracking holds.
 is_done() { grep -Eq '^- Status:[[:space:]]*[Dd]one([^A-Za-z]|$)' "$1" 2>/dev/null; }
 pick() { # <1 to pass over records that are done>
 	record=
 	top_n=0
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -f "$f" ] && [ ! -L "$f" ] || continue
-		n=${f#"$repo_dir/$sid"}
-		n=${n%.md}
-		n=${n#.}
-		case $n in '') n=1 ;; *[!0-9]* | ??????????*) continue ;; esac
+		record_n "$f" || continue
 		[ "$1" = 1 ] && is_done "$f" && continue
 		if [ "$n" -gt "$top_n" ]; then
 			top_n=$n
@@ -167,10 +178,7 @@ pick() { # <1 to pass over records that are done>
 		fi
 	done
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -n "$record" ] && [ -f "$f" ] && [ ! -L "$f" ] && [ "$f" != "$record" ] || continue
-		n=${f#"$repo_dir/$sid"}
-		n=${n%.md}
-		case ${n#.} in *[!0-9]* | ??????????*) continue ;; esac
+		[ -n "$record" ] && [ "$f" != "$record" ] && record_n "$f" || continue
 		[ "$1" = 1 ] && is_done "$f" && continue
 		[ -n "$(find "$f" -prune -newer "$record" 2>/dev/null)" ] && record=$f
 	done
@@ -212,7 +220,7 @@ turn_ok() {
 # the turn.
 records_sum() {
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -f "$f" ] && [ ! -L "$f" ] && cat -- "$f"
+		record_n "$f" && cat -- "$f"
 	done 2>/dev/null | cksum 2>/dev/null
 }
 
@@ -226,10 +234,7 @@ stopped() {
 others() { # <character to put around each path, or none>
 	k=0
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -f "$f" ] && [ ! -L "$f" ] && [ "$f" != "$record" ] || continue
-		n=${f#"$repo_dir/$sid"}
-		n=${n%.md}
-		case ${n#.} in *[!0-9]* | ??????????*) continue ;; esac
+		[ "$f" != "$record" ] && record_n "$f" || continue
 		is_done "$f" && continue
 		k=$((k + 1))
 		[ "$k" -le 3 ] || continue
