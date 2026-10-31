@@ -283,13 +283,30 @@ if [ "$c" -lt 8500 ]; then pass "skill sizes (track-intent body $c characters)";
 
 # The hook, under every shell at hand: silent, always exit 0, and its rules
 # output under the 10,000-character cap even with long paths.
-hook=hooks/track-intent.sh
 command -v dash >/dev/null 2>&1 || fail "dash isn't installed, so the hook can't be tested under it"
 shells=
 for s in dash sh bash; do command -v "$s" >/dev/null 2>&1 && shells="$shells $s"; done
-# A long path for the state folder and project, 172 characters whatever
-# TMPDIR's length, so the size checks measure the same everywhere.
-long=$tmp/$(awk -v n=$((171 - ${#tmp})) 'BEGIN { if (n < 20) n = 20; while (n-- > 0) printf "a" }')
+# The paths the hook prints have fixed lengths, whatever the checkout's and
+# TMPDIR's, so the size checks measure the same everywhere. The hook prints its
+# own root, resolved with pwd -P, so it runs from a copy of the files it reads
+# at a 100-character root, longer than an installed copy's (about 68), and the
+# state folder and project sit in a folder of 160 characters. Each is built on
+# the resolved TMPDIR, since git resolves the project's path too.
+pad() { awk -v n="$1" -v min="$2" 'BEGIN { if (n < min) n = min; while (n-- > 0) printf "a" }'; } # <length> <minimum>
+real=$(CDPATH='' cd -- "$tmp" && pwd -P)
+plug=$real/$(pad $((99 - ${#real})) 1)
+hook=$plug/hooks/track-intent.sh
+mkdir -p "$plug/hooks" "$plug/skills/track-intent" "$plug/.claude-plugin" && cp hooks/track-intent.sh "$plug/hooks/" &&
+	cp skills/track-intent/SKILL.md "$plug/skills/track-intent/" && cp .claude-plugin/plugin.json "$plug/.claude-plugin/" ||
+	fail "couldn't copy the hook to test it"
+# A repository's records folder is named after a cksum of its path, 1 to 10
+# digits long, so the last letter is the first that gives all 10.
+long=$real/$(pad $((158 - ${#real})) 19)
+for c in b c d e f g h i j k l m n o p q r s t u v w x y z; do
+	h=$(printf '%s' "$long$c/project/.git" | cksum | cut -d ' ' -f 1)
+	[ "${#h}" = 10 ] && break
+done
+long=$long$c
 mkdir -p "$long/project" "$long/state" "$tmp/home"
 # The project is a git repository with a worktree, as most users' are, and
 # HOME is a fresh folder, so the user's git config doesn't apply. Both come
@@ -333,10 +350,10 @@ for s in $shells; do
 		if [ "$m" = rules ]; then
 			size=$(wc -c <"$tmp/out" | tr -d ' ')
 			if grep -q 'too long to print here' "$tmp/out"; then
-				fail "hook rules output passed 9,900 bytes with long paths, so the hook printed its pointer instead; shorten the track-intent body"
+				fail "hook rules output passed 9,900 bytes with a ${#plug}-character plugin root and ${#long}-character paths, so the hook printed its pointer instead; shorten the track-intent body"
 				hook_ok=0
 			elif [ "$size" -gt 9900 ]; then
-				fail "hook rules output is $size bytes with long paths; keep it under 9,900"
+				fail "hook rules output is $size bytes with a ${#plug}-character plugin root and ${#long}-character paths; keep it under 9,900"
 				hook_ok=0
 			fi
 			# A compaction can re-attach an older copy of the skill, so the
@@ -495,7 +512,7 @@ for s in $shells; do
 	done
 	run "$s" state "$event" || hook_ok=0
 	state_size=$(wc -c <"$tmp/out" | tr -d ' ')
-	[ "$state_size" -le 9900 ] || { fail "hook state output is $state_size bytes with long paths; keep it under 9,900"; hook_ok=0; }
+	[ "$state_size" -le 9900 ] || { fail "hook state output is $state_size bytes with ${#long}-character paths; keep it under 9,900"; hook_ok=0; }
 	grep -q '^- and 1 more$' "$tmp/out" || { fail "hook state under $s doesn't list the session's other records that aren't done"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/glossary.md "$long/state/knackpack/intent"/*/"$sid".*md
 	# A record too long to print keeps its open questions and Built, and drops
@@ -570,7 +587,7 @@ for s in $shells; do
 	run "$s" rules "$event" || hook_ok=0
 	grep -q 'tracking is stopped for this session' "$tmp/out" || { fail "hook rules under $s ignores a stopped record"; hook_ok=0; }
 done
-[ "$hook_ok" = 1 ] && pass "hook under$shells (with long paths: rules $size bytes, state $state_size)"
+[ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
 
