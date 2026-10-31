@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: db-concurrent-index-in-transaction
+context:
+  scaffold_script: fixture.sh

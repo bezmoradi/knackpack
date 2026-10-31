@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The repository is an orders service on PostgreSQL 17 whose `orders` table has about 200 million rows and takes writes all day. Its migrations run with `alembic upgrade head` in the deploy pipeline. Its migrations/env.py runs the revisions online inside `with context.begin_transaction():`, without `transaction_per_migration` or any other setting that leaves the transaction, so every revision runs inside one transaction. The uncommitted change adds revision 0002, which calls `op.create_index("ix_orders_tenant_created", "orders", ["tenant_id", "created_at"], postgresql_concurrently=True)` (and drops it the same way in the downgrade) without `op.get_context().autocommit_block()`. PostgreSQL refuses to run CREATE INDEX CONCURRENTLY (or DROP INDEX CONCURRENTLY) inside a transaction block, so the migration fails at deploy with an error such as "CREATE INDEX CONCURRENTLY cannot run inside a transaction block".
+PASS if the review reports that the concurrent index build runs inside the transaction Alembic opens for the migration and that PostgreSQL rejects it there, so the upgrade fails (any correct explanation is fine), and suggests running it outside that transaction, such as with `op.get_context().autocommit_block()`, or an equivalent non-transactional step.
+FAIL if the review doesn't report that the concurrent index build fails inside the migration's transaction, or claims that `postgresql_concurrently=True` alone is enough, or suggests no way to run it outside the transaction.

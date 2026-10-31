@@ -1,0 +1,8 @@
+---
+type: llm
+---
+
+The repository's Terraform root, infra/storage/, creates `aws_s3_bucket.data` with `for_each = toset(var.bucket_names)` and `bucket = each.key`, and production applies it with Terraform 1.11 and prod.tfvars. The README says the `shop-audit-logs` bucket holds audit records that must be kept for seven years. The uncommitted change edits prod.tfvars from `["shop-invoices", "shop-exports", "shop-audit-logs"]` to `["shop-invoices", "shop-audit-logs"]`, and a CHANGELOG line says the exports bucket is retired and empty. Because `for_each` addresses each bucket by its name (`aws_s3_bucket.data["shop-audit-logs"]`), not by its position, the plan destroys only `aws_s3_bucket.data["shop-exports"]` and leaves the invoices and audit-log buckets unchanged. That is the intended retirement.
+Judge the severity the review actually gives each problem it reports. An open question or unproven concern that says what severity it would have if confirmed isn't a problem rated at that severity, and "Blocks: no" isn't calling something blocking.
+PASS if the review does not claim that the change replaces, recreates or destroys the invoices or audit-log bucket, and rates nothing about removing the exports bucket High or Critical and calls nothing about it blocking or must-fix. A note or question to confirm the exports bucket is empty, or that nothing still reads it, before applying, or a suggestion to guard the audit-log bucket with `prevent_destroy`, is fine. Unrelated findings at any severity are fine.
+FAIL if the review says the removal shifts addresses or indexes so that another bucket is replaced or destroyed, or rates a problem about the removal High or Critical, or calls one blocking or must-fix.
