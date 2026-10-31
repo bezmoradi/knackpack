@@ -23,7 +23,8 @@
 #   track-intent.sh manual <session-id> [project-dir]
 #                            print the paths, glossary and records without
 #                            the rules (the skill's fallback when hooks
-#                            are blocked)
+#                            are blocked), for project-dir or else the
+#                            folder it runs in
 #
 # The hook modes read Claude Code's event JSON on stdin. The script writes
 # only inside its own folder,
@@ -443,8 +444,11 @@ esc() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
 case $mode in
 rules)
 	[ -f "$skill" ] || exit 0
+	# The manual command printed here and in the skill leaves out the
+	# project's folder, whose name could hold shell syntax: manual mode uses
+	# the folder it runs in.
 	if stopped; then
-		printf '%s\n' "knackpack intent tracking is stopped for this session, so its rules aren't loaded. If the developer asks to track it again, read \`$skill\` in full, after its frontmatter, set the record's Status back to active, and run \`sh \"$here/track-intent.sh\" manual $sid \"$dir\"\` for this session's paths."
+		printf '%s\n' "knackpack intent tracking is stopped for this session, so its rules aren't loaded. If the developer asks to track it again, read \`$skill\` in full, after its frontmatter, set the record's Status back to active, and run \`sh \"$here/track-intent.sh\" manual $sid\` for this session's paths."
 		exit 0
 	fi
 	# After an update, a compaction can re-attach an older version's copy of
@@ -453,19 +457,18 @@ rules)
 	version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9A-Za-z.+-]*\)".*/\1/p' "$plugin_root/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
 	intro=
 	[ -n "$version" ] && intro="These rules, from knackpack $version, replace any older copy of the track-intent skill."
-	# sed can't put a line break into a replacement, so a path with one gets
-	# the pointer below.
+	# sed can't put a line break into a replacement, so a plugin path with one
+	# gets the pointer below.
 	nl='
 '
-	case $plugin_root$dir in
+	case $plugin_root in
 	*"$nl"*) out= ;;
 	*)
 		out=$(
 			[ -n "$intro" ] && printf '%s\n' "$intro"
 			awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$skill" 2>/dev/null |
 				sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$(esc "$plugin_root")|g" \
-					-e "s|\${CLAUDE_SESSION_ID}|$sid|g" \
-					-e "s|\${CLAUDE_PROJECT_DIR}|$(esc "$dir")|g" 2>/dev/null
+					-e "s|\${CLAUDE_SESSION_ID}|$sid|g" 2>/dev/null
 			print_paths
 		)
 		;;
@@ -477,7 +480,7 @@ rules)
 		printf '%s\n' "$out"
 	else
 		[ -n "$intro" ] && printf '%s\n\n' "$intro"
-		printf '%s\n' "# Track intent" "" "knackpack's intent-tracking rules are too long to print here with this session's paths. Read \`$skill\` in full now, after its frontmatter, and follow it for the whole session. In it, \${CLAUDE_PLUGIN_ROOT} stands for \`$plugin_root\`, \${CLAUDE_SESSION_ID} for \`$sid\` and \${CLAUDE_PROJECT_DIR} for \`$dir\`."
+		printf '%s\n' "# Track intent" "" "knackpack's intent-tracking rules are too long to print here with this session's paths. Read \`$skill\` in full now, after its frontmatter, and follow it for the whole session. In it, \${CLAUDE_PLUGIN_ROOT} stands for \`$plugin_root\` and \${CLAUDE_SESSION_ID} for \`$sid\`."
 		print_paths
 	fi
 	;;

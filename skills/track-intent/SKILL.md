@@ -80,7 +80,7 @@ When you ask for a plan or start a reviewer, give the record's path as the requi
 
 ## Sessions
 
-The session-start hook's "This session" block gives the current record's path; if you can't see one, run `sh "${CLAUDE_PLUGIN_ROOT}/hooks/track-intent.sh" manual ${CLAUDE_SESSION_ID} "${CLAUDE_PROJECT_DIR}"`. Always use the most recent block: after a fork, copy the earlier record to the new path and carry on there.
+The session-start hook's "This session" block gives the current record's path; if you can't see one, run `sh "${CLAUDE_PLUGIN_ROOT}/hooks/track-intent.sh" manual ${CLAUDE_SESSION_ID}`. Always use the most recent block: after a fork, copy the earlier record to the new path and carry on there.
 
 A record covers one task. If the developer moves on to an unrelated task, set the record to done and start the next one beside it, adding `.2`, `.3` and so on before `.md`. The current record is the one you edited last that isn't done.
 

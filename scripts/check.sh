@@ -312,7 +312,7 @@ for s in dash sh bash; do command -v "$s" >/dev/null 2>&1 && shells="$shells $s"
 # TMPDIR's, so the size checks measure the same everywhere. The hook prints its
 # own root, resolved with pwd -P, so it runs from a copy of the files it reads
 # at a 100-character root, longer than an installed copy's (about 68), and the
-# state folder and project sit in a folder of 160 characters. Each is built on
+# state folder and project sit in a folder of 172 characters. Each is built on
 # the resolved TMPDIR, since git resolves the project's path too.
 pad() { awk -v n="$1" -v min="$2" 'BEGIN { if (n < min) n = min; while (n-- > 0) printf "a" }'; } # <length> <minimum>
 real=$(CDPATH='' cd -- "$tmp" && pwd -P)
@@ -323,7 +323,7 @@ mkdir -p "$plug/hooks" "$plug/skills/track-intent" "$plug/.claude-plugin" && cp 
 	fail "couldn't copy the hook to test it"
 # A repository's records folder is named after a cksum of its path, 1 to 10
 # digits long, so the last letter is the first that gives all 10.
-long=$real/$(pad $((158 - ${#real})) 19)
+long=$real/$(pad $((170 - ${#real})) 19)
 for c in b c d e f g h i j k l m n o p q r s t u v w x y z; do
 	h=$(printf '%s' "$long$c/project/.git" | cksum | cut -d ' ' -f 1)
 	[ "${#h}" = 10 ] && break
@@ -642,6 +642,23 @@ for s in $shells; do
 		done
 	done
 	rm -f "$long/state/knackpack/intent"/*/glossary.md
+	# A project folder whose name holds shell syntax never gets into a command
+	# the hook tells Claude to run, tracked or stopped, and the rules fill in
+	# every placeholder.
+	evil=$real/'evil"$(touch PWNED)"`touch PWNED`'
+	mkdir -p "$evil"
+	erec=$(env XDG_STATE_HOME="$long/state" "$s" "$hook" manual "$sid" "$evil" 2>/dev/null | sed -n 's/^- Current record: `\(.*\)` .*/\1/p')
+	for st in active stopped; do
+		[ "$st" = active ] || printf '# Intent record: test\n\n- Status: stopped\n' >"$erec"
+		printf '%s' "$event" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
+			XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$evil" "$s" "$hook" rules >"$tmp/out" 2>/dev/null
+		{ grep -q " manual $sid" "$tmp/out" && ! grep 'manual' "$tmp/out" | grep -qF 'PWNED'; } ||
+			{ fail "hook rules under $s, $st, puts the project's folder into the command it tells Claude to run: $(grep -o '`sh [^`]*manual[^`]*' "$tmp/out")"; hook_ok=0; }
+		[ "$st" = stopped ] || ! grep -qF '${CLAUDE_' "$tmp/out" ||
+			{ fail "hook rules under $s leave a placeholder unfilled: $(grep -oF '${CLAUDE_' "$tmp/out" | head -n 1)"; hook_ok=0; }
+	done
+	[ -n "$erec" ] && rm -rf "${erec%/*}"
+	rm -rf "$evil"
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 export HOME="$real_home"
