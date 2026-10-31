@@ -23,7 +23,8 @@
     "MD060": false,
     // Go and shell examples indent with tabs.
     "MD010": { "code_blocks": false },
-    // The security reviewer writes ASVS IDs as v5.0.0-<chapter>.<section>.<requirement>.
-    "MD033": { "allowed_elements": ["chapter", "section", "requirement"] }
+    // The security reviewer writes ASVS IDs as v5.0.0-<chapter>.<section>.<requirement>,
+    // and the README's banner is centered HTML with a badge image.
+    "MD033": { "allowed_elements": ["chapter", "section", "requirement", "h1", "p", "img"] }
   }
 }

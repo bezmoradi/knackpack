@@ -8,7 +8,8 @@
 #   track-intent.sh state    (SessionStart) print the developer's personal
 #                            glossary for the repository and this session's
 #                            current record, if they exist, and name its
-#                            other records that aren't done
+#                            other records that aren't done, or nothing if
+#                            the session's record is stopped
 #   track-intent.sh prompt   (UserPromptSubmit) print a short reminder to
 #                            update the record, with the open items and
 #                            assumptions, and flag a last turn that edited
@@ -22,7 +23,8 @@
 #   track-intent.sh manual <session-id> [project-dir]
 #                            print the paths, glossary and records without
 #                            the rules (the skill's fallback when hooks
-#                            are blocked)
+#                            are blocked), for project-dir or else the
+#                            folder it runs in
 #
 # The hook modes read Claude Code's event JSON on stdin. The script writes
 # only inside its own folder,
@@ -145,21 +147,32 @@ repo_dir=$root/$name-$hash
 glossary=$repo_dir/glossary.md
 
 # The session's records are <session>.md (1), <session>.2.md, <session>.3.md
-# and so on: each new task gets the next number. The current one is the record
-# edited last that isn't done, so a side task's record gives way to the main
-# task's once either the main one is updated again or the side task is done;
-# on a tie, the highest-numbered. When every record is done, the one edited
-# last. A stopped record isn't passed over, so stopping tracking holds.
+# and so on: each new task gets the next number. Every loop over them goes
+# through record_n, which passes a regular file with such a name, not a link,
+# and sets n to its number, so a file such as <session>.notes.md is never one.
+record_n() {
+	[ -f "$1" ] && [ ! -L "$1" ] || return 1
+	case ${1#"$repo_dir/$sid"} in
+	.md) n=1 ;;
+	.*.md)
+		n=${1#"$repo_dir/$sid."}
+		n=${n%.md}
+		case $n in '' | *[!0-9]* | ??????????*) return 1 ;; esac
+		;;
+	*) return 1 ;;
+	esac
+}
+# The current one is the record edited last that isn't done, so a side task's
+# record gives way to the main task's once either the main one is updated
+# again or the side task is done; on a tie, the highest-numbered. When every
+# record is done, the one edited last. A stopped record isn't passed over, so
+# stopping tracking holds.
 is_done() { grep -Eq '^- Status:[[:space:]]*[Dd]one([^A-Za-z]|$)' "$1" 2>/dev/null; }
 pick() { # <1 to pass over records that are done>
 	record=
 	top_n=0
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -f "$f" ] && [ ! -L "$f" ] || continue
-		n=${f#"$repo_dir/$sid"}
-		n=${n%.md}
-		n=${n#.}
-		case $n in '') n=1 ;; *[!0-9]* | ??????????*) continue ;; esac
+		record_n "$f" || continue
 		[ "$1" = 1 ] && is_done "$f" && continue
 		if [ "$n" -gt "$top_n" ]; then
 			top_n=$n
@@ -167,29 +180,53 @@ pick() { # <1 to pass over records that are done>
 		fi
 	done
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -n "$record" ] && [ -f "$f" ] && [ ! -L "$f" ] && [ "$f" != "$record" ] || continue
-		n=${f#"$repo_dir/$sid"}
-		n=${n%.md}
-		case ${n#.} in *[!0-9]* | ??????????*) continue ;; esac
+		[ -n "$record" ] && [ "$f" != "$record" ] && record_n "$f" || continue
 		[ "$1" = 1 ] && is_done "$f" && continue
 		[ -n "$(find "$f" -prune -newer "$record" 2>/dev/null)" ] && record=$f
 	done
 }
 pick 1
 [ -n "$record" ] || pick 0
+# Claude Code keeps CLAUDE_PROJECT_DIR at the folder the session started in,
+# but when it's missing or names another folder, or manual mode runs from
+# one, the folder above isn't the session's repository's. A session ID is
+# unique, so when that folder has no record of the session and exactly one
+# other folder has its first record, that folder is the session's; its team
+# glossary is then unknown.
+moved=
+if [ -z "$record" ]; then
+	k=0
+	for f in "$root"/*/"$sid.md"; do
+		[ -f "$f" ] && [ ! -L "$f" ] && [ ! -L "${f%/*}" ] || continue
+		k=$((k + 1))
+		found=${f%/*}
+	done
+	if [ "$k" = 1 ]; then
+		repo_dir=$found
+		glossary=$repo_dir/glossary.md
+		team_glossary=
+		moved=1
+		pick 1
+		[ -n "$record" ] || pick 0
+	fi
+fi
 if [ -n "$record" ]; then
 	exists=1
+	state=exists
 else
 	exists=0
 	record=$repo_dir/$sid.md
+	state='not created yet'
 fi
+[ -z "$moved" ] || state="$state, found by its session ID: the working directory has left the session's repository"
 
 # The turn file starts with "sum <checksum>" of the session's records at the
 # turn's first prompt, then holds one line per file edit in the turn: "record"
 # for this session's record, "work" for anything outside the state folder and
 # the folders where skills save files: Claude Code's scratchpad,
-# <session>/scratchpad, and knackpack's fallback, claude-<session>. Stop adds
-# "end", and only a prompt after it starts a new turn.
+# <session>/scratchpad, and knackpack's fallback, claude-<session>. A reminder
+# that lists the assumptions adds "listed <checksum>". Stop adds "end", and
+# only a prompt after it starts a new turn.
 turns=$root/.turns
 turn=$turns/$sid
 
@@ -212,12 +249,12 @@ turn_ok() {
 # the turn.
 records_sum() {
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -f "$f" ] && [ ! -L "$f" ] && cat -- "$f"
+		record_n "$f" && cat -- "$f"
 	done 2>/dev/null | cksum 2>/dev/null
 }
 
 stopped() {
-	[ "$exists" = 1 ] && grep -Eq '^- Status:[[:space:]]*stopped' "$record" 2>/dev/null
+	[ "$exists" = 1 ] && grep -Eq '^- Status:[[:space:]]*[Ss]topped([^A-Za-z]|$)' "$record" 2>/dev/null
 }
 
 # Names the session's other records that aren't done, one per line with its
@@ -226,10 +263,7 @@ stopped() {
 others() { # <character to put around each path, or none>
 	k=0
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
-		[ -f "$f" ] && [ ! -L "$f" ] && [ "$f" != "$record" ] || continue
-		n=${f#"$repo_dir/$sid"}
-		n=${n%.md}
-		case ${n#.} in *[!0-9]* | ??????????*) continue ;; esac
+		[ "$f" != "$record" ] && record_n "$f" || continue
 		is_done "$f" && continue
 		k=$((k + 1))
 		[ "$k" -le 3 ] || continue
@@ -242,12 +276,13 @@ others() { # <character to put around each path, or none>
 }
 
 # Lists the record's open questions and open proposals by ID. The layout ends
-# a proposal with ", by <who>. open" or "... rejected", so its status is the
-# word right after the last such attribution, or, failing that, the last one
-# after a full stop, "?" or "!" that follows the last ", by ", where a closing
-# quote or bracket may sit between the two. The proposal, and a note after the
-# status, can contain either word. A proposal whose status still can't be
-# found is named as such rather than left out.
+# a proposal with ", by <who>." and its status: open, rejected, "accepted as
+# REQ-<n>" or "replaced by PROP-<n>", the last three settled. So its status is
+# the word right after the last such attribution, or, failing that, the last
+# one after a full stop, "?" or "!" that follows the last ", by ", where a
+# closing quote or bracket may sit between the two. The proposal, and a note
+# after the status, can contain any of the words. A proposal whose status
+# still can't be found is named as such rather than left out.
 open_items() {
 	awk '
 	function flush(   s, r, i, st) {
@@ -255,7 +290,7 @@ open_items() {
 			s = tolower(t) " "
 			st = ""
 			r = s
-			while (match(r, /, by [^.]*\.[ \t]+(open|rejected)[^a-z]/)) {
+			while (match(r, /, by [^.]*\.[ \t]+(open|rejected|accepted|replaced)[^a-z]/)) {
 				st = substr(r, RSTART, RLENGTH)
 				r = substr(r, RSTART + RLENGTH)
 			}
@@ -263,7 +298,7 @@ open_items() {
 				# An attribution with a full stop of its own, or none, or
 				# a quote of the developer before the status.
 				while ((i = index(s, ", by ")) > 0) s = substr(s, i + 5)
-				while (match(s, /[.?!][")]*[ \t]+(open|rejected)[^a-z]/)) {
+				while (match(s, /[.?!][")]*[ \t]+(open|rejected|accepted|replaced)[^a-z]/)) {
 					st = substr(s, RSTART, RLENGTH)
 					s = substr(s, RSTART + RLENGTH)
 				}
@@ -306,24 +341,30 @@ open_items() {
 }
 
 # Lists the record's assumptions with their text, since an ID alone doesn't
-# say what was assumed, one per line and as written. An entry that wraps onto
-# more lines is joined, never cut at the break. Past about 1,000 characters,
-# only their IDs.
-assumed_items() {
-	awk '
-	function flush() {
+# say what was assumed, one per line and as written, in order of number. An
+# entry that wraps onto more lines is joined, never cut at the break. Past
+# about 1,000 characters, the oldest get only their IDs, so the newest keep
+# their text. With "ids", only the IDs, for a reminder that follows one that
+# listed the same assumptions.
+assumed_items() { # <record> [ids]
+	awk -v ids="${2:-}" '
+	function flush(   j, v) {
 		if (id == "") return
 		# Cut at the last " Why:", so text that contains one is not lost.
 		w = 0
 		while ((i = index(substr(t, w + 1), " Why:")) > 0) w += i
 		if (w > 0) t = substr(t, 1, w - 1)
 		sub(/[ \t]+$/, "", t)
-		if (used + length(t) <= 1000) {
-			a = a "\n- " t
-			used += length(t) + 3
-		} else {
-			more = more (more == "" ? "" : ", ") id
+		# Sorted by number as they come, equal numbers in file order.
+		v = substr(id, 5) + 0
+		for (j = ++k; j > 1 && num[j - 1] > v; j--) {
+			num[j] = num[j - 1]
+			name[j] = name[j - 1]
+			text[j] = text[j - 1]
 		}
+		num[j] = v
+		name[j] = id
+		text[j] = t
 		id = ""
 	}
 	{ sub(/\r$/, "") }
@@ -353,20 +394,36 @@ assumed_items() {
 	}
 	END {
 		flush()
-		if (a == "" && more == "") exit
-		printf "Assumed, not confirmed; check this message and your next step against them:%s", a
+		if (k == 0) exit
+		if (ids != "") {
+			for (j = 1; j <= k; j++) l = l (j > 1 ? ", " : "") name[j]
+			printf "Assumed, not confirmed, as an earlier reminder listed them: %s; check this message and your next step against them.", l
+			exit
+		}
+		# The newest that fit are shown in full.
+		for (j = k; j >= 1; j--) {
+			if (used + length(text[j]) > 1000) continue
+			full[j] = 1
+			used += length(text[j]) + 3
+		}
+		printf "Assumed, not confirmed; check this message and your next step against them:"
+		for (j = 1; j <= k; j++) {
+			if (full[j]) printf "\n- %s", text[j]
+			else more = more (more == "" ? "" : ", ") name[j]
+		}
 		if (more != "") printf "\nMore in the record: %s.", more
 	}' "$1" 2>/dev/null
 }
 
 print_paths() {
-	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	if [ -f "$glossary" ]; then gstate='exists'; else gstate='none yet'; fi
 	if [ -f "$team_glossary" ]; then tstate='exists; Claude Code loads it'; else tstate='none'; fi
 	printf '\n## This session\n\n'
 	printf '%s\n' "- Current record: \`$record\` ($state)"
 	printf '%s\n' "- This repository's records: \`$repo_dir/\`"
-	if [ -n "$team_glossary" ]; then
+	if [ -n "$moved" ]; then
+		printf '%s\n' "- This repository's team glossary: unknown, since the working directory has left the session's repository"
+	elif [ -n "$team_glossary" ]; then
 		printf '%s\n' "- This repository's team glossary: \`$team_glossary\` ($tstate)"
 	else
 		printf '%s\n' "- This repository's team glossary: none, since a home folder's \`.claude/rules/\` loads in every project"
@@ -374,36 +431,30 @@ print_paths() {
 	printf '%s\n' "- Your personal glossary for this repository: \`$glossary\` ($gstate)"
 }
 
-# Prints a file between markers, cut at a byte limit so the hook's output
-# stays under Claude Code's 10,000-character cap.
-print_file() {
-	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
-	size=$(wc -c <"$2" | tr -d ' ')
-	printf '\n## %s\n\n`%s`\n\n----- begin -----\n' "$1" "$2"
-	if [ "$size" -gt "$3" ]; then
-		head -c "$3" "$2"
-		printf '\n[Cut at %s of %s bytes. Read the file for the rest.]\n' "$3" "$size"
-	else
-		cat -- "$2"
-	fi
-	printf '\n----- end -----\n'
-}
-
-# Prints the record like print_file, but when it's too long it drops what
-# matters least first: rejected proposals and the oldest History entries, then
-# whole lines from the end. It never cuts inside a line, so a multi-byte
-# character can't be split, keeps or drops a History entry whole, with the
-# lines under it, and says what it left out.
-print_record() {
+# Prints a file between markers, within a byte limit so the hook's output
+# stays under Claude Code's 10,000-character cap. A file too long for it loses
+# whole lines from the end, so a multi-byte character can't be split, and the
+# output says what was left out. A record first drops what matters least:
+# the end of a Status line past 400 bytes, cut at a space, rejected proposals
+# and the oldest History entries, keeping or dropping a History entry whole,
+# with the lines under it.
+print_file() { # <title> <file> <byte limit> [record]
 	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
 	size=$(wc -c <"$2" | tr -d ' ')
 	printf '\n## %s\n\n`%s`\n\n----- begin -----\n' "$1" "$2"
 	if [ "$size" -gt "$3" ]; then
 		# Bytes, not characters, whatever the locale; 120 are kept for the note.
-		LC_ALL=C awk -v room=$(($3 - 120)) -v size="$size" '
+		LC_ALL=C awk -v room=$(($3 - 120)) -v size="$size" -v rec="${4:-}" '
 		{ sub(/\r$/, "") }
 		/^## / { sec = $0 }
-		sec ~ /^## History/ {
+		# How to work goes on the Status line, which can grow long enough to
+		# crowd out what was agreed. A space is one byte, so cutting at one
+		# splits no character.
+		rec != "" && sec == "" && /^- Status:/ && length($0) > 400 && match(substr($0, 1, 400), /.* /) {
+			$0 = substr($0, 1, RLENGTH - 1) " [...]"
+			status = 1
+		}
+		rec != "" && sec ~ /^## History/ {
 			# The heading and anything before the first entry, then one
 			# entry per list item, each with the lines under it.
 			if (/^([-*+]|[0-9]+[.)])[ \t]/) h++
@@ -411,7 +462,7 @@ print_record() {
 			else head = head $0 "\n"
 			next
 		}
-		sec ~ /^## Not agreed/ && tolower($0) ~ /[.?!][")]*[ \t]+rejected[^a-z]*$/ { rej++; next }
+		rec != "" && sec ~ /^## Not agreed/ && tolower($0) ~ /[.?!][")]*[ \t]+rejected[^a-z]*$/ { rej++; next }
 		{ body[++b] = $0; line[b] = NR }
 		END {
 			used = 0
@@ -421,7 +472,8 @@ print_record() {
 				printf "%s\n", body[i]
 				used += n
 			}
-			left = rej ? "rejected proposals" : ""
+			left = status ? "the end of the Status line" : ""
+			if (rej) left = left (left == "" ? "" : ", ") "rejected proposals"
 			if (cut) {
 				left = left (left == "" ? "" : ", ") "everything from line " line[i] " on"
 			} else if (head != "") {
@@ -451,8 +503,11 @@ esc() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
 case $mode in
 rules)
 	[ -f "$skill" ] || exit 0
+	# The manual command printed here and in the skill leaves out the
+	# project's folder, whose name could hold shell syntax: manual mode uses
+	# the folder it runs in.
 	if stopped; then
-		printf '%s\n' "knackpack intent tracking is stopped for this session, so its rules aren't loaded. If the developer asks to track it again, read \`$skill\` in full, after its frontmatter, set the record's Status back to active, and run \`sh \"$here/track-intent.sh\" manual $sid \"$dir\"\` for this session's paths."
+		printf '%s\n' "knackpack intent tracking is stopped for this session, so its rules aren't loaded. If the developer asks to track it again, read \`$skill\` in full, after its frontmatter, set the record's Status back to active, and run \`sh \"$here/track-intent.sh\" manual $sid\` for this session's paths."
 		exit 0
 	fi
 	# After an update, a compaction can re-attach an older version's copy of
@@ -461,19 +516,18 @@ rules)
 	version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9A-Za-z.+-]*\)".*/\1/p' "$plugin_root/.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
 	intro=
 	[ -n "$version" ] && intro="These rules, from knackpack $version, replace any older copy of the track-intent skill."
-	# sed can't put a line break into a replacement, so a path with one gets
-	# the pointer below.
+	# sed can't put a line break into a replacement, so a plugin path with one
+	# gets the pointer below.
 	nl='
 '
-	case $plugin_root$dir in
+	case $plugin_root in
 	*"$nl"*) out= ;;
 	*)
 		out=$(
 			[ -n "$intro" ] && printf '%s\n' "$intro"
 			awk 'n >= 2 { print; next } /^---[[:space:]]*$/ { n++ }' "$skill" 2>/dev/null |
 				sed -e "s|\${CLAUDE_PLUGIN_ROOT}|$(esc "$plugin_root")|g" \
-					-e "s|\${CLAUDE_SESSION_ID}|$sid|g" \
-					-e "s|\${CLAUDE_PROJECT_DIR}|$(esc "$dir")|g" 2>/dev/null
+					-e "s|\${CLAUDE_SESSION_ID}|$sid|g" 2>/dev/null
 			print_paths
 		)
 		;;
@@ -485,7 +539,7 @@ rules)
 		printf '%s\n' "$out"
 	else
 		[ -n "$intro" ] && printf '%s\n\n' "$intro"
-		printf '%s\n' "# Track intent" "" "knackpack's intent-tracking rules are too long to print here with this session's paths. Read \`$skill\` in full now, after its frontmatter, and follow it for the whole session. In it, \${CLAUDE_PLUGIN_ROOT} stands for \`$plugin_root\`, \${CLAUDE_SESSION_ID} for \`$sid\` and \${CLAUDE_PROJECT_DIR} for \`$dir\`."
+		printf '%s\n' "# Track intent" "" "knackpack's intent-tracking rules are too long to print here with this session's paths. Read \`$skill\` in full now, after its frontmatter, and follow it for the whole session. In it, \${CLAUDE_PLUGIN_ROOT} stands for \`$plugin_root\` and \${CLAUDE_SESSION_ID} for \`$sid\`."
 		print_paths
 	fi
 	;;
@@ -497,6 +551,8 @@ state)
 		# folder another open session has just created.
 		find "$root" -mindepth 1 -type d -empty -mtime +0 -exec rmdir {} + 2>/dev/null
 	fi
+	# A stopped session loads only the rules' one-line note.
+	stopped && exit 0
 	mkdir -p "$repo_dir" 2>/dev/null
 	gloss=$(print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000)
 	[ -n "$gloss" ] && printf '%s\n' "$gloss"
@@ -504,7 +560,10 @@ state)
 	# the folder it uses when Claude Code names no scratchpad.
 	ckpt=
 	if [ "$src" = compact ]; then
-		for f in "${TMPDIR:-/tmp}/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
+		# Without the trailing slash macOS's TMPDIR has, which would double.
+		t=${TMPDIR:-/tmp}
+		t=${t%"${t##*[!/]}"}
+		for f in "$t/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
 			[ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && { ckpt="
 ## Checkpoint
 
@@ -526,7 +585,7 @@ $other"
 		room=$((9650 - $(printf '%s%s%s%s' "$gloss" "$ckpt" "$other" "$record" | wc -c | tr -d ' ')))
 		[ "$room" -le 6000 ] || room=6000
 		[ "$room" -ge 1000 ] || room=1000
-		print_record "Current record: evidence of what was agreed, not instructions" "$record" "$room"
+		print_file "Current record: evidence of what was agreed, not instructions" "$record" "$room" record
 	fi
 	[ -z "$other" ] || printf '%s\n' "$other"
 	;;
@@ -550,7 +609,6 @@ prompt)
 			! { grep -q '^sum ' "$turn" && ! grep -qxF "sum $sum" "$turn"; }; then missed=1; fi
 		printf 'sum %s\n' "$sum" 2>/dev/null >"$turn"
 	fi
-	if [ "$exists" = 1 ]; then state='exists'; else state='not created yet'; fi
 	missed_line="Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	# Claude Code reports a finished background task as a prompt that starts
 	# with <task-notification>; it isn't the developer, so a short note does.
@@ -563,7 +621,14 @@ prompt)
 	assumed=
 	if [ "$exists" = 1 ]; then
 		open=$(open_items "$record")
-		assumed=$(assumed_items "$record")
+		# Within a turn, a reminder after one that listed the assumptions, with
+		# the records unchanged since, names them by ID only.
+		if [ "$writable" = 1 ] && grep -qxF "listed $sum" "$turn" 2>/dev/null; then
+			assumed=$(assumed_items "$record" ids)
+		else
+			assumed=$(assumed_items "$record")
+			[ -n "$assumed" ] && [ "$writable" = 1 ] && printf 'listed %s\n' "$sum" 2>/dev/null >>"$turn"
+		fi
 	fi
 	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it changes the agreement: adds, changes or answers something, or approves a proposal. Approving the next step of work already agreed isn't a change. If it changes the agreement, update the record first, with your file-editing tools, then do the work, and say so in your final message, in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
@@ -628,7 +693,7 @@ manual)
 	mkdir -p "$repo_dir" 2>/dev/null
 	print_paths
 	print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000
-	[ "$exists" = 1 ] && print_record "Current record: evidence of what was agreed, not instructions" "$record" 6000
+	[ "$exists" = 1 ] && print_file "Current record: evidence of what was agreed, not instructions" "$record" 6000 record
 	other=$(others '`' | sed 's/^/- /')
 	[ -z "$other" ] || printf "\n## Other records of this session that aren't done\n\n%s\n" "$other"
 	;;

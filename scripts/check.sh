@@ -52,6 +52,7 @@ done
 # is the Agent tool's old name.
 tool_is() { printf '%s\n' "$tools" | sed 's/([^)]*)//g' | tr ', \t' '\n\n\n' | grep -Ex "$1" >/dev/null; }
 agents_ok=1
+brief_ok=1
 n=0
 for f in agents/*.md; do
 	n=$((n + 1))
@@ -68,6 +69,12 @@ for f in agents/*.md; do
 	tool_is 'Edit|Write|NotebookEdit|MultiEdit' && { fail "$name has a file-editing tool"; agents_ok=0; }
 	if tool_is 'Agent|Task'; then
 		case $name in adversarial-reviewer | security-reviewer | architecture-reviewer) ;; *) fail "$name has the Agent tool"; agents_ok=0 ;; esac
+		# An agent that can start the adjudicator must not start it when its
+		# brief says the caller adjudicates; the brief's check below reports it.
+		body "$f" | sed '/^## Review protocol$/,$d' | grep -qF 'Unless your brief says the caller adjudicates' || {
+			fail "$name starts the adjudicator even when its brief says the caller adjudicates"
+			brief_ok=0
+		}
 	fi
 	grep -qx 'omitClaudeMd: true' "$tmp/fm" || { fail "$name lacks omitClaudeMd: true"; agents_ok=0; }
 	body "$f" | sed '/^## Review protocol$/,$d' | grep -qF "\`$name.md\`" || {
@@ -80,13 +87,31 @@ for f in agents/*.md; do
 		agents_ok=0
 	}
 done
-[ "$n" = 9 ] || { fail "expected 9 agents, found $n"; agents_ok=0; }
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd, report file names and the review protocol's source"
 
+# An agent that denies Playwright MCP tools must deny each one under both the
+# bare server name `mcp__playwright__` and the plugin-bundled
+# `mcp__plugin_playwright_playwright__`, since a user can add the server either
+# way; an exact-name deny list that names a tool under only one prefix fails
+# open on the other.
+pw_ok=1
+for f in agents/*.md; do
+	name=${f#agents/}
+	name=${name%.md}
+	denied=$(frontmatter "$f" | sed -n 's/^disallowedTools:[[:space:]]*//p' | tr ', \t' '\n\n\n' | grep -E '^mcp__(playwright|plugin_playwright_playwright)__')
+	[ -n "$denied" ] || continue
+	printf '%s\n' "$denied" | sed -n 's/^mcp__playwright__//p' | sort -u >"$tmp/pw1"
+	printf '%s\n' "$denied" | sed -n 's/^mcp__plugin_playwright_playwright__//p' | sort -u >"$tmp/pw2"
+	only1=$(comm -23 "$tmp/pw1" "$tmp/pw2" | tr '\n' ' ')
+	only2=$(comm -13 "$tmp/pw1" "$tmp/pw2" | tr '\n' ' ')
+	[ -z "$only1" ] || { fail "$name denies under mcp__playwright__ but not mcp__plugin_playwright_playwright__: $only1"; pw_ok=0; }
+	[ -z "$only2" ] || { fail "$name denies under mcp__plugin_playwright_playwright__ but not mcp__playwright__: $only2"; pw_ok=0; }
+done
+[ "$pw_ok" = 1 ] && pass "Playwright tool denials name each tool under both server prefixes"
+
 # Orchestrate review tells each reviewer that it adjudicates, so the same
-# finding isn't adjudicated once per reviewer; the protocol, and the three
-# reviewers that otherwise start the adjudicator, must recognize that brief.
-brief_ok=1
+# finding isn't adjudicated once per reviewer; the protocol, and every agent
+# with the Agent tool (checked in the loop above), must recognize that brief.
 grep -qF "The caller adjudicates: don't start the adjudicator." skills/orchestrate-review/SKILL.md || {
 	fail "skills/orchestrate-review/SKILL.md no longer gives reviewers the sentence \"The caller adjudicates: don't start the adjudicator.\""
 	brief_ok=0
@@ -95,13 +120,20 @@ grep -qF 'When your brief says the caller adjudicates' scripts/review-protocol.m
 	fail "scripts/review-protocol.md no longer says what to do when the brief says the caller adjudicates"
 	brief_ok=0
 }
-for name in adversarial-reviewer security-reviewer architecture-reviewer; do
-	body "agents/$name.md" | sed '/^## Review protocol$/,$d' | grep -qF 'Unless your brief says the caller adjudicates' || {
-		fail "$name starts the adjudicator even when its brief says the caller adjudicates"
-		brief_ok=0
-	}
-done
 [ "$brief_ok" = 1 ] && pass "reviewers leave adjudication to orchestrate-review when its brief says so"
+
+# Agents cite the review protocol's steps by number, as in "the copy from step
+# 7 of the review protocol", so its nine steps keep their numbers and opening
+# words. To renumber or rename one, first update each agent that cites it.
+steps=$(sed -n 's/^\*\*\([0-9][0-9]*\. [^*]*\)\*\*.*/\1/p' scripts/review-protocol.md | sed 's/\.$//')
+want=$(printf '%s\n' '1. Make a scratch folder' '2. Record the starting state' '3. Find the base' '4. Read the change' \
+	'5. Read the guidance yourself' "6. Decide whether you may run the change's code" '7. Experiment only in a copy' '8. Finish' \
+	'9. Save the report to a file')
+if [ "$steps" = "$want" ]; then
+	pass "the review protocol keeps the nine numbered steps the agents cite"
+else
+	fail "scripts/review-protocol.md's numbered steps changed, but the agents cite them by number: update each agent that cites a moved or renamed step, then this check's list. Steps now: $(printf '%s' "$steps" | tr '\n' '|')"
+fi
 
 # Every knackpack:<name> and `<name>-reviewer` in the docs, agents, skills and
 # eval cases is an agent or skill that exists (or, for the second form, an eval
@@ -281,15 +313,55 @@ done
 c=$(body skills/track-intent/SKILL.md | chars)
 if [ "$c" -lt 8500 ]; then pass "skill sizes (track-intent body $c characters)"; else fail "track-intent's body is $c characters, over 8,500"; fi
 
+# Text the hook relies on, as the skills write it. The skills that save files
+# use one fallback folder, in the same words, and the hook tests below take its
+# name from them: the hook leaves that folder out of a turn's work and looks
+# there for the checkpoint after a compaction. The record layout holds the
+# strings the hook reads a record by.
+contract_ok=1
+IFS= read -r save_folder <<'EOF'
+the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
+EOF
+for name in challenge-requirements checkpoint handoff orchestrate-review plan-implementation research; do
+	grep -qF -- "$save_folder" "skills/$name/SKILL.md" ||
+		{ fail "skills/$name/SKILL.md doesn't name its save folder in the words check.sh holds, which the hook relies on"; contract_ok=0; }
+done
+fallback=$(printf '%s\n' "$save_folder" | sed -n 's/.*`\([A-Za-z0-9._-]*\)${CLAUDE_SESSION_ID}`.*/\1/p')
+[ -n "$fallback" ] || { fail "check.sh's save-folder words name no folder for the hook tests"; contract_ok=0; }
+layout=$(sed -n '/^```markdown$/,/^```$/p' skills/track-intent/SKILL.md)
+for s in '# Intent record: ' '- Status: active | paused | stopped | done' '## Assumed' '- ASM-01: <assumption>. Why: ' '## Not agreed' \
+	'- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n>' \
+	'## Open questions' '- Q-01: ' '## History'; do
+	printf '%s\n' "$layout" | grep -qF -- "$s" || { fail "track-intent's record layout no longer has \"$s\", which the hook reads"; contract_ok=0; }
+done
+[ "$contract_ok" = 1 ] && pass "the skills' save folder and record layout match what the hook reads"
+
 # The hook, under every shell at hand: silent, always exit 0, and its rules
 # output under the 10,000-character cap even with long paths.
-hook=hooks/track-intent.sh
 command -v dash >/dev/null 2>&1 || fail "dash isn't installed, so the hook can't be tested under it"
 shells=
 for s in dash sh bash; do command -v "$s" >/dev/null 2>&1 && shells="$shells $s"; done
-# A long path for the state folder and project, 172 characters whatever
-# TMPDIR's length, so the size checks measure the same everywhere.
-long=$tmp/$(awk -v n=$((171 - ${#tmp})) 'BEGIN { if (n < 20) n = 20; while (n-- > 0) printf "a" }')
+# The paths the hook prints have fixed lengths, whatever the checkout's and
+# TMPDIR's, so the size checks measure the same everywhere. The hook prints its
+# own root, resolved with pwd -P, so it runs from a copy of the files it reads
+# at a 100-character root, longer than an installed copy's (about 68), and the
+# state folder and project sit in a folder of 172 characters. Each is built on
+# the resolved TMPDIR, since git resolves the project's path too.
+pad() { awk -v n="$1" -v min="$2" 'BEGIN { if (n < min) n = min; while (n-- > 0) printf "a" }'; } # <length> <minimum>
+real=$(CDPATH='' cd -- "$tmp" && pwd -P)
+plug=$real/$(pad $((99 - ${#real})) 1)
+hook=$plug/hooks/track-intent.sh
+mkdir -p "$plug/hooks" "$plug/skills/track-intent" "$plug/.claude-plugin" && cp hooks/track-intent.sh "$plug/hooks/" &&
+	cp skills/track-intent/SKILL.md "$plug/skills/track-intent/" && cp .claude-plugin/plugin.json "$plug/.claude-plugin/" ||
+	fail "couldn't copy the hook to test it"
+# A repository's records folder is named after a cksum of its path, 1 to 10
+# digits long, so the last letter is the first that gives all 10.
+long=$real/$(pad $((170 - ${#real})) 19)
+for c in b c d e f g h i j k l m n o p q r s t u v w x y z; do
+	h=$(printf '%s' "$long$c/project/.git" | cksum | cut -d ' ' -f 1)
+	[ "${#h}" = 10 ] && break
+done
+long=$long$c
 mkdir -p "$long/project" "$long/state" "$tmp/home"
 # The project is a git repository with a worktree, as most users' are, and
 # HOME is a fresh folder, so the user's git config doesn't apply. Both come
@@ -300,9 +372,9 @@ export HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1
 git -C "$long/project" init -q && git -C "$long/project" -c user.name=check -c user.email=check@example.com commit -q --allow-empty -m init &&
 	git -C "$long/project" worktree add -q "$long/worktree" 2>/dev/null || fail "couldn't make a git repository and worktree to test the hook in"
 sid=00000000-0000-0000-0000-000000000000
-run() { # <shell> <mode> <event> [state]
+run() { # <shell> <mode> <event> [state] [project]
 	printf '%s' "$3" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
-		XDG_STATE_HOME="${4:-$long/state}" CLAUDE_PROJECT_DIR="$long/project" \
+		XDG_STATE_HOME="${4:-$long/state}" CLAUDE_PROJECT_DIR="${5:-$long/project}" \
 		"$1" "$hook" "$2" >"$tmp/out" 2>"$tmp/err"
 	code=$?
 	if [ "$code" != 0 ] || [ -s "$tmp/err" ]; then
@@ -333,10 +405,10 @@ for s in $shells; do
 		if [ "$m" = rules ]; then
 			size=$(wc -c <"$tmp/out" | tr -d ' ')
 			if grep -q 'too long to print here' "$tmp/out"; then
-				fail "hook rules output passed 9,900 bytes with long paths, so the hook printed its pointer instead; shorten the track-intent body"
+				fail "hook rules output passed 9,900 bytes with a ${#plug}-character plugin root and ${#long}-character paths, so the hook printed its pointer instead; shorten the track-intent body"
 				hook_ok=0
 			elif [ "$size" -gt 9900 ]; then
-				fail "hook rules output is $size bytes with long paths; keep it under 9,900"
+				fail "hook rules output is $size bytes with a ${#plug}-character plugin root and ${#long}-character paths; keep it under 9,900"
 				hook_ok=0
 			fi
 			# A compaction can re-attach an older copy of the skill, so the
@@ -348,7 +420,7 @@ for s in $shells; do
 	run "$s" prompt '' || hook_ok=0
 	# Files skills save in Claude Code's scratchpad or knackpack's fallback
 	# folder don't count as work.
-	for f in "/tmp/claude-501/-proj/$sid/scratchpad/PLAN.md" "/tmp/claude-$sid/PLAN.md"; do
+	for f in "/tmp/claude-501/-proj/$sid/scratchpad/PLAN.md" "/tmp/$fallback$sid/PLAN.md"; do
 		run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$f\"}}" &&
 			run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 		if grep -q 'edited files but not the record' "$tmp/out"; then
@@ -382,6 +454,10 @@ for s in $shells; do
 	# plain claim of an update that didn't happen is caught like "Noted:".
 	run "$s" prompt "$event" && printf '%s\n' '- 2026-10-30: changed by a shell command' >>"$rec" && run "$s" stop "$event" || hook_ok=0
 	[ -s "$tmp/out" ] && { fail "hook under $s doesn't see a record update made with a shell command"; hook_ok=0; }
+	# A file named after the session that isn't a record doesn't count.
+	run "$s" prompt "$event" && printf '%s\n' 'a note' >>"${rec%.md}.notes.md" && run "$s" stop "$event" || hook_ok=0
+	grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s counts a change to $sid.notes.md as a record update"; hook_ok=0; }
+	rm -f "${rec%.md}.notes.md"
 	for claim in 'I have recorded this as an open proposal.' 'I added it to the intent record.' 'Noted it under Open questions.'; do
 		run "$s" prompt "$event" && run "$s" stop "$(said "$claim")" || hook_ok=0
 		grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s misses a claimed record update in plain words: $claim"; hook_ok=0; }
@@ -429,6 +505,26 @@ for s in $shells; do
 	grep -qF "Record: $rec (exists)" "$tmp/out" || { fail "hook under $s keeps a finished side task's record current"; hook_ok=0; }
 	grep -q '^Other records' "$tmp/out" && { fail "hook under $s names a finished side task's record among those not done"; hook_ok=0; }
 	rm -f "$two"
+	# Run from another folder than the session's repository, as a manual run
+	# can be, the hook finds the session's record by its ID, says so, and
+	# counts an update of it. With two folders holding one, it doesn't guess.
+	printf '%s\n' '# Intent record: test' '' '## Open questions' '- Q-14: still open' >"$rec"
+	away=$real/away
+	mkdir -p "$away"
+	run "$s" prompt "$event" "" "$away" || hook_ok=0
+	grep -qxF "Record: $rec (exists, found by its session ID: the working directory has left the session's repository). Open questions: Q-14." "$tmp/out" ||
+		{ fail "hook prompt under $s, outside the session's repository, doesn't find its record: $(grep '^Record:' "$tmp/out")"; hook_ok=0; }
+	(cd "$away" && env XDG_STATE_HOME="$long/state" "$s" "$hook" manual "$sid") >"$tmp/out" 2>/dev/null
+	{ grep -qF -- "- Current record: \`$rec\` (exists, found by its session ID" "$tmp/out" && grep -q '^- This repository.s team glossary: unknown' "$tmp/out"; } ||
+		{ fail "hook manual under $s, run from another folder, doesn't find the session's record: $(grep 'Current record' "$tmp/out")"; hook_ok=0; }
+	run "$s" stop "$done_event" "" "$away" && run "$s" prompt "$event" "" "$away" &&
+		run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" "" "$away" && run "$s" stop "$event" "" "$away" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s, outside the session's repository, doesn't count an update of its record"; hook_ok=0; }
+	mkdir -p "$long/state/knackpack/intent/other-1" && cp "$rec" "$long/state/knackpack/intent/other-1/$sid.md"
+	run "$s" prompt "$event" "" "$away" || hook_ok=0
+	grep -q "^Record: .*/away-[0-9]*/$sid\\.md (not created yet)\\.\$" "$tmp/out" ||
+		{ fail "hook prompt under $s picks one of two folders holding the session's record: $(grep '^Record:' "$tmp/out")"; hook_ok=0; }
+	rm -rf "$away" "$long/state/knackpack/intent/other-1" "$long/state/knackpack/intent"/away-*
 	# With `..` after a symbolic link, the folder the hook checks and the folder
 	# its normalized path names differ; it must check the second one too and
 	# never write through a link.
@@ -462,8 +558,9 @@ for s in $shells; do
 		rm -f "$tmp/quiet.out"
 	done
 	# Open proposals: a status follows "by <who>. ", or a full stop, "?" or "!"
-	# with or without a closing quote, and a reason may follow it. A proposal
-	# without one is named, not dropped.
+	# with or without a closing quote, and a reason may follow it. Accepted and
+	# replaced ones are settled. A proposal without a status is named, not
+	# dropped.
 	for d in "$long/state/knackpack/intent"/*/; do
 		printf '%s\n' '# Intent record: test' '' '## Not agreed' \
 			'- PROP-01: Reopen the rejected ticket, by Claude. open' \
@@ -475,11 +572,44 @@ for s in $shells; do
 			'- PROP-07: "Would it taste better?" open' \
 			'- PROP-08: "Add it to everything." open (research first)' \
 			'- PROP-09: "Drop the cache." rejected' \
-			'- PROP-10: Add a queue (open)' >"$d$sid.md"
+			'- PROP-10: Add a queue (open)' \
+			'- PROP-11: Queue the exports, by Claude. accepted as REQ-43 (REQ-33, REQ-32); its wording is in History' \
+			'- PROP-12: Cache the totals, by Claude. replaced by PROP-13' \
+			'- PROP-13: Cache the totals per day, by the developer. open' \
+			'- PROP-14: "Ship it as it is." Accepted as REQ-44' >"$d$sid.md"
 	done
 	run "$s" prompt "$event" || hook_ok=0
-	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
+	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08, PROP-13\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
 		{ fail "hook prompt under $s lists the wrong open proposals: $(grep -o 'Open proposals:.*' "$tmp/out")"; hook_ok=0; }
+	# Assumptions, each up to its "Why:": the newest by number in full, within
+	# about 1,000 characters, in order of number, and the oldest by ID.
+	for d in "$long/state/knackpack/intent"/*/; do
+		{
+			printf '%s\n' '# Intent record: test' '' '## Assumed (not confirmed)'
+			for n in 02 03 04 05 06 07 08 09 11 14 13 19 20 21; do
+				printf '%s\n' "- ASM-$n: assumption $n, with enough words to make the entry about one hundred characters. Why: x"
+			done
+		} >"$d$sid.md"
+	done
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	got=$(sed -n 's/^- \(ASM-[0-9]*\): assumption [0-9]*, with .* characters\.$/\1/p' "$tmp/out" | tr '\n' ' ')
+	{ [ "$got" = 'ASM-05 ASM-06 ASM-07 ASM-08 ASM-09 ASM-11 ASM-13 ASM-14 ASM-19 ASM-20 ASM-21 ' ] &&
+		grep -qx 'More in the record: ASM-02, ASM-03, ASM-04\.' "$tmp/out"; } ||
+		{ fail "hook prompt under $s doesn't give the newest assumptions in full, by number: $got$(grep 'More in the record' "$tmp/out")"; hook_ok=0; }
+	# Later in the same turn, with the records unchanged, the reminder names
+	# them by ID only, after the same instruction. A change, or a new turn,
+	# lists them again.
+	run "$s" prompt "$event" || hook_ok=0
+	{ grep -q '^knackpack intent tracking: before acting on this message' "$tmp/out" && ! grep -q '^- ASM-' "$tmp/out" &&
+		grep -qx 'Assumed, not confirmed, as an earlier reminder listed them: ASM-02, ASM-03, ASM-04, ASM-05, ASM-06, ASM-07, ASM-08, ASM-09, ASM-11, ASM-13, ASM-14, ASM-19, ASM-20, ASM-21; check this message and your next step against them\.' "$tmp/out"; } ||
+		{ fail "hook prompt under $s doesn't name the assumptions by ID only later in a turn: $(grep 'Assumed' "$tmp/out")"; hook_ok=0; }
+	printf '%s\n' '- ASM-22: assumption 22, recorded later in the turn. Why: y' >>"$d$sid.md"
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qx -- '- ASM-22: assumption 22, recorded later in the turn\.' "$tmp/out" ||
+		{ fail "hook prompt under $s doesn't list the assumptions again after the record changed in the turn"; hook_ok=0; }
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -qx -- '- ASM-22: assumption 22, recorded later in the turn\.' "$tmp/out" ||
+		{ fail "hook prompt under $s doesn't list the assumptions again in a new turn"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# A full glossary and record, and the other records that aren't done, still
 	# fit under the cap with long paths.
@@ -495,9 +625,20 @@ for s in $shells; do
 	done
 	run "$s" state "$event" || hook_ok=0
 	state_size=$(wc -c <"$tmp/out" | tr -d ' ')
-	[ "$state_size" -le 9900 ] || { fail "hook state output is $state_size bytes with long paths; keep it under 9,900"; hook_ok=0; }
+	[ "$state_size" -le 9900 ] || { fail "hook state output is $state_size bytes with ${#long}-character paths; keep it under 9,900"; hook_ok=0; }
 	grep -q '^- and 1 more$' "$tmp/out" || { fail "hook state under $s doesn't list the session's other records that aren't done"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/glossary.md "$long/state/knackpack/intent"/*/"$sid".*md
+	# A glossary too long to print loses whole lines, never part of one, so a
+	# character outside ASCII is never split.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN { for (i = 0; i < 60; i++) printf "- Ausgabepr\303\274fung %d: die Pr\303\274fung der Ausgabe f\303\274r gro\303\237e \303\204nderungen\n", i }' >"${d}glossary.md"
+		run "$s" state "$event" || hook_ok=0
+		LC_ALL=C sed -n '/^## Personal glossary/,/^----- end -----$/p' "$tmp/out" | LC_ALL=C sed '1,/^----- begin -----$/d; /^----- end -----$/d; /^$/d' >"$tmp/gloss"
+		bad=$(LC_ALL=C grep -vxF -f "${d}glossary.md" "$tmp/gloss" | LC_ALL=C grep -v '^\[Shortened from [0-9]* bytes; left out: everything from line [0-9]* on\. Read the file for the rest\.\]$')
+		{ [ -s "$tmp/gloss" ] && [ -z "$bad" ] && grep -q '^\[Shortened from' "$tmp/gloss"; } ||
+			{ fail "hook state under $s cuts a long glossary inside a line: $(printf '%s' "$bad" | head -c 100)"; hook_ok=0; }
+		rm -f "${d}glossary.md"
+	done
 	# A record too long to print keeps its open questions and Built, and drops
 	# rejected proposals and the oldest History first, saying so.
 	for d in "$long/state/knackpack/intent"/*/; do
@@ -528,16 +669,40 @@ for s in $shells; do
 		sed -n '/^## History/{n;p;}' "$tmp/out" | grep -q '^- 2026' ||
 			{ fail "hook state under $s starts a shortened History inside an entry: $(sed -n '/^## History/{n;p;}' "$tmp/out")"; hook_ok=0; }
 	done
-	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
-	# After a compaction, and only then, it points to the session's checkpoint.
-	mkdir -p "$tmp/tmpdir/claude-$sid" && : >"$tmp/tmpdir/claude-$sid/CHECKPOINT.md"
-	for src in compact startup; do
-		printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
-			TMPDIR="$tmp/tmpdir" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >"$tmp/out" 2>/dev/null
-		if grep -q '^## Checkpoint' "$tmp/out"; then got=compact; else got=startup; fi
-		[ "$got" = "$src" ] || { fail "hook state under $s on $src $( [ "$src" = compact ] && echo "didn't point" || echo pointed) to the checkpoint"; hook_ok=0; }
+	# A Status line of 6,000 bytes is cut at a space before byte 400, saying
+	# so, and leaves room for every Agreed entry.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN {
+			print "# Intent record: test"; print ""
+			s = "- Status: active, plus how to work:"; while (length(s) < 6000) s = s " keep the change small"; print s
+			print "## Agreed"; for (i = 1; i <= 40; i++) print "- REQ-" i ": a requirement long enough to fill the record"
+		}' >"$d$sid.md"
 	done
-	rm -rf "$tmp/tmpdir"
+	run "$s" state "$event" || hook_ok=0
+	st=$(grep '^- Status:' "$tmp/out")
+	cut=${st%" [...]"}
+	{ [ "$cut" != "$st" ] && [ "${#cut}" -le 400 ] && case $(grep '^- Status:' "$d$sid.md") in "$cut "*) ;; *) false ;; esac &&
+		grep -q '^- REQ-40: ' "$tmp/out" && grep -q '^\[Shortened from [0-9]* bytes; left out: the end of the Status line\. ' "$tmp/out"; } ||
+		{ fail "hook state under $s doesn't cut a long Status line at a space to keep the Agreed entries: $(printf '%s' "$st" | tail -c 60)"; hook_ok=0; }
+	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
+	# After a compaction, and only then, it points to the session's checkpoint,
+	# by the same path whether TMPDIR ends in a slash, as macOS's does, or not.
+	ckpt=$real/tmpdir/$fallback$sid/CHECKPOINT.md
+	mkdir -p "${ckpt%/*}" && : >"$ckpt"
+	for src in compact startup; do
+		for t in "$real/tmpdir" "$real/tmpdir/"; do
+			printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
+				TMPDIR="$t" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >"$tmp/out" 2>/dev/null
+			if [ "$src" = compact ]; then
+				grep -qF "This session has a checkpoint: \`$ckpt\`." "$tmp/out" ||
+					{ fail "hook state under $s on compact with TMPDIR=$t doesn't point to $ckpt: $(grep -o 'checkpoint: `[^`]*`' "$tmp/out")"; hook_ok=0; }
+			elif grep -q '^## Checkpoint' "$tmp/out"; then
+				fail "hook state under $s on startup points to the checkpoint"
+				hook_ok=0
+			fi
+		done
+	done
+	rm -rf "$real/tmpdir"
 	# A turn file that can't be written must not stop the hook.
 	rm -rf "$long/state/knackpack/intent/.turns"
 	: >"$long/state/knackpack/intent/.turns"
@@ -563,14 +728,41 @@ for s in $shells; do
 		hook_ok=0
 	fi
 	rm -rf "$tmp/elsewhere"
-	# A stopped session gets the short note instead of the rules.
-	for d in "$long/state/knackpack/intent"/*/; do
-		printf '# Intent record: test\n\n- Status: stopped · Updated: 2026-01-01\n' >"$d$sid.md"
+	# A stopped session gets the short note instead of the rules, however the
+	# Status word is capitalized, and after a compaction or on resuming it
+	# loads neither its record nor the glossary.
+	for st in stopped Stopped; do
+		for d in "$long/state/knackpack/intent"/*/; do
+			printf '# Intent record: test\n\n- Status: %s · Updated: 2026-01-01\n' "$st" >"$d$sid.md"
+			printf '%s\n' '- term: a meaning' >"${d}glossary.md"
+		done
+		run "$s" rules "$event" || hook_ok=0
+		grep -q 'tracking is stopped for this session' "$tmp/out" || { fail "hook rules under $s ignores a record whose Status is $st"; hook_ok=0; }
+		for src in compact resume; do
+			run "$s" state "$(printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/")" || hook_ok=0
+			[ -s "$tmp/out" ] && { fail "hook state under $s on $src loads a session whose Status is $st: $(head -c 100 "$tmp/out" | tr '\n' ' ')"; hook_ok=0; }
+		done
 	done
-	run "$s" rules "$event" || hook_ok=0
-	grep -q 'tracking is stopped for this session' "$tmp/out" || { fail "hook rules under $s ignores a stopped record"; hook_ok=0; }
+	rm -f "$long/state/knackpack/intent"/*/glossary.md
+	# A project folder whose name holds shell syntax never gets into a command
+	# the hook tells Claude to run, tracked or stopped, and the rules fill in
+	# every placeholder. Its own state folder holds no other record of the
+	# session, which the hook would otherwise find.
+	evil=$real/'evil"$(touch PWNED)"`touch PWNED`'
+	mkdir -p "$evil"
+	erec=$(env XDG_STATE_HOME="$tmp/evil-state" "$s" "$hook" manual "$sid" "$evil" 2>/dev/null | sed -n 's/^- Current record: `\(.*\)` .*/\1/p')
+	for st in active stopped; do
+		[ "$st" = active ] || printf '# Intent record: test\n\n- Status: stopped\n' >"$erec"
+		printf '%s' "$event" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
+			XDG_STATE_HOME="$tmp/evil-state" CLAUDE_PROJECT_DIR="$evil" "$s" "$hook" rules >"$tmp/out" 2>/dev/null
+		{ grep -q " manual $sid" "$tmp/out" && ! grep 'manual' "$tmp/out" | grep -qF 'PWNED'; } ||
+			{ fail "hook rules under $s, $st, puts the project's folder into the command it tells Claude to run: $(grep -o '`sh [^`]*manual[^`]*' "$tmp/out")"; hook_ok=0; }
+		[ "$st" = stopped ] || { ! grep -q 'too long to print here' "$tmp/out" && ! grep -qF '${CLAUDE_' "$tmp/out"; } ||
+			{ fail "hook rules under $s, for that folder, aren't the rules with every placeholder filled: $(grep -oE 'too long to print here|[$][{]CLAUDE_[A-Z_]*[}]' "$tmp/out" | head -n 1)"; hook_ok=0; }
+	done
+	rm -rf "$evil" "$tmp/evil-state"
 done
-[ "$hook_ok" = 1 ] && pass "hook under$shells (with long paths: rules $size bytes, state $state_size)"
+[ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
 
@@ -595,10 +787,60 @@ bad=$(git ls-files -z --cached --others --exclude-standard | xargs -0 wc -c 2>/d
 # The merge gate binds everyone, admins included. The file sets the empty
 # list outright, so applying it with PUT also removes a bypass added on GitHub.
 if jq -e '.bypass_actors == []' .github/rulesets/main.json >/dev/null 2>&1; then
-	pass "the ruleset lets no one bypass the merge gate"
+	pass "the ruleset lists no bypass actors"
 else
-	fail ".github/rulesets/main.json needs \"bypass_actors\": [], so no one can bypass the merge gate"
+	fail ".github/rulesets/main.json needs \"bypass_actors\": [], so the ruleset binds everyone, admins included"
 fi
+
+# Claude's review of pull requests only reviews, as .claude/CLAUDE.md says:
+# its token can't push or merge, it has no tool that edits files, it may run
+# only its three commands and Claude Code's read-only ones, and nothing sets it
+# up to commit. Comment lines are left out, as the action leaves them out of
+# claude_args.
+wf=.github/workflows/claude-code-review.yml
+review_ok=1
+review_fail() {
+	fail "$wf: $1"
+	review_ok=0
+}
+grep -v '^[[:space:]]*#' "$wf" >"$tmp/wf"
+# The review job, from its key to the next job's.
+awk '/^[^[:space:]]/ { injobs = ($0 ~ /^jobs:/); job = ""; next }
+	injobs && /^  [^[:space:]]/ { job = $0; sub(/^  /, "", job); sub(/:.*/, "", job); next }
+	injobs && job == "review"' "$tmp/wf" >"$tmp/review"
+[ -s "$tmp/review" ] || review_fail "has no review job"
+# Its permissions, one per line under the job's permissions key.
+perms=$(awk '
+	function indent(s) { match(s, /^ */); return RLENGTH }
+	/^    permissions:/ { on = 1; v = $0; sub(/^    permissions:[[:space:]]*/, "", v); sub(/[[:space:]]*#.*/, "", v); if (v != "") print v; next }
+	on && NF && indent($0) <= 4 { on = 0 }
+	on && NF { v = $0; sub(/[[:space:]]+#.*/, "", v); gsub(/[[:space:]]/, "", v); print v }' "$tmp/review" | LC_ALL=C sort | tr '\n' ' ')
+[ "$perms" = 'contents:read pull-requests:write ' ] ||
+	review_fail "the review job's permissions must be exactly contents: read and pull-requests: write, one per line, not: ${perms:-none}"
+grep -Eq '^[[:space:]]+github_token:[[:space:]]*[$][{][{][[:space:]]*github[.]token[[:space:]]*[}][}][[:space:]]*(#.*)?$' "$tmp/review" ||
+	review_fail "the review must pass github_token: \${{ github.token }}, or the action may use the Claude app's token, which can push"
+# The tool rules, each a double-quoted, comma-separated list after its flag.
+tool_list() { # <flag, as a sed pattern>
+	sed -n "s/.*--$1[[:space:]=]*\"\([^\"]*\)\".*/\1/p" "$tmp/review" | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d'
+}
+denied=$(tool_list 'disallowed-\{0,1\}[Tt]ools')
+missing=
+for t in Edit Write MultiEdit NotebookEdit; do
+	printf '%s\n' "$denied" | grep -qx "$t" || missing="$missing $t"
+done
+[ -z "$missing" ] || review_fail "--disallowedTools, as one double-quoted list, doesn't name:$missing"
+grep -e '--allowed-\{0,1\}[Tt]ools' "$tmp/review" | grep -qv -e '--allowed-\{0,1\}[Tt]ools[[:space:]=]*"' &&
+	review_fail "write --allowedTools as one double-quoted, comma-separated list, which this check can read"
+pr='${{ github.event.pull_request.number }}'
+extra=$(tool_list 'allowed-\{0,1\}[Tt]ools' | grep -vxF -e "Bash(gh pr diff $pr)" -e "Bash(gh pr diff $pr --name-only)" -e "Bash(gh pr view $pr)" \
+	-e mcp__github_inline_comment__create_inline_comment | tr '\n' ' ')
+[ -z "$extra" ] || review_fail "--allowedTools approves more than the three gh pr commands and the inline-comment tool: $extra"
+# Anywhere in the workflow: the inputs and tools that let Claude commit, push
+# or merge, and the permission modes that would run commands nobody approved.
+bad=$(grep -oE -e 'use_commit_signing|ssh_signing_key|mcp__github_file_ops|mcp__github(__|[^_[:alnum:]]|$)' \
+	-e 'dangerously-skip-permissions|--permission-mode|bypassPermissions' "$tmp/wf" | sed 's/[^_[:alnum:]-]$//' | LC_ALL=C sort -u | tr '\n' ' ')
+[ -z "$bad" ] || review_fail "gives Claude a way to commit, push or merge, or to run commands nobody approved: $bad"
+[ "$review_ok" = 1 ] && pass "Claude's pull request review can't edit files or push: its token, tool rules and permission mode"
 
 # Linters, each run when it's installed, on the files git tracks or would add
 # outside evals/, whose fixtures hold the defects their cases are about, and
