@@ -102,6 +102,19 @@ grep -qF 'When your brief says the caller adjudicates' scripts/review-protocol.m
 }
 [ "$brief_ok" = 1 ] && pass "reviewers leave adjudication to orchestrate-review when its brief says so"
 
+# Agents cite the review protocol's steps by number, as in "the copy from step
+# 7 of the review protocol", so its nine steps keep their numbers and opening
+# words. To renumber or rename one, first update each agent that cites it.
+steps=$(sed -n 's/^\*\*\([0-9][0-9]*\. [^*]*\)\*\*.*/\1/p' scripts/review-protocol.md | sed 's/\.$//')
+want=$(printf '%s\n' '1. Make a scratch folder' '2. Record the starting state' '3. Find the base' '4. Read the change' \
+	'5. Read the guidance yourself' "6. Decide whether you may run the change's code" '7. Experiment only in a copy' '8. Finish' \
+	'9. Save the report to a file')
+if [ "$steps" = "$want" ]; then
+	pass "the review protocol keeps the nine numbered steps the agents cite"
+else
+	fail "scripts/review-protocol.md's numbered steps changed, but the agents cite them by number: update each agent that cites a moved or renamed step, then this check's list. Steps now: $(printf '%s' "$steps" | tr '\n' '|')"
+fi
+
 # Every knackpack:<name> and `<name>-reviewer` in the docs, agents, skills and
 # eval cases is an agent or skill that exists (or, for the second form, an eval
 # tag), since Claude Code has no alias for an old agent name. A name in plain
