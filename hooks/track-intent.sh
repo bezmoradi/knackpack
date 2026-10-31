@@ -408,8 +408,9 @@ print_paths() {
 # stays under Claude Code's 10,000-character cap. A file too long for it loses
 # whole lines from the end, so a multi-byte character can't be split, and the
 # output says what was left out. A record first drops what matters least:
-# rejected proposals and the oldest History entries, keeping or dropping a
-# History entry whole, with the lines under it.
+# the end of a Status line past 400 bytes, cut at a space, rejected proposals
+# and the oldest History entries, keeping or dropping a History entry whole,
+# with the lines under it.
 print_file() { # <title> <file> <byte limit> [record]
 	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
 	size=$(wc -c <"$2" | tr -d ' ')
@@ -419,6 +420,13 @@ print_file() { # <title> <file> <byte limit> [record]
 		LC_ALL=C awk -v room=$(($3 - 120)) -v size="$size" -v rec="${4:-}" '
 		{ sub(/\r$/, "") }
 		/^## / { sec = $0 }
+		# How to work goes on the Status line, which can grow long enough to
+		# crowd out what was agreed. A space is one byte, so cutting at one
+		# splits no character.
+		rec != "" && sec == "" && /^- Status:/ && length($0) > 400 && match(substr($0, 1, 400), /.* /) {
+			$0 = substr($0, 1, RLENGTH - 1) " [...]"
+			status = 1
+		}
 		rec != "" && sec ~ /^## History/ {
 			# The heading and anything before the first entry, then one
 			# entry per list item, each with the lines under it.
@@ -437,7 +445,8 @@ print_file() { # <title> <file> <byte limit> [record]
 				printf "%s\n", body[i]
 				used += n
 			}
-			left = rej ? "rejected proposals" : ""
+			left = status ? "the end of the Status line" : ""
+			if (rej) left = left (left == "" ? "" : ", ") "rejected proposals"
 			if (cut) {
 				left = left (left == "" ? "" : ", ") "everything from line " line[i] " on"
 			} else if (head != "") {

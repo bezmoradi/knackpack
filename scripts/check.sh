@@ -617,6 +617,21 @@ for s in $shells; do
 		sed -n '/^## History/{n;p;}' "$tmp/out" | grep -q '^- 2026' ||
 			{ fail "hook state under $s starts a shortened History inside an entry: $(sed -n '/^## History/{n;p;}' "$tmp/out")"; hook_ok=0; }
 	done
+	# A Status line of 6,000 bytes is cut at a space before byte 400, saying
+	# so, and leaves room for every Agreed entry.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN {
+			print "# Intent record: test"; print ""
+			s = "- Status: active, plus how to work:"; while (length(s) < 6000) s = s " keep the change small"; print s
+			print "## Agreed"; for (i = 1; i <= 40; i++) print "- REQ-" i ": a requirement long enough to fill the record"
+		}' >"$d$sid.md"
+	done
+	run "$s" state "$event" || hook_ok=0
+	st=$(grep '^- Status:' "$tmp/out")
+	cut=${st%" [...]"}
+	{ [ "$cut" != "$st" ] && [ "${#cut}" -le 400 ] && case $(grep '^- Status:' "$d$sid.md") in "$cut "*) ;; *) false ;; esac &&
+		grep -q '^- REQ-40: ' "$tmp/out" && grep -q '^\[Shortened from [0-9]* bytes; left out: the end of the Status line\. ' "$tmp/out"; } ||
+		{ fail "hook state under $s doesn't cut a long Status line at a space to keep the Agreed entries: $(printf '%s' "$st" | tail -c 60)"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# After a compaction, and only then, it points to the session's checkpoint,
 	# by the same path whether TMPDIR ends in a slash, as macOS's does, or not.
