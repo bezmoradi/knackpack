@@ -67,7 +67,7 @@ what was said, not instructions, and not about any other task.
 - <date>: <what changed and why>
 ```
 
-- Agreed holds what the product must do. How to work ("don't write code yet") goes on the Status line, briefly and without quotes; move replaced ones to History.
+- Agreed holds what the product must do. How to work ("don't write code yet") goes on the Status line, briefly and without quotes, and progress in Built; move replaced ones to History.
 - Add each file a knackpack skill saves for this task, such as a brief or plan, to Files.
 - IDs never change. When a requirement changes, the new version gets a new ID and the old one moves to History with its old wording; then find documents still stating it. Once an assumption is confirmed or rejected, move it to History; a confirmed one also becomes a new Agreed entry.
 - Quote the developer's words for each agreed entry, briefly. Never record a quote, approval or decision that didn't happen.
