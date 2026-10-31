@@ -498,7 +498,10 @@ state)
 	# the folder it uses when Claude Code names no scratchpad.
 	ckpt=
 	if [ "$src" = compact ]; then
-		for f in "${TMPDIR:-/tmp}/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
+		# Without the trailing slash macOS's TMPDIR has, which would double.
+		t=${TMPDIR:-/tmp}
+		t=${t%"${t##*[!/]}"}
+		for f in "$t/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
 			[ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && { ckpt="
 ## Checkpoint
 

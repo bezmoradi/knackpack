@@ -583,15 +583,24 @@ for s in $shells; do
 			{ fail "hook state under $s starts a shortened History inside an entry: $(sed -n '/^## History/{n;p;}' "$tmp/out")"; hook_ok=0; }
 	done
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
-	# After a compaction, and only then, it points to the session's checkpoint.
-	mkdir -p "$tmp/tmpdir/$fallback$sid" && : >"$tmp/tmpdir/$fallback$sid/CHECKPOINT.md"
+	# After a compaction, and only then, it points to the session's checkpoint,
+	# by the same path whether TMPDIR ends in a slash, as macOS's does, or not.
+	ckpt=$real/tmpdir/$fallback$sid/CHECKPOINT.md
+	mkdir -p "${ckpt%/*}" && : >"$ckpt"
 	for src in compact startup; do
-		printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
-			TMPDIR="$tmp/tmpdir" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >"$tmp/out" 2>/dev/null
-		if grep -q '^## Checkpoint' "$tmp/out"; then got=compact; else got=startup; fi
-		[ "$got" = "$src" ] || { fail "hook state under $s on $src $( [ "$src" = compact ] && echo "didn't point" || echo pointed) to the checkpoint"; hook_ok=0; }
+		for t in "$real/tmpdir" "$real/tmpdir/"; do
+			printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
+				TMPDIR="$t" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >"$tmp/out" 2>/dev/null
+			if [ "$src" = compact ]; then
+				grep -qF "This session has a checkpoint: \`$ckpt\`." "$tmp/out" ||
+					{ fail "hook state under $s on compact with TMPDIR=$t doesn't point to $ckpt: $(grep -o 'checkpoint: `[^`]*`' "$tmp/out")"; hook_ok=0; }
+			elif grep -q '^## Checkpoint' "$tmp/out"; then
+				fail "hook state under $s on startup points to the checkpoint"
+				hook_ok=0
+			fi
+		done
 	done
-	rm -rf "$tmp/tmpdir"
+	rm -rf "$real/tmpdir"
 	# A turn file that can't be written must not stop the hook.
 	rm -rf "$long/state/knackpack/intent/.turns"
 	: >"$long/state/knackpack/intent/.turns"
