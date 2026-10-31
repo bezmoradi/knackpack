@@ -281,6 +281,28 @@ done
 c=$(body skills/track-intent/SKILL.md | chars)
 if [ "$c" -lt 8500 ]; then pass "skill sizes (track-intent body $c characters)"; else fail "track-intent's body is $c characters, over 8,500"; fi
 
+# Text the hook relies on, as the skills write it. The skills that save files
+# use one fallback folder, in the same words, and the hook tests below take its
+# name from them: the hook leaves that folder out of a turn's work and looks
+# there for the checkpoint after a compaction. The record layout holds the
+# strings the hook reads a record by.
+contract_ok=1
+IFS= read -r save_folder <<'EOF'
+the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
+EOF
+for name in challenge-requirements checkpoint handoff orchestrate-review plan-implementation research; do
+	grep -qF -- "$save_folder" "skills/$name/SKILL.md" ||
+		{ fail "skills/$name/SKILL.md doesn't name its save folder in the words check.sh holds, which the hook relies on"; contract_ok=0; }
+done
+fallback=$(printf '%s\n' "$save_folder" | sed -n 's/.*`\([A-Za-z0-9._-]*\)${CLAUDE_SESSION_ID}`.*/\1/p')
+[ -n "$fallback" ] || { fail "check.sh's save-folder words name no folder for the hook tests"; contract_ok=0; }
+layout=$(sed -n '/^```markdown$/,/^```$/p' skills/track-intent/SKILL.md)
+for s in '# Intent record: ' '- Status: active | paused | stopped | done' '## Assumed' '- ASM-01: <assumption>. Why: ' '## Not agreed' \
+	'- PROP-01: <suggestion>, by <developer or Claude>. open | rejected' '## Open questions' '- Q-01: ' '## History'; do
+	printf '%s\n' "$layout" | grep -qF -- "$s" || { fail "track-intent's record layout no longer has \"$s\", which the hook reads"; contract_ok=0; }
+done
+[ "$contract_ok" = 1 ] && pass "the skills' save folder and record layout match what the hook reads"
+
 # The hook, under every shell at hand: silent, always exit 0, and its rules
 # output under the 10,000-character cap even with long paths.
 command -v dash >/dev/null 2>&1 || fail "dash isn't installed, so the hook can't be tested under it"
@@ -365,7 +387,7 @@ for s in $shells; do
 	run "$s" prompt '' || hook_ok=0
 	# Files skills save in Claude Code's scratchpad or knackpack's fallback
 	# folder don't count as work.
-	for f in "/tmp/claude-501/-proj/$sid/scratchpad/PLAN.md" "/tmp/claude-$sid/PLAN.md"; do
+	for f in "/tmp/claude-501/-proj/$sid/scratchpad/PLAN.md" "/tmp/$fallback$sid/PLAN.md"; do
 		run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$f\"}}" &&
 			run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 		if grep -q 'edited files but not the record' "$tmp/out"; then
@@ -551,7 +573,7 @@ for s in $shells; do
 	done
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# After a compaction, and only then, it points to the session's checkpoint.
-	mkdir -p "$tmp/tmpdir/claude-$sid" && : >"$tmp/tmpdir/claude-$sid/CHECKPOINT.md"
+	mkdir -p "$tmp/tmpdir/$fallback$sid" && : >"$tmp/tmpdir/$fallback$sid/CHECKPOINT.md"
 	for src in compact startup; do
 		printf '%s' "$event" | sed "s/\"startup\"/\"$src\"/" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
 			TMPDIR="$tmp/tmpdir" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >"$tmp/out" 2>/dev/null
@@ -584,12 +606,15 @@ for s in $shells; do
 		hook_ok=0
 	fi
 	rm -rf "$tmp/elsewhere"
-	# A stopped session gets the short note instead of the rules.
-	for d in "$long/state/knackpack/intent"/*/; do
-		printf '# Intent record: test\n\n- Status: stopped · Updated: 2026-01-01\n' >"$d$sid.md"
+	# A stopped session gets the short note instead of the rules, however the
+	# Status word is capitalized.
+	for st in stopped Stopped; do
+		for d in "$long/state/knackpack/intent"/*/; do
+			printf '# Intent record: test\n\n- Status: %s · Updated: 2026-01-01\n' "$st" >"$d$sid.md"
+		done
+		run "$s" rules "$event" || hook_ok=0
+		grep -q 'tracking is stopped for this session' "$tmp/out" || { fail "hook rules under $s ignores a record whose Status is $st"; hook_ok=0; }
 	done
-	run "$s" rules "$event" || hook_ok=0
-	grep -q 'tracking is stopped for this session' "$tmp/out" || { fail "hook rules under $s ignores a stopped record"; hook_ok=0; }
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 export HOME="$real_home"

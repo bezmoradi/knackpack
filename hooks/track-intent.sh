@@ -225,7 +225,7 @@ records_sum() {
 }
 
 stopped() {
-	[ "$exists" = 1 ] && grep -Eq '^- Status:[[:space:]]*stopped' "$record" 2>/dev/null
+	[ "$exists" = 1 ] && grep -Eq '^- Status:[[:space:]]*[Ss]topped([^A-Za-z]|$)' "$record" 2>/dev/null
 }
 
 # Names the session's other records that aren't done, one per line with its
