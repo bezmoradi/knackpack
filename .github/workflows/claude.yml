@@ -20,11 +20,6 @@ on:
 
 permissions: {}
 
-# One answer at a time per issue or pull request; a later mention waits.
-concurrency:
-  group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
-  cancel-in-progress: false
-
 jobs:
   claude:
     name: Claude
@@ -33,6 +28,14 @@ jobs:
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    # One answer at a time per issue or pull request: a later mention waits
+    # for the running one, and replaces any mention already waiting. The group
+    # is set on the job, not the workflow, so a run joins it only when the if
+    # above lets the job run. On the workflow, every run for the thread joined
+    # it, so a comment without @claude could cancel a waiting mention.
+    concurrency:
+      group: claude-${{ github.event.issue.number || github.event.pull_request.number }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -50,5 +53,12 @@ jobs:
         uses: anthropics/claude-code-action@16f9f71ab9c490faf367f94dd294897edc25be33 # v1.0.261
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Only the maintainer's comments, reviews and review comments go into
+          # Claude's prompt. Everyone else's are left out, bots' included, such
+          # as Claude's own earlier replies and the review workflow's comments.
+          # It filters nothing else: the issue's or pull request's title and
+          # body reach the prompt whoever wrote them, and on a pull request
+          # Claude works in its branch. Names match exactly, case included.
+          include_comments_by_actor: bezmoradi
           additional_permissions: |
             actions: read
