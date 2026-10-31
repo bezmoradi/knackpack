@@ -539,11 +539,25 @@ for s in $shells; do
 			done
 		} >"$d$sid.md"
 	done
-	run "$s" prompt "$event" || hook_ok=0
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 	got=$(sed -n 's/^- \(ASM-[0-9]*\): assumption [0-9]*, with .* characters\.$/\1/p' "$tmp/out" | tr '\n' ' ')
 	{ [ "$got" = 'ASM-05 ASM-06 ASM-07 ASM-08 ASM-09 ASM-11 ASM-13 ASM-14 ASM-19 ASM-20 ASM-21 ' ] &&
 		grep -qx 'More in the record: ASM-02, ASM-03, ASM-04\.' "$tmp/out"; } ||
 		{ fail "hook prompt under $s doesn't give the newest assumptions in full, by number: $got$(grep 'More in the record' "$tmp/out")"; hook_ok=0; }
+	# Later in the same turn, with the records unchanged, the reminder names
+	# them by ID only, after the same instruction. A change, or a new turn,
+	# lists them again.
+	run "$s" prompt "$event" || hook_ok=0
+	{ grep -q '^knackpack intent tracking: before acting on this message' "$tmp/out" && ! grep -q '^- ASM-' "$tmp/out" &&
+		grep -qx 'Assumed, not confirmed, as an earlier reminder listed them: ASM-02, ASM-03, ASM-04, ASM-05, ASM-06, ASM-07, ASM-08, ASM-09, ASM-11, ASM-13, ASM-14, ASM-19, ASM-20, ASM-21; check this message and your next step against them\.' "$tmp/out"; } ||
+		{ fail "hook prompt under $s doesn't name the assumptions by ID only later in a turn: $(grep 'Assumed' "$tmp/out")"; hook_ok=0; }
+	printf '%s\n' '- ASM-22: assumption 22, recorded later in the turn. Why: y' >>"$d$sid.md"
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qx -- '- ASM-22: assumption 22, recorded later in the turn\.' "$tmp/out" ||
+		{ fail "hook prompt under $s doesn't list the assumptions again after the record changed in the turn"; hook_ok=0; }
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -qx -- '- ASM-22: assumption 22, recorded later in the turn\.' "$tmp/out" ||
+		{ fail "hook prompt under $s doesn't list the assumptions again in a new turn"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# A full glossary and record, and the other records that aren't done, still
 	# fit under the cap with long paths.

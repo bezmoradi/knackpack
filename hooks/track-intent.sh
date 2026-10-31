@@ -198,8 +198,9 @@ fi
 # turn's first prompt, then holds one line per file edit in the turn: "record"
 # for this session's record, "work" for anything outside the state folder and
 # the folders where skills save files: Claude Code's scratchpad,
-# <session>/scratchpad, and knackpack's fallback, claude-<session>. Stop adds
-# "end", and only a prompt after it starts a new turn.
+# <session>/scratchpad, and knackpack's fallback, claude-<session>. A reminder
+# that lists the assumptions adds "listed <checksum>". Stop adds "end", and
+# only a prompt after it starts a new turn.
 turns=$root/.turns
 turn=$turns/$sid
 
@@ -317,9 +318,10 @@ open_items() {
 # say what was assumed, one per line and as written, in order of number. An
 # entry that wraps onto more lines is joined, never cut at the break. Past
 # about 1,000 characters, the oldest get only their IDs, so the newest keep
-# their text.
-assumed_items() {
-	awk '
+# their text. With "ids", only the IDs, for a reminder that follows one that
+# listed the same assumptions.
+assumed_items() { # <record> [ids]
+	awk -v ids="${2:-}" '
 	function flush(   j, v) {
 		if (id == "") return
 		# Cut at the last " Why:", so text that contains one is not lost.
@@ -367,6 +369,11 @@ assumed_items() {
 	END {
 		flush()
 		if (k == 0) exit
+		if (ids != "") {
+			for (j = 1; j <= k; j++) l = l (j > 1 ? ", " : "") name[j]
+			printf "Assumed, not confirmed, as an earlier reminder listed them: %s; check this message and your next step against them.", l
+			exit
+		}
 		# The newest that fit are shown in full.
 		for (j = k; j >= 1; j--) {
 			if (used + length(text[j]) > 1000) continue
@@ -579,7 +586,14 @@ prompt)
 	assumed=
 	if [ "$exists" = 1 ]; then
 		open=$(open_items "$record")
-		assumed=$(assumed_items "$record")
+		# Within a turn, a reminder after one that listed the assumptions, with
+		# the records unchanged since, names them by ID only.
+		if [ "$writable" = 1 ] && grep -qxF "listed $sum" "$turn" 2>/dev/null; then
+			assumed=$(assumed_items "$record" ids)
+		else
+			assumed=$(assumed_items "$record")
+			[ -n "$assumed" ] && [ "$writable" = 1 ] && printf 'listed %s\n' "$sum" 2>/dev/null >>"$turn"
+		fi
 	fi
 	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it changes the agreement: adds, changes or answers something, or approves a proposal. Approving the next step of work already agreed isn't a change. If it changes the agreement, update the record first, with your file-editing tools, then do the work, and say so in your final message, in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
