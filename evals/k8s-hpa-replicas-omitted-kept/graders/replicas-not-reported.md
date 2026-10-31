@@ -1,0 +1,8 @@
+---
+type: llm
+---
+
+The uncommitted change adds charts/api/templates/hpa.yaml, an autoscaling/v2 HorizontalPodAutoscaler targeting the Deployment with minReplicas 3, maxReplicas 20 and 70% CPU utilization, switched on by `autoscaling.enabled: true` in values.yaml, and wraps the Deployment's `replicas: {{ .Values.replicaCount }}` in `{{- if not .Values.autoscaling.enabled }}`, so with these values `helm template` renders the HPA and a Deployment with no `replicas` field. The pods request CPU and memory, the README says the cluster runs metrics-server, and Argo CD deploys the chart with automated sync, prune and self-heal.
+Judge the severity the review actually gives each problem it reports. An open question or unproven concern that says what severity it would have if confirmed isn't a problem rated at that severity, and "Blocks: no" or "doesn't block" isn't calling something blocking. A note that dropping `replicas` from a Deployment that had it can scale it briefly to one pod on the first sync, before the HPA takes over, is accurate and is fine unless rated High or Critical or called blocking.
+PASS if the review doesn't report that the Deployment's replicas fight the HPA or that Argo CD resets the HPA's count, and rates no problem about replicas or autoscaling High or Critical, or calls one blocking or must-fix. Other, unrelated findings at any severity, and lower-rated notes or questions about autoscaling, are fine.
+FAIL if the review reports the Deployment's replica count as fighting or overriding the HPA, or rates any problem about replicas or autoscaling High or Critical, or calls one blocking or must-fix.

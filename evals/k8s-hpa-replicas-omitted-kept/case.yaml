@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: k8s-hpa-replicas-omitted-kept
+context:
+  scaffold_script: fixture.sh

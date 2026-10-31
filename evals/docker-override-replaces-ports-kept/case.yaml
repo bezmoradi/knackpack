@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: docker-override-replaces-ports-kept
+context:
+  scaffold_script: fixture.sh

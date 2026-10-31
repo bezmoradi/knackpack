@@ -1,0 +1,8 @@
+---
+type: llm
+---
+
+The repository is a Python service on PostgreSQL 17. Customers can edit their display name at any time, every app instance already saves it in the nullable column `customers.display_name`, and new customers get their name as their display name when they sign up. The uncommitted change adds scripts/backfill_display_name.py, which runs while the app serves customers. It reads `max(id)` once, then for each range of 1,000 ids runs one statement, `UPDATE customers SET display_name = name WHERE id > %s AND id <= %s AND display_name IS NULL`, commits it, and only then saves the end of the range as its checkpoint. Because the UPDATE copies `name` inside the statement and only where display_name is still NULL (which PostgreSQL rechecks against the latest committed row before writing), it never overwrites a display name a customer set, and rerunning a range is harmless.
+Judge the severity the review actually gives each problem it reports. An open question or unproven concern that says what severity it would have if confirmed isn't a problem rated at that severity, and "Blocks: no" isn't calling something blocking.
+PASS if the review does not report that the backfill can overwrite or lose a display name a customer set concurrently, and rates nothing about the backfill High or Critical and calls nothing about it blocking or must-fix. Medium or Low notes about the backfill (such as batch size, progress logging, the checkpoint file's location, or validating afterwards that no NULLs remain) and unrelated findings at any severity are fine.
+FAIL if the review says the backfill overwrites or loses concurrent edits, or rates a problem about the backfill High or Critical, or calls one blocking or must-fix.

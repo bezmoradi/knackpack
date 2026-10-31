@@ -1,0 +1,8 @@
+---
+type: llm
+---
+
+The repository's Terraform root, infra/reports/, is applied in production by CI with Terraform 1.11 (`terraform plan`, then `terraform apply` on a push to main). The uncommitted change deletes the resource blocks for the S3 bucket `aws_s3_bucket.legacy_reports` (which has `force_destroy = true`) and its `aws_s3_bucket_versioning`, and adds a `removed` block for each with no `lifecycle` block. A comment says the bucket is being handed over to the data team's own stack and its data must be kept. In Terraform, a `removed` block without `lifecycle { destroy = false }` destroys the object; only OpenTofu forgets it by default. Applying this change under Terraform therefore deletes the bucket and its reports instead of just removing them from this root's state.
+Judge the severity the review actually gives the problem. An open question or unproven concern that says what severity it would have if confirmed isn't a problem rated at that severity.
+PASS if the review reports that under Terraform these removed blocks destroy the legacy reports bucket (or plan its destruction) rather than only removing it from state, rates that High or Critical or calls it blocking or must-fix, and suggests adding `lifecycle { destroy = false }` to the removed blocks (or an equivalent way to forget the objects without destroying them, such as `terraform state rm`). Any correct explanation is fine.
+FAIL if the review doesn't report that the bucket is destroyed, says the removed blocks only remove it from state under Terraform, rates the problem Medium or lower without calling it blocking, or suggests no way to keep the bucket.

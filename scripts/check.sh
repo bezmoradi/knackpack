@@ -184,8 +184,8 @@ fi
 [ "$keys_ok" = 1 ] && pass "frontmatter and hooks.json keys"
 
 # The README's counts of skills, agents and hooks.
-words='one two three four five six seven eight nine ten eleven twelve'
-word() { set -- "$1" $words; i=$1; shift; [ "$i" -ge 1 ] && [ "$i" -le 12 ] && eval "printf '%s' \"\${$i}\"" || printf '%s' "$i"; }
+words='one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty'
+word() { set -- "$1" $words; i=$1; shift; [ "$i" -ge 1 ] && [ "$i" -le 20 ] && eval "printf '%s' \"\${$i}\"" || printf '%s' "$i"; }
 skills_n=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
 hooks_n=$(jq '.hooks | length' hooks/hooks.json 2>/dev/null)
 counts_ok=1
@@ -322,7 +322,7 @@ contract_ok=1
 IFS= read -r save_folder <<'EOF'
 the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 EOF
-for name in challenge-requirements checkpoint handoff orchestrate-review plan-implementation research; do
+for name in challenge-requirements checkpoint create-issues handoff opentelemetry orchestrate-review plan-implementation research; do
 	grep -qF -- "$save_folder" "skills/$name/SKILL.md" ||
 		{ fail "skills/$name/SKILL.md doesn't name its save folder in the words check.sh holds, which the hook relies on"; contract_ok=0; }
 done
