@@ -1,7 +1,7 @@
 {
   "name": "knackpack",
   "description": "A pack of Claude Code knacks: skills and agents",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "author": {
     "name": "Bez Moradi",
     "url": "https://github.com/bezmoradi"
