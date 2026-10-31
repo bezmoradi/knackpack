@@ -83,6 +83,26 @@ done
 [ "$n" = 9 ] || { fail "expected 9 agents, found $n"; agents_ok=0; }
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd, report file names and the review protocol's source"
 
+# An agent that denies Playwright MCP tools must deny each one under both the
+# bare server name `mcp__playwright__` and the plugin-bundled
+# `mcp__plugin_playwright_playwright__`, since a user can add the server either
+# way; an exact-name deny list that names a tool under only one prefix fails
+# open on the other.
+pw_ok=1
+for f in agents/*.md; do
+	name=${f#agents/}
+	name=${name%.md}
+	denied=$(frontmatter "$f" | sed -n 's/^disallowedTools:[[:space:]]*//p' | tr ', \t' '\n\n\n' | grep -E '^mcp__(playwright|plugin_playwright_playwright)__')
+	[ -n "$denied" ] || continue
+	printf '%s\n' "$denied" | sed -n 's/^mcp__playwright__//p' | sort -u >"$tmp/pw1"
+	printf '%s\n' "$denied" | sed -n 's/^mcp__plugin_playwright_playwright__//p' | sort -u >"$tmp/pw2"
+	only1=$(comm -23 "$tmp/pw1" "$tmp/pw2" | tr '\n' ' ')
+	only2=$(comm -13 "$tmp/pw1" "$tmp/pw2" | tr '\n' ' ')
+	[ -z "$only1" ] || { fail "$name denies under mcp__playwright__ but not mcp__plugin_playwright_playwright__: $only1"; pw_ok=0; }
+	[ -z "$only2" ] || { fail "$name denies under mcp__plugin_playwright_playwright__ but not mcp__playwright__: $only2"; pw_ok=0; }
+done
+[ "$pw_ok" = 1 ] && pass "Playwright tool denials name each tool under both server prefixes"
+
 # Orchestrate review tells each reviewer that it adjudicates, so the same
 # finding isn't adjudicated once per reviewer; the protocol, and the three
 # reviewers that otherwise start the adjudicator, must recognize that brief.
