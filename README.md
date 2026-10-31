@@ -338,7 +338,7 @@ When every report is in, Claude:
 - has the adjudicator check each Critical, High or blocking issue once, on the snapshot the reviewers who reported it saw, and asks it whether the proposed fix removes the failure; a fix nobody ran is marked untested;
 - sorts every issue into **fix now**, with the correction and how to verify it, **decision needed**, with a recommendation, added to the intent record as an open question, and **won't fix**, with the reason.
 
-The report, `orchestrate-review.md`, lists every reviewer's verdict and report path, the merged findings table, what no reviewer checked, what the reviewers left on your machine, such as Docker images they pulled, and what the run cost: each report's own figures, and the time and tokens Claude Code reported for each agent where it gave them. Claude applies no fixes; ask afterwards for the ones you want.
+The report, `orchestrate-review.md`, lists every reviewer's verdict and report path, the merged findings table, what no reviewer checked, what the reviewers left on your machine, such as Docker images they pulled and build cache they added, and what the run cost: each report's own figures, and the time and tokens Claude Code reported for each agent where it gave them. Claude applies no fixes; ask afterwards for the ones you want.
 
 ## Trust Boundary
 
