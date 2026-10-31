@@ -541,6 +541,17 @@ for s in $shells; do
 	[ "$state_size" -le 9900 ] || { fail "hook state output is $state_size bytes with ${#long}-character paths; keep it under 9,900"; hook_ok=0; }
 	grep -q '^- and 1 more$' "$tmp/out" || { fail "hook state under $s doesn't list the session's other records that aren't done"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/glossary.md "$long/state/knackpack/intent"/*/"$sid".*md
+	# A glossary too long to print loses whole lines, never part of one, so a
+	# character outside ASCII is never split.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN { for (i = 0; i < 60; i++) printf "- Ausgabepr\303\274fung %d: die Pr\303\274fung der Ausgabe f\303\274r gro\303\237e \303\204nderungen\n", i }' >"${d}glossary.md"
+		run "$s" state "$event" || hook_ok=0
+		LC_ALL=C sed -n '/^## Personal glossary/,/^----- end -----$/p' "$tmp/out" | LC_ALL=C sed '1,/^----- begin -----$/d; /^----- end -----$/d; /^$/d' >"$tmp/gloss"
+		bad=$(LC_ALL=C grep -vxF -f "${d}glossary.md" "$tmp/gloss" | grep -v '^\[Shortened from [0-9]* bytes; left out: everything from line [0-9]* on\. Read the file for the rest\.\]$')
+		{ [ -s "$tmp/gloss" ] && [ -z "$bad" ] && grep -q '^\[Shortened from' "$tmp/gloss"; } ||
+			{ fail "hook state under $s cuts a long glossary inside a line: $(printf '%s' "$bad" | head -c 100)"; hook_ok=0; }
+		rm -f "${d}glossary.md"
+	done
 	# A record too long to print keeps its open questions and Built, and drops
 	# rejected proposals and the oldest History first, saying so.
 	for d in "$long/state/knackpack/intent"/*/; do

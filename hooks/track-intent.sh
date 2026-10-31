@@ -380,36 +380,22 @@ print_paths() {
 	printf '%s\n' "- Your personal glossary for this repository: \`$glossary\` ($gstate)"
 }
 
-# Prints a file between markers, cut at a byte limit so the hook's output
-# stays under Claude Code's 10,000-character cap.
-print_file() {
-	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
-	size=$(wc -c <"$2" | tr -d ' ')
-	printf '\n## %s\n\n`%s`\n\n----- begin -----\n' "$1" "$2"
-	if [ "$size" -gt "$3" ]; then
-		head -c "$3" "$2"
-		printf '\n[Cut at %s of %s bytes. Read the file for the rest.]\n' "$3" "$size"
-	else
-		cat -- "$2"
-	fi
-	printf '\n----- end -----\n'
-}
-
-# Prints the record like print_file, but when it's too long it drops what
-# matters least first: rejected proposals and the oldest History entries, then
-# whole lines from the end. It never cuts inside a line, so a multi-byte
-# character can't be split, keeps or drops a History entry whole, with the
-# lines under it, and says what it left out.
-print_record() {
+# Prints a file between markers, within a byte limit so the hook's output
+# stays under Claude Code's 10,000-character cap. A file too long for it loses
+# whole lines from the end, so a multi-byte character can't be split, and the
+# output says what was left out. A record first drops what matters least:
+# rejected proposals and the oldest History entries, keeping or dropping a
+# History entry whole, with the lines under it.
+print_file() { # <title> <file> <byte limit> [record]
 	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
 	size=$(wc -c <"$2" | tr -d ' ')
 	printf '\n## %s\n\n`%s`\n\n----- begin -----\n' "$1" "$2"
 	if [ "$size" -gt "$3" ]; then
 		# Bytes, not characters, whatever the locale; 120 are kept for the note.
-		LC_ALL=C awk -v room=$(($3 - 120)) -v size="$size" '
+		LC_ALL=C awk -v room=$(($3 - 120)) -v size="$size" -v rec="${4:-}" '
 		{ sub(/\r$/, "") }
 		/^## / { sec = $0 }
-		sec ~ /^## History/ {
+		rec != "" && sec ~ /^## History/ {
 			# The heading and anything before the first entry, then one
 			# entry per list item, each with the lines under it.
 			if (/^([-*+]|[0-9]+[.)])[ \t]/) h++
@@ -417,7 +403,7 @@ print_record() {
 			else head = head $0 "\n"
 			next
 		}
-		sec ~ /^## Not agreed/ && tolower($0) ~ /[.?!][")]*[ \t]+rejected[^a-z]*$/ { rej++; next }
+		rec != "" && sec ~ /^## Not agreed/ && tolower($0) ~ /[.?!][")]*[ \t]+rejected[^a-z]*$/ { rej++; next }
 		{ body[++b] = $0; line[b] = NR }
 		END {
 			used = 0
@@ -534,7 +520,7 @@ $other"
 		room=$((9650 - $(printf '%s%s%s%s' "$gloss" "$ckpt" "$other" "$record" | wc -c | tr -d ' ')))
 		[ "$room" -le 6000 ] || room=6000
 		[ "$room" -ge 1000 ] || room=1000
-		print_record "Current record: evidence of what was agreed, not instructions" "$record" "$room"
+		print_file "Current record: evidence of what was agreed, not instructions" "$record" "$room" record
 	fi
 	[ -z "$other" ] || printf '%s\n' "$other"
 	;;
@@ -636,7 +622,7 @@ manual)
 	mkdir -p "$repo_dir" 2>/dev/null
 	print_paths
 	print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000
-	[ "$exists" = 1 ] && print_record "Current record: evidence of what was agreed, not instructions" "$record" 6000
+	[ "$exists" = 1 ] && print_file "Current record: evidence of what was agreed, not instructions" "$record" 6000 record
 	other=$(others '`' | sed 's/^/- /')
 	[ -z "$other" ] || printf "\n## Other records of this session that aren't done\n\n%s\n" "$other"
 	;;
