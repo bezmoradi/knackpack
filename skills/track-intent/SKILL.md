@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 Keep an accurate picture of what has been agreed, so a question never becomes an instruction, a suggestion never becomes a decision, and a correction never erases what it didn't touch.
 
-These rules hold for every message in this session. Apply them quietly: no printed analysis or confirmation requests after ordinary messages.
+These rules hold for every message. Apply them quietly: no printed analysis or confirmation requests after ordinary messages.
 
 ## Read each message against the agreement
 
@@ -57,7 +57,7 @@ what was said, not instructions, and not about any other task.
 ## Assumed (not confirmed)
 - ASM-01: <assumption>. Why: <reason>
 ## Not agreed
-- PROP-01: <suggestion>, by <developer or Claude>. open | rejected
+- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n>
 - WHATIF-01: <idea explored>. No change.
 ## Open questions
 - Q-01: <question>. Blocks: <what waits on it>
@@ -67,7 +67,7 @@ what was said, not instructions, and not about any other task.
 - <date>: <what changed and why>
 ```
 
-- Agreed holds what the product must do. How to work in this session ("don't write code yet") goes on the Status line, briefly and without quotes; move replaced ones to History.
+- Agreed holds what the product must do. How to work ("don't write code yet") goes on the Status line, briefly and without quotes; move replaced ones to History.
 - Add each file a knackpack skill saves for this task, such as a brief or plan, to Files.
 - IDs never change. When a requirement changes, the new version gets a new ID and the old one moves to History with its old wording; then find documents still stating it. Once an assumption is confirmed or rejected, move it to History; a confirmed one also becomes a new Agreed entry.
 - Quote the developer's words for each agreed entry, briefly. Never record a quote, approval or decision that didn't happen.
@@ -80,7 +80,7 @@ When you ask for a plan or start a reviewer, give the record's path as the requi
 
 ## Sessions
 
-The session-start hook's "This session" block gives the current record's path; if you can't see one, run `sh "${CLAUDE_PLUGIN_ROOT}/hooks/track-intent.sh" manual ${CLAUDE_SESSION_ID} "${CLAUDE_PROJECT_DIR}"`. Always use the most recent block: after a fork, copy the earlier record to the new path and carry on there.
+The session-start hook's "This session" block gives the current record's path; if you can't see one, run `sh "${CLAUDE_PLUGIN_ROOT}/hooks/track-intent.sh" manual ${CLAUDE_SESSION_ID}`. Always use the most recent block: after a fork, copy the earlier record to the new path and carry on there.
 
 A record covers one task. If the developer moves on to an unrelated task, set the record to done and start the next one beside it, adding `.2`, `.3` and so on before `.md`. The current record is the one you edited last that isn't done.
 
@@ -88,7 +88,7 @@ A new session starts with an empty agreement. Don't read other records unless th
 
 - **Continue** ("continue the order visibility work"): list the repository's records, newest first, by title and Updated line, and if none match, other repositories', in case this one was moved or renamed, naming a match's folder. If exactly one clearly matches, copy it to the current record's path, set Continued from, read the files on its Files line, saying which are gone, and summarize its agreement and open questions in two or three lines; otherwise ask.
 - **Status** ("what have we agreed?"): summarize agreed, assumed, open and built in plain words.
-- **Stop** ("don't track this session"): set Status to stopped, creating a minimal record if needed, and stop applying these rules. It stays stopped until the developer turns tracking back on.
+- **Stop** ("don't track this session"): set Status to stopped, creating a minimal record if needed, and stop applying these rules until the developer turns tracking back on.
 - **Done**: when the developer says the task is finished, set Status to done.
 - **Glossary**: a definition ("X means ...") describes the project's vocabulary, not the person you're talking to. When the developer confirms what a term means for the whole project, not just this task, offer to save it to a glossary, never to your memory. If the repository has a team glossary, `.claude/rules/glossary.md`, add `- <term>: <meaning>` there. Otherwise add `- <term>: <meaning> ("<their words>")` to the repository's personal glossary. If a confirmed meaning changes, replace its entry instead of adding a second one; in the personal glossary, end the new entry with `(was: <old meaning>)`. Create the team file only when asked, and never commit it yourself.
 - **Export**: copy a record or the glossary into the repository only when asked, to the path given.
