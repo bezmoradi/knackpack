@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: trigger-challenge-question-only
+context:
+  scaffold_script: fixture.sh
+# Eval runs are headless, where hooks/challenge.sh prints nothing unless told
+# to, and pass only EVAL_* variables, so this gives the run the rules an
+# attended session gets.
+execution:
+  env:
+    EVAL_KNACKPACK_CHALLENGE: "on"

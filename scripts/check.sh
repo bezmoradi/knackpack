@@ -247,6 +247,8 @@ unknown_yaml_keys() { # <file> <keys>: keys at any depth that aren't in the list
 			k = $0; sub(/^ *(- +)?/, "", k); sub(/:.*/, "", k); print k
 			if ($0 ~ /: *[|>][-+0-9]* *(#.*)?$/) { inblock = 1; bi = indent($0) }
 		}' "$1" | while read -r k; do
+		# execution.env's keys are variable names, which must start with EVAL_.
+		case $k in EVAL_*) continue ;; esac
 		case " $2 " in *" $k "*) ;; *) printf '%s ' "$k" ;; esac
 	done
 }
@@ -312,7 +314,10 @@ done
 note=
 [ -n "$have_bash" ] || note="$note, fixtures not parsed: no bash"
 [ -n "$have_node" ] || note="$note, regexes not compiled: no node"
-[ "$evals_ok" = 1 ] && pass "eval cases: $(find evals -mindepth 1 -maxdepth 1 -type d ! -name results ! -name '.*' | wc -l | tr -d ' ') complete$note"
+ncases=$(find evals -mindepth 1 -maxdepth 1 -type d ! -name results ! -name '.*' | wc -l | tr -d ' ')
+# The README's Limitations name the suite's size.
+grep -q "An eval suite of $ncases cases" README.md || { fail "README.md doesn't say \"An eval suite of $ncases cases\""; evals_ok=0; }
+[ "$evals_ok" = 1 ] && pass "eval cases: $ncases complete$note"
 
 # A fixture's file names in an agent or skill. A case shows a rule carries over
 # only if the agent works the answer out; an agent that names the exact file
@@ -943,6 +948,182 @@ for s in $shells; do
 	rm -rf "$evil" "$tmp/evil-state"
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
+
+# The challenge hook, under the same shells: silent, exit 0, its rules in an
+# attended session and with KNACKPACK_CHALLENGE=on or, for evals,
+# EVAL_KNACKPACK_CHALLENGE=on, nothing under `claude -p`,
+# and only the line that keeps challenge-requirements from starting on its own
+# when turned off.
+challenge_ok=1
+crun() { # <shell> <env assignments...>
+	s=$1
+	shift
+	printf '{}' | env -u KNACKPACK_CHALLENGE -u EVAL_KNACKPACK_CHALLENGE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/challenge.sh >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "challenge hook under $s with $*: exit $code, stderr: $(head -c 200 "$tmp/err")"; challenge_ok=0; }
+}
+for s in $shells; do
+	"$s" -n hooks/challenge.sh 2>"$tmp/err" || { fail "challenge hook syntax under $s: $(cat "$tmp/err")"; challenge_ok=0; }
+	for v in CLAUDE_CODE_SESSION_ATTENDED=1 'CLAUDE_CODE_SESSION_ATTENDED=0 KNACKPACK_CHALLENGE=On' 'CLAUDE_CODE_SESSION_ATTENDED=0 EVAL_KNACKPACK_CHALLENGE=on'; do
+		# shellcheck disable=SC2086 # $v holds one or two assignments
+		crun "$s" $v
+		grep -q '^# Challenge, don.t please' "$tmp/out" || { fail "challenge hook under $s with $v printed no rules"; challenge_ok=0; }
+	done
+	for v in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
+		crun "$s" "$v"
+		[ ! -s "$tmp/out" ] || { fail "challenge hook under $s with $v printed something"; challenge_ok=0; }
+	done
+	for v in 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_CHALLENGE=off' 'CLAUDE_CODE_SESSION_ATTENDED=0 KNACKPACK_CHALLENGE=off'; do
+		# shellcheck disable=SC2086 # $v holds two assignments
+		crun "$s" $v
+		[ "$(wc -l <"$tmp/out" | tr -d ' ')" = 1 ] && grep -q "don't start the challenge-requirements skill on your own" "$tmp/out" ||
+			{ fail "challenge hook under $s with $v printed more or less than the line that keeps the skill from starting"; challenge_ok=0; }
+	done
+done
+crun sh CLAUDE_CODE_SESSION_ATTENDED=1
+size=$(wc -c <"$tmp/out" | tr -d ' ')
+[ "$size" -le 9900 ] || { fail "challenge hook prints $size bytes; Claude Code cuts hook output past 10,000 characters"; challenge_ok=0; }
+grep -q 'challenge\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/challenge.sh"; challenge_ok=0; }
+[ "$challenge_ok" = 1 ] && pass "challenge hook under$shells ($size bytes)"
+
+# The context hook, under the same shells: silent on stderr, exit 0, nothing
+# below 400,000 tokens, after a compaction, for a subagent's usage, for the
+# checkpoint command, when turned off or under `claude -p`, and valid JSON with
+# a warning at 400,000 and the request to stop at 500,000.
+context_ok=1
+usage() { printf '{"isSidechain":%s,"type":"assistant","message":{"usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s,"output_tokens":1000}}}\n' "$1" "$2"; }
+usage false 100000 >"$tmp/ctx-low.jsonl"
+usage false 420000 >"$tmp/ctx-warn.jsonl"
+usage false 520000 >"$tmp/ctx-stop.jsonl"
+{ usage false 520000 && printf '{"isSidechain":false,"type":"system","subtype":"compact_boundary"}\n'; } >"$tmp/ctx-compacted.jsonl"
+{ usage false 100000 && usage true 900000; } >"$tmp/ctx-side.jsonl"
+xrun() { # <shell> <transcript> <prompt> <env assignments...>
+	s=$1 t=$2 p=$3
+	shift 3
+	printf '{"session_id":"x","transcript_path":"%s","prompt":"%s"}' "$tmp/ctx-$t.jsonl" "$p" |
+		env -u KNACKPACK_CONTEXT -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/context.sh >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "context hook under $s ($t, $p, $*): exit $code, stderr: $(head -c 200 "$tmp/err")"; context_ok=0; }
+}
+for s in $shells; do
+	"$s" -n hooks/context.sh 2>"$tmp/err" || { fail "context hook syntax under $s: $(cat "$tmp/err")"; context_ok=0; }
+	for c in 'low hi CLAUDE_CODE_SESSION_ATTENDED=1' 'compacted hi CLAUDE_CODE_SESSION_ATTENDED=1' 'side hi CLAUDE_CODE_SESSION_ATTENDED=1' \
+		'stop /knackpack:checkpoint CLAUDE_CODE_SESSION_ATTENDED=1' 'stop hi CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_CONTEXT=off' \
+		'stop hi CLAUDE_CODE_SESSION_ATTENDED=0' 'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli'; do
+		# shellcheck disable=SC2086 # $c holds the arguments
+		xrun "$s" $c
+		[ ! -s "$tmp/out" ] || { fail "context hook under $s printed something for: $c"; context_ok=0; }
+	done
+	for c in 'warn 400,000' 'stop 500,000'; do
+		t=${c%% *} n=${c#* }
+		xrun "$s" "$t" hi CLAUDE_CODE_SESSION_ATTENDED=1
+		if command -v jq >/dev/null 2>&1; then
+			jq -e --arg n "$n" '(.systemMessage | length > 0) and .hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains($n))' "$tmp/out" >/dev/null 2>&1 ||
+				{ fail "context hook under $s at the $n threshold didn't print its JSON warning"; context_ok=0; }
+		fi
+	done
+done
+grep -q 'context\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/context.sh"; context_ok=0; }
+[ "$context_ok" = 1 ] && pass "context hook under$shells"
+
+# The software factory hook, under the same shells: silent, exit 0, nothing
+# recorded until it's turned on, under `claude -p` or with KNACKPACK_FACTORY=off;
+# no prompt, tool input or other agents' messages stored; dialog answers paired
+# with their questions; a knackpack reviewer's report and verdict kept; a failed
+# agent call marked; the intent record read, with each entry's quote; the
+# verdict line found in a whole report; long text cut at a word and marked;
+# recorded text escaped in the page's data; a tool event recorded only to clear
+# a permission prompt, or once a minute to show a long turn is busy; and invalid
+# session IDs refused. The page's states come from its embedded data.
+factory_ok=1
+fdir=$tmp/factory-state/knackpack/factory
+frun() { # <shell> <event JSON> <env assignments...>
+	s=$1 j=$2 t=
+	shift 2
+	# The hooks pass `tool` or `detail`, as hooks.json does.
+	case $j in *'"AskUserQuestion"'* | *'"SubagentHandback"'* | *PostToolUseFailure*) t=detail ;; *PostToolUse*) t=tool ;; esac
+	printf '%s' "$j" | env -u KNACKPACK_FACTORY -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED XDG_STATE_HOME="$tmp/factory-state" "$@" "$s" hooks/factory.sh record ${t:+"$t"} >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] && [ ! -s "$tmp/out" ] || { fail "factory hook under $s: exit $code, output: $(head -c 200 "$tmp/out" "$tmp/err")"; factory_ok=0; }
+}
+page_data() { sed -n 's/.*<script id="data" type="application\/json">\(.*\)<\/script>.*/\1/p' "$fdir/software-factory.html"; }
+page_state() { page_data | grep -o '"state":"[a-z ]*","detail"' | sed 's/","detail"//; s/.*"//' | tr '\n' ','; }
+fa='"session_id":"aaaa1111-0000-0000-0000-000000000000","cwd":"/work/shop"'
+fb='"session_id":"bbbb2222-0000-0000-0000-000000000000","cwd":"/work/web"'
+tsv_a=aaaa1111-0000-0000-0000-000000000000.tsv
+flong=$(awk 'BEGIN { for (i = 0; i < 80; i++) printf "word " }')
+# 240 Japanese characters, with no space to cut at.
+fcjk=$(awk 'BEGIN { for (i = 0; i < 120; i++) printf "\346\227\245\346\234\254" }')
+for s in $shells; do
+	"$s" -n hooks/factory.sh 2>"$tmp/err" || { fail "factory hook syntax under $s: $(cat "$tmp/err")"; factory_ok=0; }
+	rm -rf "$tmp/factory-state"
+	frun "$s" "{$fa,\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}" CLAUDE_CODE_SESSION_ATTENDED=1
+	[ ! -e "$fdir/sessions" ] || { fail "factory hook under $s recorded before it was turned on"; factory_ok=0; }
+	XDG_STATE_HOME="$tmp/factory-state" "$s" hooks/factory.sh on </dev/null >"$tmp/out" 2>"$tmp/err"
+	[ -f "$fdir/enabled" ] && [ -f "$fdir/software-factory.html" ] && [ ! -s "$tmp/err" ] || { fail "factory on under $s didn't create its marker and page"; factory_ok=0; }
+	mkdir -p "$tmp/factory-state/knackpack/intent/shop-1"
+	printf '%s\n' '# Intent record: checkout fix' '' '## Agreed' '- REQ-01: Keep the cart total in cents. Said: "cents"' '' '## Open questions' '- Q-01: Round half up? Blocks: totals.' \
+		>"$tmp/factory-state/knackpack/intent/shop-1/aaaa1111-0000-0000-0000-000000000000.md"
+	for e in "{$fa,\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}" "{$fa,\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"PROMPT-TEXT\"}" \
+		"{$fa,\"hook_event_name\":\"TaskCreated\",\"task_id\":\"1\",\"task_subject\":\"Fix \\\"it\\\" <script>x</script>\"}" "{$fa,\"hook_event_name\":\"TaskCompleted\",\"task_id\":\"1\"}" \
+		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"TOOL-INPUT\"}}" \
+		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[]},\"tool_response\":{\"answers\":{\"Which store?\":\"Postgres\",\"Cache <too>?\":\"No\"}}}" \
+		"{$fa,\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"g1\",\"agent_type\":\"knackpack:go-code-reviewer\"}" \
+		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"g1\",\"agent_type\":\"knackpack:go-code-reviewer\",\"last_assistant_message\":\"/tmp/r/go-code-reviewer.md\\nChanges required: 1 High.\"}" \
+		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"j1\",\"agent_type\":\"knackpack:adjudicator\",\"last_assistant_message\":\"# Adjudication\\n\\n## Verdict\\n\\nRefuted: the total never drops below zero.\\n\\nREASONING-TEXT\"}" \
+		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_response\":{\"answers\":{\"$flong\":\"Yes\"}}}" \
+		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_response\":{\"answers\":{\"$fcjk\":\"CJK-ANSWER\"}}}" \
+		"{$fa,\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"e1\",\"agent_type\":\"Explore\"}" \
+		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"e1\",\"agent_type\":\"Explore\",\"last_assistant_message\":\"AGENT-TEXT\"}" \
+		"{$fa,\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"s1\",\"agent_type\":\"knackpack:security-reviewer\"}" \
+		"{$fa,\"hook_event_name\":\"PostToolUseFailure\",\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"knackpack:security-reviewer\",\"prompt\":\"AGENT-PROMPT\"},\"error\":\"interrupted\"}" \
+		"{$fb,\"hook_event_name\":\"UserPromptSubmit\"}" "{$fb,\"hook_event_name\":\"Notification\",\"notification_type\":\"permission_prompt\"}" \
+		'{"session_id":"../../x","hook_event_name":"Stop"}' 'not json'; do
+		frun "$s" "$e" CLAUDE_CODE_SESSION_ATTENDED=1
+	done
+	[ "$(page_state)" = "waiting,working," ] || { fail "factory page under $s shows \"$(page_state)\", not a waiting then a working session"; factory_ok=0; }
+	! grep -q '	tool	' "$fdir/sessions/$tsv_a" || { fail "factory hook under $s recorded a tool event that cleared no permission prompt"; factory_ok=0; }
+	# Times are seconds since the epoch, as the page reads them; mawk's
+	# srand() would give micro- or nanoseconds.
+	awk -F '\t' -v now="$(date +%s)" 'NR == 1 { d = now - $1; exit !(d >= 0 && d < 120) }' "$fdir/sessions/$tsv_a" ||
+		{ fail "factory hook under $s recorded a time that isn't the current time in seconds: $(head -c 20 "$fdir/sessions/$tsv_a")"; factory_ok=0; }
+	# Bytes are counted with wc, since an awk in a UTF-8 locale counts characters.
+	q=$(LC_ALL=C awk -F '\t' '$5 == "CJK-ANSWER" { print $4 }' "$fdir/sessions/$tsv_a")
+	case $q in *...) [ "$(printf '%s' "$q" | wc -c | tr -d ' ')" -gt 200 ] ;; *) false ;; esac ||
+		{ fail "factory hook under $s didn't keep and mark the start of a long question written without spaces: $(printf '%s' "$q" | wc -c | tr -d ' ') bytes, ending $(printf '%s' "$q" | tail -c 12 | od -An -c | tr -s ' ')"; factory_ok=0; }
+	# A session quiet for a minute or more gets one sign of life from a tool
+	# call, even while another session waits on a permission prompt, and the
+	# next call within the minute adds nothing.
+	printf '1000\tprompt\t\n' >>"$fdir/sessions/$tsv_a"
+	frun "$s" "{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\"}" CLAUDE_CODE_SESSION_ATTENDED=1
+	frun "$s" "{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\"}" CLAUDE_CODE_SESSION_ATTENDED=1
+	[ "$(grep -c '	tool	' "$fdir/sessions/$tsv_a")" = 1 ] || { fail "factory hook under $s didn't record exactly one sign of life from a busy session's tool calls"; factory_ok=0; }
+	frun "$s" "{$fb,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Edit\"}" CLAUDE_CODE_SESSION_ATTENDED=1
+	[ "$(page_state)" = "working,working," ] || { fail "factory page under $s didn't clear the permission prompt after the tool ran"; factory_ok=0; }
+	! grep -q 'PROMPT-TEXT\|TOOL-INPUT\|AGENT-TEXT\|AGENT-PROMPT\|REASONING-TEXT' "$fdir/sessions/"*.tsv || { fail "factory hook under $s stored a prompt, tool input or an agent's message"; factory_ok=0; }
+	d=$(page_data)
+	for want in '"q":"Which store?","a":"Postgres"' '"q":"Cache \u003ctoo\u003e?","a":"No"' '"report":"/tmp/r/go-code-reviewer.md"' '"verdict":"Changes required: 1 High."' \
+		'"type":"knackpack:security-reviewer","state":"failed"' '"id":"REQ-01","text":"Keep the cart total in cents.","more":"Said: \"cents\""' '"id":"Q-01","text":"Round half up?","more":"Blocks: totals."' \
+			'"verdict":"Refuted: the total never drops below zero."' 'word word...","a":"Yes"' \
+		'"subject":"Fix \"it\" \u003cscript\u003ex\u003c/script\u003e","done":true'; do
+		case $d in *"$want"*) ;; *) fail "factory page data under $s lacks $want"; factory_ok=0 ;; esac
+	done
+	case $d in *'<'*) fail "factory page data under $s holds a raw <, which could end its script element"; factory_ok=0 ;; esac
+	[ "$(find "$fdir/sessions" -type f | wc -l | tr -d ' ')" = 2 ] || { fail "factory hook under $s accepted an invalid session ID"; factory_ok=0; }
+	lines=$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')
+	for v in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_FACTORY=off'; do
+		# shellcheck disable=SC2086 # $v holds one or two assignments
+		frun "$s" "{$fa,\"hook_event_name\":\"Stop\"}" $v
+	done
+	[ "$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')" = "$lines" ] || { fail "factory hook under $s recorded a headless or turned-off session"; factory_ok=0; }
+	XDG_STATE_HOME="$tmp/factory-state" "$s" hooks/factory.sh off </dev/null >/dev/null 2>&1
+	frun "$s" "{$fa,\"hook_event_name\":\"Stop\"}" CLAUDE_CODE_SESSION_ATTENDED=1
+	[ ! -f "$fdir/enabled" ] && [ "$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')" = "$lines" ] || { fail "factory off under $s didn't stop recording"; factory_ok=0; }
+done
+rm -rf "$tmp/factory-state"
+grep -q 'hooks/factory\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/factory.sh"; factory_ok=0; }
+grep -q '^<!-- knackpack:data -->$' hooks/factory.html || { fail "hooks/factory.html lacks the line factory.sh replaces with the page's data"; factory_ok=0; }
+[ "$factory_ok" = 1 ] && pass "software factory hook under$shells"
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
 

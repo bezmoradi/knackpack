@@ -1,8 +1,7 @@
 ---
 name: challenge-requirements
-description: Challenge and clarify requirements before planning or implementing a software change — feature requests, bug reports, specifications, tickets, and proposed solutions. Finds missing outcomes, ambiguous behavior, conflicting constraints, hidden assumptions, unsafe defaults, and untestable acceptance criteria, asks the few questions that matter, and produces a requirements brief with explicit decisions and unresolved blockers. Use only when the user asks to challenge, clarify, or pressure-test requirements, not automatically for every request.
+description: Challenge and clarify requirements before planning or implementing a software change — feature requests, bug reports, specs, tickets, proposed solutions and any other request to change code, configuration or documents, small ones included. Finds missing outcomes, ambiguous behavior, conflicting constraints, hidden assumptions, unsafe defaults and untestable acceptance criteria, and asks the few questions that matter. Start it yourself before acting on every change request, even a clear one, so the developer is challenged rather than agreed with; started that way it stays short and the change goes ahead. Run by the user, or asked to pressure-test requirements, it also writes a full requirements brief. It doesn't replace a skill made for the task, so a change to a document still starts Write docs, and a choice between technologies still starts Research. Not for a request that changes nothing, such as how code works; answer that directly.
 argument-hint: "[request, ticket or spec]"
-disable-model-invocation: true
 ---
 
 # Requirements Challenger
@@ -22,6 +21,16 @@ Optimize for resolving uncertainty that could materially change what gets built.
 
 Never invent business rules or silently turn assumptions into requirements.
 
+## When you started it yourself
+
+Keep it short: a full brief before every small edit costs more than it saves.
+
+- Read the request, the code it touches and anything else stating that behavior, such as docs or usage text, and name each gap that changes what gets built or whether it's safe, with what shows it. Say plainly when there is none: a made-up gap costs time to dismiss and teaches the developer to skip your challenges.
+- Ask only blocking questions (section 7), at most three. The change request authorizes the change, so make every part that doesn't depend on an answer in the same turn, recording minor choices as assumptions.
+- Skip section 12's brief and hand-off unless the change touches permissions, money, sensitive data, irreversible actions or several components, or the developer asks.
+
+Otherwise, follow every section in full.
+
 ## Where to save
 
 Never write into the repository unless the user asks. To save the brief, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
@@ -35,26 +44,17 @@ the file. A long document is better passed as a path than pasted: a long
 pasted argument can be cut short when this skill is carried over after the
 conversation is compacted.
 
-Identify what you received:
-
-- An early idea.
-- A feature request.
-- A bug report.
-- An existing specification.
-- A proposed technical solution.
-- A change to previously agreed behavior.
-
-Adapt the depth of analysis accordingly.
+Identify what you received (an early idea, a feature request, a bug report,
+a specification, a proposed solution or a change to agreed behavior) and
+adapt the depth to it.
 
 A small, reversible change may need only a few acceptance criteria.
 A change involving sensitive data, money, permissions, or irreversible actions
 requires more explicit decisions and verification.
 
-Do not force every request through the same checklist.
-
 Do not begin implementation during requirements analysis unless the user
 explicitly requests it. Read-only investigation and bounded feasibility
-experiments may be useful when authorized.
+experiments may help when authorized.
 
 ## 2. Recover the actual problem
 
@@ -271,19 +271,15 @@ For each question:
 - Recommend an option when you have a defensible basis.
 - Include the main tradeoff.
 
+For example: "If 7 of 10 resources are created before one operation fails,
+should we keep the successful resources and report partial completion, or
+attempt cleanup? This changes retry behavior, recovery work, and what the user
+is charged for." Avoid broad questions such as "Can you provide more details?"
+or "What are all the edge cases?"
+
 When a decision has a few discrete options and your environment offers a
 structured question tool (AskUserQuestion in Claude Code), use it and put your
 recommended option first. Otherwise, ask in plain text.
-
-Example:
-
-"If 7 of 10 resources are created before one operation fails, should we keep
-the successful resources and report partial completion, or attempt cleanup?
-This changes retry behavior, recovery work, and what the user is charged for."
-
-Avoid broad questions such as:
-"Can you provide more details?"
-"What are all the edge cases?"
 
 Do not ask the user to make technical choices that you can responsibly resolve.
 
@@ -335,13 +331,10 @@ Do not present an incomplete set as implementation-ready.
 
 Investigate whether the requirements can coexist.
 
-Examples of tensions:
-- Immediate revocation versus long-lived offline credentials.
-- Strict freshness versus serving through dependency outages.
-- Guaranteed cleanup versus unavailable external systems.
-- Zero downtime versus incompatible schema changes.
-
-Explain the concrete conflict and available tradeoffs.
+Explain the concrete conflict and available tradeoffs, such as immediate
+revocation versus long-lived offline credentials, strict freshness versus
+serving through dependency outages, guaranteed cleanup versus unavailable
+external systems, or zero downtime versus incompatible schema changes.
 
 Do not declare something impossible merely because the obvious implementation
 is difficult.
@@ -356,8 +349,6 @@ When feasibility is uncertain, propose or perform an authorized bounded spike:
 
 Run spike code outside the working tree, in a scratch directory, and delete
 it when the question is answered.
-
-Do not let a feasibility spike become unapproved production implementation.
 
 Keep implementation options separate from requirements unless the mechanism
 is itself an established constraint.
@@ -428,18 +419,12 @@ Sources, rationale, provisional choices, and responsible decision-makers.
 Only consequential unresolved items, with the action needed to resolve each.
 
 ### Handoff
-What the implementation planner, test designer, security reviewer, and
-architecture reviewer need to examine next. With knackpack installed, the
-security requirements can go to the `knackpack:security-reviewer` agent
-in plan mode before coding starts, and a design with consequential
-architectural decisions can go to the `knackpack:architecture-reviewer` agent.
-After implementation, the
-`knackpack:adversarial-reviewer` agent can check the result against these
-acceptance criteria and report each ID as verified, violated, or not
-verified; the UI, Go, Python and React reviewers check the code, not
-the requirements.
-
-Do not generate empty sections or unnecessary ceremony for trivial tasks.
+What the planner, test designer and reviewers need to examine next. With
+knackpack, security requirements can go to `knackpack:security-reviewer` in
+plan mode before coding, a consequential design to
+`knackpack:architecture-reviewer`, and after implementation
+`knackpack:adversarial-reviewer` reports each ID as verified, violated or not
+verified; the UI, Go, Python and React reviewers check code, not requirements.
 
 ## 13. Maintain independent judgment
 
@@ -455,11 +440,6 @@ Use direct language:
 
 "I disagree that this is only a UI change. The backend currently permits the
 action, so hiding the button would not enforce the requested restriction."
-
-Or:
-
-"I withdraw that concern. The documented contract explicitly allows partial
-completion, and the existing recovery workflow handles it."
 
 Do not become agreeable under pressure or stubborn after being corrected.
 
