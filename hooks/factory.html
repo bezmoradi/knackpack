@@ -223,9 +223,9 @@ function renderMain() {
     c.append(section(k + "sec:intent:" + rn, "Intent" + (r.title ? ": " + r.title : ""), null, block));
   });
 
-  const ags = s.agents.map((a, n) => [a, n]).reverse();
-  const okCount = ags.filter(([a]) => a.state === "done").length;
-  c.append(section(k + "sec:agents", "Agents", ags.length ? `${okCount} of ${ags.length} finished` : null, rows(ags, "No agents started yet.", ([a, n]) => {
+  const agentRows = s.agents.map((a, n) => [a, n]).reverse();
+  const okCount = agentRows.filter(([a]) => a.state === "done").length;
+  c.append(section(k + "sec:agents", "Agents", agentRows.length ? `${okCount} of ${agentRows.length} finished` : null, rows(agentRows, "No agents started yet.", ([a, n]) => {
     const ic = a.state === "running" ? el("span", { class: "ic run" }, "●") : a.state === "failed" ? el("span", { class: "ic no" }, "✕") : el("span", { class: "ic ok" }, "✓");
     const name = a.type.startsWith("knackpack:") ? [a.type.slice(10), " ", el("span", { class: "tag" }, "knackpack")] : [a.type];
     const time = a.state === "running" ? "running " + dur(now - a.start) : a.end ? dur(a.end - a.start) : "";

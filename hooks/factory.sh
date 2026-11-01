@@ -89,6 +89,9 @@ render() {
 	case $rnow in '' | *[!0-9]*) return 0 ;; esac
 	tmp=$dir/.software-factory.$$.html
 	rm -f "$tmp"
+	# Newest first needs ls -t, which POSIX has no other way to do; the grep
+	# keeps only names the hook itself writes, so odd names can't get through.
+	# shellcheck disable=SC2010
 	files=$(cd "$sessions" 2>/dev/null && ls -t 2>/dev/null | grep -E '^[A-Za-z0-9-]{1,64}\.tsv$' | head -n "$max_sessions")
 	set --
 	for f in $files; do

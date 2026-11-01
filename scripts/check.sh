@@ -314,7 +314,10 @@ done
 note=
 [ -n "$have_bash" ] || note="$note, fixtures not parsed: no bash"
 [ -n "$have_node" ] || note="$note, regexes not compiled: no node"
-[ "$evals_ok" = 1 ] && pass "eval cases: $(find evals -mindepth 1 -maxdepth 1 -type d ! -name results ! -name '.*' | wc -l | tr -d ' ') complete$note"
+ncases=$(find evals -mindepth 1 -maxdepth 1 -type d ! -name results ! -name '.*' | wc -l | tr -d ' ')
+# The README's Limitations name the suite's size.
+grep -q "An eval suite of $ncases cases" README.md || { fail "README.md doesn't say \"An eval suite of $ncases cases\""; evals_ok=0; }
+[ "$evals_ok" = 1 ] && pass "eval cases: $ncases complete$note"
 
 # A fixture's file names in an agent or skill. A case shows a rule carries over
 # only if the agent works the answer out; an agent that names the exact file
@@ -1047,7 +1050,7 @@ page_data() { sed -n 's/.*<script id="data" type="application\/json">\(.*\)<\/sc
 page_state() { page_data | grep -o '"state":"[a-z ]*","detail"' | sed 's/","detail"//; s/.*"//' | tr '\n' ','; }
 fa='"session_id":"aaaa1111-0000-0000-0000-000000000000","cwd":"/work/shop"'
 fb='"session_id":"bbbb2222-0000-0000-0000-000000000000","cwd":"/work/web"'
-afile=aaaa1111-0000-0000-0000-000000000000.tsv
+tsv_a=aaaa1111-0000-0000-0000-000000000000.tsv
 flong=$(awk 'BEGIN { for (i = 0; i < 80; i++) printf "word " }')
 # 240 Japanese characters, with no space to cut at.
 fcjk=$(awk 'BEGIN { for (i = 0; i < 120; i++) printf "\346\227\245\346\234\254" }')
@@ -1079,20 +1082,22 @@ for s in $shells; do
 		frun "$s" "$e" CLAUDE_CODE_SESSION_ATTENDED=1
 	done
 	[ "$(page_state)" = "waiting,working," ] || { fail "factory page under $s shows \"$(page_state)\", not a waiting then a working session"; factory_ok=0; }
-	! grep -q '	tool	' "$fdir/sessions/$afile" || { fail "factory hook under $s recorded a tool event that cleared no permission prompt"; factory_ok=0; }
+	! grep -q '	tool	' "$fdir/sessions/$tsv_a" || { fail "factory hook under $s recorded a tool event that cleared no permission prompt"; factory_ok=0; }
 	# Times are seconds since the epoch, as the page reads them; mawk's
 	# srand() would give micro- or nanoseconds.
-	awk -F '\t' -v now="$(date +%s)" 'NR == 1 { d = now - $1; exit !(d >= 0 && d < 120) }' "$fdir/sessions/$afile" ||
-		{ fail "factory hook under $s recorded a time that isn't the current time in seconds: $(head -c 20 "$fdir/sessions/$afile")"; factory_ok=0; }
-	awk -F '\t' '$5 == "CJK-ANSWER" { f = length($4) > 200 && $4 ~ /\.\.\.$/ } END { exit !f }' "$fdir/sessions/$afile" ||
-		{ fail "factory hook under $s didn't keep and mark the start of a long question written without spaces"; factory_ok=0; }
+	awk -F '\t' -v now="$(date +%s)" 'NR == 1 { d = now - $1; exit !(d >= 0 && d < 120) }' "$fdir/sessions/$tsv_a" ||
+		{ fail "factory hook under $s recorded a time that isn't the current time in seconds: $(head -c 20 "$fdir/sessions/$tsv_a")"; factory_ok=0; }
+	# Bytes are counted with wc, since an awk in a UTF-8 locale counts characters.
+	q=$(LC_ALL=C awk -F '\t' '$5 == "CJK-ANSWER" { print $4 }' "$fdir/sessions/$tsv_a")
+	case $q in *...) [ "$(printf '%s' "$q" | wc -c | tr -d ' ')" -gt 200 ] ;; *) false ;; esac ||
+		{ fail "factory hook under $s didn't keep and mark the start of a long question written without spaces: $(printf '%s' "$q" | wc -c | tr -d ' ') bytes, ending $(printf '%s' "$q" | tail -c 12 | od -An -c | tr -s ' ')"; factory_ok=0; }
 	# A session quiet for a minute or more gets one sign of life from a tool
 	# call, even while another session waits on a permission prompt, and the
 	# next call within the minute adds nothing.
-	printf '1000\tprompt\t\n' >>"$fdir/sessions/$afile"
+	printf '1000\tprompt\t\n' >>"$fdir/sessions/$tsv_a"
 	frun "$s" "{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\"}" CLAUDE_CODE_SESSION_ATTENDED=1
 	frun "$s" "{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	[ "$(grep -c '	tool	' "$fdir/sessions/$afile")" = 1 ] || { fail "factory hook under $s didn't record exactly one sign of life from a busy session's tool calls"; factory_ok=0; }
+	[ "$(grep -c '	tool	' "$fdir/sessions/$tsv_a")" = 1 ] || { fail "factory hook under $s didn't record exactly one sign of life from a busy session's tool calls"; factory_ok=0; }
 	frun "$s" "{$fb,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Edit\"}" CLAUDE_CODE_SESSION_ATTENDED=1
 	[ "$(page_state)" = "working,working," ] || { fail "factory page under $s didn't clear the permission prompt after the tool ran"; factory_ok=0; }
 	! grep -q 'PROMPT-TEXT\|TOOL-INPUT\|AGENT-TEXT\|AGENT-PROMPT\|REASONING-TEXT' "$fdir/sessions/"*.tsv || { fail "factory hook under $s stored a prompt, tool input or an agent's message"; factory_ok=0; }
@@ -1105,15 +1110,15 @@ for s in $shells; do
 	done
 	case $d in *'<'*) fail "factory page data under $s holds a raw <, which could end its script element"; factory_ok=0 ;; esac
 	[ "$(find "$fdir/sessions" -type f | wc -l | tr -d ' ')" = 2 ] || { fail "factory hook under $s accepted an invalid session ID"; factory_ok=0; }
-	lines=$(wc -l <"$fdir/sessions/$afile" | tr -d ' ')
+	lines=$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')
 	for v in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_FACTORY=off'; do
 		# shellcheck disable=SC2086 # $v holds one or two assignments
 		frun "$s" "{$fa,\"hook_event_name\":\"Stop\"}" $v
 	done
-	[ "$(wc -l <"$fdir/sessions/$afile" | tr -d ' ')" = "$lines" ] || { fail "factory hook under $s recorded a headless or turned-off session"; factory_ok=0; }
+	[ "$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')" = "$lines" ] || { fail "factory hook under $s recorded a headless or turned-off session"; factory_ok=0; }
 	XDG_STATE_HOME="$tmp/factory-state" "$s" hooks/factory.sh off </dev/null >/dev/null 2>&1
 	frun "$s" "{$fa,\"hook_event_name\":\"Stop\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	[ ! -f "$fdir/enabled" ] && [ "$(wc -l <"$fdir/sessions/$afile" | tr -d ' ')" = "$lines" ] || { fail "factory off under $s didn't stop recording"; factory_ok=0; }
+	[ ! -f "$fdir/enabled" ] && [ "$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')" = "$lines" ] || { fail "factory off under $s didn't stop recording"; factory_ok=0; }
 done
 rm -rf "$tmp/factory-state"
 grep -q 'hooks/factory\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/factory.sh"; factory_ok=0; }
