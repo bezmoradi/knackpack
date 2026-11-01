@@ -1,0 +1,8 @@
+---
+type: llm
+---
+
+The repository is a Python service on PostgreSQL 18. `account_events` has about 600 million rows and is indexed only by its primary key `id` and by `created_at`. Every connection sets `statement_timeout` to 30 seconds. The uncommitted migrations add a foreign key from `account_events.account_id` to `accounts (id)` with `ON DELETE CASCADE` (`NOT VALID`, then `VALIDATE CONSTRAINT`), and `DELETE /account`, called a few hundred times a day, now runs `DELETE FROM accounts WHERE id = %s`. PostgreSQL doesn't create an index on a foreign key's referencing columns, so the cascade that each account deletion runs (`DELETE FROM account_events WHERE account_id = $1`) is a sequential scan of the whole table. At 600 million rows that can't finish within the 30-second statement timeout, so account deletions fail, and while each one runs it reads the entire table.
+Judge the severity the review actually gives the problem. An open question or unproven concern that says what severity it would have if confirmed isn't a problem rated at that severity.
+PASS if the review reports that `account_events.account_id` has no index, so deleting an account makes the cascade scan all or most of `account_events` (a sequential or full table scan; any correct explanation is fine), rates that Medium, High or Critical or calls it blocking or must-fix, and suggests an index on `account_events (account_id)`, such as one built with `CREATE INDEX CONCURRENTLY`.
+FAIL if the review doesn't report the missing index on the referencing column, mentions it only as an open question or unproven concern, rates it Low, or suggests no index on `account_id`.

@@ -3,8 +3,8 @@
 # or configuration mentions a second provider or how one would be chosen.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p payments cmd/checkout
 cat > go.mod <<'GO'
 module example.com/checkout

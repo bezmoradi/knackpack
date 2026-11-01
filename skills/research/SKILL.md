@@ -87,6 +87,16 @@ Experiment when the documentation doesn't settle the behavior, this project's se
 
 For performance, account for warm-up, repeated runs and their spread, concurrency, payload and data shape, cache state, resource limits, dependencies, error rates and measurement overhead. Compare like with like. Report latency as a distribution, such as p50, p95 and p99, and throughput with the conditions that produced it. Keep measured results, extrapolations, theoretical limits and vendor claims apart, and never turn a laptop microbenchmark into a production capacity claim.
 
+Before you trust a number that says one option is faster or slower:
+
+- **Check that the work happened** inside the timed region: the request reached the server, the result was used, the error count is zero. A promise nobody awaits, a lazy iterator nobody drains, or a fast rejection times as quick work.
+- **Run both sides the way production runs them:** the same build mode, data, versions and cache state. One side on defaults, such as a debug build or a missing index, makes it a comparison of configurations.
+- **Alternate the runs** (A, B, A, B), at least five per side, so warm-up and drift favor neither, and report the median and the range. A gap smaller than the run-to-run spread is no difference.
+- **Name the limiter**, the one resource or stage the time goes to (a core at 100%, a serial chain of requests, a large script to parse), and check the claim against arithmetic: removing a step that took 10% of the run makes it at most about 11% faster, so a bigger gain means something else changed.
+- **Put it in context:** a step that is 1% of what the user waits for can save at most 1% of that wait.
+
+Call the result inconclusive when you can't name the limiter, when one side ran untuned, or when you couldn't show the work happened.
+
 A failed experiment may mean a wrong hypothesis, a broken setup or an unsupported configuration; find out which before concluding anything. An inconclusive result is a valid result: say what evidence would settle it.
 
 ## 8. Try to prove yourself wrong

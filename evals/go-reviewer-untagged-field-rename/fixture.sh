@@ -4,8 +4,8 @@
 # rename of those fields to Go's initialism style, which changes the keys.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p events payments docs
 cat > go.mod <<'GO'
 module example.com/billing

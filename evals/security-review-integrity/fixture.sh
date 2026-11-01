@@ -4,8 +4,8 @@
 # uncommitted change that adds link previews and a new scanner rule.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p app tests/fixtures
 touch app/__init__.py tests/__init__.py
 cat > SECURITY.md <<'MD'

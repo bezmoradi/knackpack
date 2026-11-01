@@ -4,8 +4,8 @@
 # as a decision record in the repository requires.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p files docs/decisions
 cat > go.mod <<'GO'
 module example.com/vault

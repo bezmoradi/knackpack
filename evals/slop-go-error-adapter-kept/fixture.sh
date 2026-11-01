@@ -4,8 +4,8 @@
 # translates the ledger's 404 into the error the handler maps to a 404.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p internal/ledger orders cmd/shop
 cat > go.mod <<'GO'
 module example.com/shop

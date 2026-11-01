@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: react-server-action-no-auth
+context:
+  scaffold_script: fixture.sh

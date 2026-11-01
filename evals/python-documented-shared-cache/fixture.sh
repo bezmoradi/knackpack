@@ -4,8 +4,8 @@
 # record behind that cache, plus an uncommitted payout conversion.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p fx billing docs/decisions
 touch fx/__init__.py billing/__init__.py
 cat > pyproject.toml <<'TOML'

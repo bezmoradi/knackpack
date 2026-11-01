@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The repository is a Python billing service on PostgreSQL 18. The uncommitted migration 0002 creates `void_invoice` as `SECURITY DEFINER` without a `SET search_path` clause, and its body uses the unqualified table names `invoices` and `invoice_audit`. PostgreSQL searches the session's temporary schema first for table names unless the path names `pg_temp`, and every role can create temporary tables by default. So a caller who creates a temporary table named `invoice_audit` and grants INSERT on it to PUBLIC before calling the function gets the audit row written into that table instead of the real one, and the invoice is voided with no audit record. A function or operator the caller creates in a schema on the path that they can write can shadow names the same way.
+PASS if the review reports, as a finding rather than only an open question, that the SECURITY DEFINER function doesn't set its own `search_path` (or relies on unqualified names without a fixed path), so objects a caller creates, such as a temporary table, can stand in for the tables or functions it means to use (any correct explanation is fine), and suggests a fix such as `SET search_path = public, pg_temp` or an empty `search_path` with schema-qualified names on the function.
+FAIL if the review doesn't mention the function's missing `search_path`, mentions it only as an open question or unproven concern, or suggests no fix.

@@ -4,8 +4,8 @@
 # of how routes are registered and how the gateway forwards paths.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p api/v1 api/v2 gateway docs jobs
 touch api/__init__.py api/v1/__init__.py api/v2/__init__.py jobs/__init__.py
 cat > api/auth.py <<'PY'

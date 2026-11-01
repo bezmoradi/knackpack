@@ -2,8 +2,8 @@
 # A Go net/http server with two handlers and no middleware yet.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p server cmd/web
 cat > go.mod <<'GO'
 module example.com/web

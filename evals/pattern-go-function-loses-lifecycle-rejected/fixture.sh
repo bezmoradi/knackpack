@@ -4,8 +4,8 @@
 # limiter for the life of the server.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p ratelimit cmd/api
 cat > go.mod <<'GO'
 module example.com/api

@@ -4,8 +4,8 @@
 # comparing, compares signatures as bytes in constant time, and tests both.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p app tests
 cat > app/webhooks.py <<'PY'
 """Receives signed webhook deliveries."""

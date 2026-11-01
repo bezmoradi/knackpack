@@ -371,8 +371,13 @@ Explicitly distinguish:
 - Out of scope.
 - Follow-up work.
 
+Put every item of the source request, such as each point of a ticket or
+message, in one of these groups with its reason, so an item dropped while
+restating the problem stays visible.
+
 Do not silently add dashboards, frameworks, abstractions, configuration
-systems, or new services because they seem useful.
+systems, new services, or status reports, checklists and conformance scripts
+that nothing reads, because they seem useful.
 
 When a requirement changes:
 
@@ -431,8 +436,8 @@ architectural decisions can go to the `knackpack:architecture-reviewer` agent.
 After implementation, the
 `knackpack:adversarial-reviewer` agent can check the result against these
 acceptance criteria and report each ID as verified, violated, or not
-verified; the UI, Go and Python reviewers check the code, not the
-requirements.
+verified; the UI, Go, Python and React reviewers check the code, not
+the requirements.
 
 Do not generate empty sections or unnecessary ceremony for trivial tasks.
 

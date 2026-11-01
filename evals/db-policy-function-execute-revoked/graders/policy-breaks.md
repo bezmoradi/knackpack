@@ -1,0 +1,8 @@
+---
+type: llm
+---
+
+The repository is a Python service on PostgreSQL 18. Row-level security on `documents` has the policy `documents_team ... TO docs_api USING (private.is_team_member(team_id))`, and `docs_api` is the role every request runs as. The uncommitted migration 0004 runs `REVOKE EXECUTE ON FUNCTION private.is_team_member(bigint) FROM docs_api`, and its comment says policies are evaluated by the database, so the API role doesn't need EXECUTE. That's wrong: a policy expression runs with the privileges of the role running the query, so once the migration runs, every SELECT or UPDATE that `docs_api` runs on `documents` fails with `permission denied for function is_team_member`, and the documents API, which every page uses, stops working.
+Judge the severity the review actually gives the problem. An open question or unproven concern that says what severity it would have if confirmed isn't a problem rated at that severity.
+PASS if the review reports that after this revoke, queries by `docs_api` on `documents` fail with a permission error because the policy calls the function with the querying role's privileges (any correct explanation is fine), rates that High or Critical or calls it blocking or must-fix, and suggests a fix that keeps the policy working, such as dropping the migration and keeping EXECUTE for `docs_api`, or limiting what a direct call can reveal another way.
+FAIL if the review doesn't report that the revoke breaks queries on `documents`, accepts the migration's claim that policies don't need the querying role to have EXECUTE, rates the problem Medium or lower without calling it blocking, or suggests no fix that keeps the policy working.
