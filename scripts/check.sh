@@ -187,16 +187,21 @@ else
 fi
 [ "$keys_ok" = 1 ] && pass "frontmatter and hooks.json keys"
 
-# The README's counts of skills, agents and hooks.
+# The counts of skills, agents and hooks in the README, and the number of
+# agent files CLAUDE.md says carry the review protocol.
 words='one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty'
 word() { set -- "$1" $words; i=$1; shift; [ "$i" -ge 1 ] && [ "$i" -le 20 ] && eval "printf '%s' \"\${$i}\"" || printf '%s' "$i"; }
 skills_n=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
 hooks_n=$(jq '.hooks | length' hooks/hooks.json 2>/dev/null)
 counts_ok=1
-grep -oiE "(^|[^a-z])($(printf '%s' "$words" | tr ' ' '|')) (skills|review agents|agents|hooks)" README.md | sed 's/^[^a-zA-Z]*//' >"$tmp/counts"
+nums=$(printf '%s' "$words" | tr ' ' '|')
+{
+	grep -oiE "(^|[^a-z])($nums) (skills|review agents|agents|agent files|hooks)" README.md
+	grep -oiE "(^|[^a-z])($nums) agent files" .claude/CLAUDE.md
+} | sed 's/^[^a-zA-Z]*//' >"$tmp/counts"
 while read -r w noun rest; do
-	case $noun in skills) want=$(word "$skills_n") ;; review | agents) want=$(word "$n") ;; hooks) want=$(word "$hooks_n") ;; esac
-	[ "$(printf '%s' "$w" | tr '[:upper:]' '[:lower:]')" = "$want" ] || { fail "README says \"$w $noun${rest:+ $rest}\", but there are $want"; counts_ok=0; }
+	case $noun in skills) want=$(word "$skills_n") ;; review | agents | agent) want=$(word "$n") ;; hooks) want=$(word "$hooks_n") ;; esac
+	[ "$(printf '%s' "$w" | tr '[:upper:]' '[:lower:]')" = "$want" ] || { fail "README or CLAUDE.md says \"$w $noun${rest:+ $rest}\", but there are $want"; counts_ok=0; }
 done <"$tmp/counts"
 [ -s "$tmp/counts" ] || { fail "README names no counts of skills, agents or hooks"; counts_ok=0; }
 [ "$counts_ok" = 1 ] && pass "README counts: $skills_n skills, $n agents, $hooks_n hooks"

@@ -74,7 +74,7 @@ On 2026-10-31, `claude plugin validate` (Claude Code 2.1.316) ran on 13 scratch 
 
 ## Requirements
 
-### R-01. `scripts/check.sh` checks the format. Built.
+### R-01. `scripts/check.sh` checks the format. Built
 
 For each `skills/*/SKILL.md`, the check covers:
 
@@ -87,7 +87,7 @@ The existing key check now separates the format's six keys from Claude Code's, a
 
 Acceptance: `sh scripts/check.sh` prints `ok Agent Skills format: names, descriptions and one-line frontmatter` for the current skills. On a scratch copy of the repository, the check must fail, naming the file and the field, for each of these defects in one skill: an uppercase name, a name that doesn't match its folder, a doubled hyphen, a missing name, a 1,025-character description, an empty description, a key written twice, a 501-character `compatibility`, an unquoted `: `, a folded description, and an escaped quote. It must pass with a description of exactly 1,024 characters and with one in double quotes. Results are under [Verification](#verification).
 
-### R-02. Six trigger cases. Written; one run once.
+### R-02. Six trigger cases. Written; one run once
 
 Each case is tagged `trigger` and runs with `--ablation none`: without the plugin, no knackpack skill can start, and a single arm also scores the `with-only` graders.
 
@@ -104,29 +104,29 @@ Acceptance: every fixture builds in a scratch folder and shows its premise (done
 
 Deferred: trigger cases for `checkpoint`, `explain` and `handoff`, and routing cases between agents, such as an interface question that belongs to the design pattern reviewer rather than the slop reviewer.
 
-### R-03. The README says knackpack works only in Claude Code. Built.
+### R-03. The README says knackpack works only in Claude Code. Built
 
 A Limitations bullet names what ties the skills to Claude Code: the two keys, `${CLAUDE_SESSION_ID}` in their save folders, and knackpack's agents and hooks. It also says a copied skill folder hasn't been tested in another product.
 
-### R-04. Supporting files loaded on demand. Deferred until E-1.
+### R-04. Supporting files loaded on demand. Deferred until E-1
 
 If a plugin skill can read its own files without a prompt, in default mode and headless, the platform notes in `create-issues` could become one file per platform. Those notes are 4,595 characters, and a run uses one platform of four.
 
-### R-05. `license` in each skill. Dropped.
+### R-05. `license` in each skill. Dropped
 
 `plan-implementation` would pass the 19,000-character cap, and the plugin's license already covers every skill.
 
-### R-06. Holdout confirmations run 3 times. Deferred.
+### R-06. Holdout confirmations run 3 times. Deferred
 
 `.claude/CLAUDE.md` already says not to trust one run. Whether to pay three times for each holdout run is the maintainer's call.
 
-### R-07. Grader audit. Built.
+### R-07. Grader audit. Built
 
 The README gives a `jq` command that lists, for a two-arm run, the scored graders that passed in both arms and those that failed in both.
 
 Acceptance: the command reads both `aggregate-result.json` and the file `--json` writes. On the 0.16.0 results it listed 128 graders passing in both arms and 2 failing in both: `issues-draft-only-no-publish`'s `no-invention` and `tf-for-each-removal-kept`'s `no-shift-claim`. Many of the 128 are guards, such as the `-kept` cases, and the rest show where the suite doesn't separate knackpack from Claude alone.
 
-### R-08. `.claude/CLAUDE.md` rules. Built.
+### R-08. `.claude/CLAUDE.md` rules. Built
 
 - **The format rule:** one bullet under Rules naming the three kinds of rule and why the Claude Code keys stay.
 - **The compaction budget:** the 25,000-token budget across re-attached skills.
@@ -137,7 +137,7 @@ Acceptance: the command reads both `aggregate-result.json` and the file `--json`
   - Keep safety guards that pass in both arms.
   - Run trigger cases with `--ablation none`.
 
-### R-09. `compatibility` in each skill. Dropped.
+### R-09. `compatibility` in each skill. Dropped
 
 The README states the limit once, which saves characters in skills near their cap.
 
