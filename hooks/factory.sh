@@ -23,8 +23,9 @@
 # script writes files, and the page, opened from disk, reloads itself.
 #
 # What it stores: event times and kinds, each session's working folder,
-# notification and error types, subagent types and IDs, task titles, the text
-# of questions Claude asked in its question dialogs with the answers picked,
+# notification and error types, the error message of a failed agent call,
+# subagent types and IDs, task titles, the text of questions Claude asked in
+# its question dialogs with the answers picked,
 # and, for knackpack's own agents, the report path and verdict line they end
 # with. Never prompts, tool input, file contents or other messages. At render
 # time it also reads the session's intent record, which track-intent keeps in
