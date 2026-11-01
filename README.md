@@ -697,7 +697,7 @@ $ claude plugin eval ./knackpack --tag otel-dev --scaffold --allow-tools Bash Ed
 $ claude plugin eval ./knackpack --tag otel-holdout --scaffold --allow-tools Bash Edit
 $ claude plugin eval ./knackpack --tag issues-dev --scaffold --allow-tools Bash Write
 $ claude plugin eval ./knackpack --tag docs-dev --scaffold --allow-tools Write Edit Bash
-$ claude plugin eval ./knackpack --tag trigger --scaffold --ablation none
+$ claude plugin eval ./knackpack --tag trigger --scaffold --ablation none --allow-tools Edit
 $ claude plugin eval ./knackpack --tag challenge --scaffold
 ```
 

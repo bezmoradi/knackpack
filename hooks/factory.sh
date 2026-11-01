@@ -403,6 +403,10 @@ record)
 					}
 				}
 			}
+			# From Claude Code 2.1.271, a subagent in auto mode delivers its
+			# report through the SubagentHandback tool, as tool_input.message,
+			# and SubagentStop then carries only its closing text (hooks
+			# reference, SubagentStop and the Agent tool result).
 			else if (ev == "PostToolUse" && tool == "SubagentHandback") {
 				ty = jstr(s, "agent_type", 1); report(jraw(s, "message", at(s, "tool_input")), ty)
 				if (ty ~ /^knackpack:/) line("report", jstr(s, "agent_id", 1), ty, rpath, rverdict)

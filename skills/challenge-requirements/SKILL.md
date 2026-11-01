@@ -23,7 +23,7 @@ Never invent business rules or silently turn assumptions into requirements.
 
 ## When you started it yourself
 
-You start this yourself before every change request, because the developer wants to be challenged rather than agreed with. Keep it short: a full brief before every small edit costs more than it saves.
+Keep it short: a full brief before every small edit costs more than it saves.
 
 - Read the request, the code it touches and anything else stating that behavior, such as docs or usage text, and name each gap that changes what gets built or whether it's safe, with what shows it. Say plainly when there is none: a made-up gap costs time to dismiss and teaches the developer to skip your challenges.
 - Ask only blocking questions (section 7), at most three. The change request authorizes the change, so make every part that doesn't depend on an answer in the same turn, recording minor choices as assumptions.
@@ -44,26 +44,17 @@ the file. A long document is better passed as a path than pasted: a long
 pasted argument can be cut short when this skill is carried over after the
 conversation is compacted.
 
-Identify what you received:
-
-- An early idea.
-- A feature request.
-- A bug report.
-- An existing specification.
-- A proposed technical solution.
-- A change to previously agreed behavior.
-
-Adapt the depth of analysis accordingly.
+Identify what you received (an early idea, a feature request, a bug report,
+a specification, a proposed solution or a change to agreed behavior) and
+adapt the depth to it.
 
 A small, reversible change may need only a few acceptance criteria.
 A change involving sensitive data, money, permissions, or irreversible actions
 requires more explicit decisions and verification.
 
-Do not force every request through the same checklist.
-
 Do not begin implementation during requirements analysis unless the user
 explicitly requests it. Read-only investigation and bounded feasibility
-experiments may be useful when authorized.
+experiments may help when authorized.
 
 ## 2. Recover the actual problem
 
@@ -280,6 +271,12 @@ For each question:
 - Recommend an option when you have a defensible basis.
 - Include the main tradeoff.
 
+For example: "If 7 of 10 resources are created before one operation fails,
+should we keep the successful resources and report partial completion, or
+attempt cleanup? This changes retry behavior, recovery work, and what the user
+is charged for." Avoid broad questions such as "Can you provide more details?"
+or "What are all the edge cases?"
+
 When a decision has a few discrete options and your environment offers a
 structured question tool (AskUserQuestion in Claude Code), use it and put your
 recommended option first. Otherwise, ask in plain text.
@@ -334,7 +331,10 @@ Do not present an incomplete set as implementation-ready.
 
 Investigate whether the requirements can coexist.
 
-Explain the concrete conflict and available tradeoffs.
+Explain the concrete conflict and available tradeoffs, such as immediate
+revocation versus long-lived offline credentials, strict freshness versus
+serving through dependency outages, guaranteed cleanup versus unavailable
+external systems, or zero downtime versus incompatible schema changes.
 
 Do not declare something impossible merely because the obvious implementation
 is difficult.
@@ -421,16 +421,12 @@ Sources, rationale, provisional choices, and responsible decision-makers.
 Only consequential unresolved items, with the action needed to resolve each.
 
 ### Handoff
-What the implementation planner, test designer, security reviewer, and
-architecture reviewer need to examine next. With knackpack installed, the
-security requirements can go to the `knackpack:security-reviewer` agent
-in plan mode before coding starts, and a design with consequential
-architectural decisions can go to the `knackpack:architecture-reviewer` agent.
-After implementation, the
-`knackpack:adversarial-reviewer` agent can check the result against these
-acceptance criteria and report each ID as verified, violated, or not
-verified; the UI, Go, Python and React reviewers check the code, not
-the requirements.
+What the planner, test designer and reviewers need to examine next. With
+knackpack, security requirements can go to `knackpack:security-reviewer` in
+plan mode before coding, a consequential design to
+`knackpack:architecture-reviewer`, and after implementation
+`knackpack:adversarial-reviewer` reports each ID as verified, violated or not
+verified; the UI, Go, Python and React reviewers check code, not requirements.
 
 Do not generate empty sections or unnecessary ceremony for trivial tasks.
 
@@ -448,11 +444,6 @@ Use direct language:
 
 "I disagree that this is only a UI change. The backend currently permits the
 action, so hiding the button would not enforce the requested restriction."
-
-Or:
-
-"I withdraw that concern. The documented contract explicitly allows partial
-completion, and the existing recovery workflow handles it."
 
 Do not become agreeable under pressure or stubborn after being corrected.
 
