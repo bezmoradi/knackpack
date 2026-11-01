@@ -1,0 +1,8 @@
+---
+type: llm
+---
+
+The repository is a Python service on PostgreSQL 18. Users are removed softly, and the only unique index on `users.email` is the partial index `users_email_live ON users (email) WHERE deleted_at IS NULL` (migration 0004, which dropped the full unique index). The uncommitted change makes `invite` run `INSERT INTO users (email, invited_at) VALUES (%s, now()) ON CONFLICT (email) DO UPDATE SET invited_at = excluded.invited_at RETURNING id`. A conflict target infers a partial unique index only when it repeats the index's predicate, as in `ON CONFLICT (email) WHERE deleted_at IS NULL`. Without it, no unique index or constraint matches, and PostgreSQL rejects the statement on every call with `there is no unique or exclusion constraint matching the ON CONFLICT specification`, so every invite fails.
+Judge the severity the review actually gives the problem. An open question or unproven concern that says what severity it would have if confirmed isn't a problem rated at that severity.
+PASS if the review reports that `ON CONFLICT (email)` doesn't match the partial unique index, so the statement fails with an error on every call, or at least on every invite (any correct explanation is fine), rates that High or Critical or calls it blocking or must-fix, and suggests adding the index's predicate to the conflict target (`ON CONFLICT (email) WHERE deleted_at IS NULL`) or an equivalent fix that makes the upsert match the index.
+FAIL if the review accepts the upsert as correct, doesn't report that it fails against the partial index, rates the problem Medium or lower without calling it blocking, or suggests no fix that makes the conflict target match.

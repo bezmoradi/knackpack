@@ -153,7 +153,11 @@ done
 # Keys: Claude Code ignores a frontmatter or hook key it doesn't know without
 # a word, so one that isn't documented fails here. Plugin agents can't use
 # hooks, mcpServers, permissionMode or initialPrompt, so those fail too.
-skill_keys='name description when_to_use argument-hint arguments disable-model-invocation user-invocable allowed-tools disallowed-tools model effort context agent background hooks paths shell metadata license compatibility'
+# A skill may use the Agent Skills format's six keys and Claude Code's own,
+# which claude.ai uploads, the Skills API and the format's validator reject.
+spec_skill_keys='name description license compatibility metadata allowed-tools'
+claude_skill_keys='when_to_use argument-hint arguments disable-model-invocation user-invocable disallowed-tools model effort context agent background hooks paths shell'
+skill_keys="$spec_skill_keys $claude_skill_keys"
 agent_keys='name description tools disallowedTools model maxTurns autoCompactWindow skills memory background omitClaudeMd effort isolation color experimental'
 unknown_keys() { # <file> <keys>
 	frontmatter "$1" | sed -n 's/^\([^[:space:]#][^:]*\):.*/\1/p' | while read -r k; do
@@ -305,6 +309,70 @@ note=
 [ -n "$have_node" ] || note="$note, regexes not compiled: no node"
 [ "$evals_ok" = 1 ] && pass "eval cases: $(find evals -mindepth 1 -maxdepth 1 -type d ! -name results ! -name '.*' | wc -l | tr -d ' ') complete$note"
 
+# A fixture's file names in an agent or skill. A case shows a rule carries over
+# only if the agent works the answer out; an agent that names the exact file
+# one case builds has been taught that case. This checks the names that only
+# one fixture writes with cat or tee, apart from standard ones that many
+# projects share, which go in the list below.
+standard_names=' .env.example .golangci.yml conftest.py kustomization.yaml '
+for f in evals/*/fixture.sh; do
+	grep -o -E '(cat|tee)[[:space:]]+>?[[:space:]]*["'\'']?[A-Za-z0-9_./-]+' "$f" |
+		sed 's/^...[[:space:]]*>*[[:space:]]*//; s/^["'\'']//; s#.*/##' | grep '\.' | sort -u
+done | sort | uniq -c | awk '$1 == 1 { print $2 }' >"$tmp/fixture-names"
+leaks=
+while read -r n; do
+	case $standard_names in *" $n "*) continue ;; esac
+	re="(^|[^A-Za-z0-9_.-])$(printf '%s' "$n" | sed 's/[.]/\\./g')([^A-Za-z0-9_-]|\$)"
+	hits=$(grep -l -E -- "$re" agents/*.md skills/*/SKILL.md 2>/dev/null | tr '\n' ' ')
+	[ -z "$hits" ] || leaks="$leaks $n (${hits% })"
+done <"$tmp/fixture-names"
+if [ -n "$leaks" ]; then
+	fail "agents or skills name a file that one eval fixture writes, which teaches them that case; use another example, or add a standard name to the list in this check:$leaks"
+else
+	pass "no eval fixture's file names in agents or skills"
+fi
+
+# The Agent Skills format (https://agentskills.io/specification) for each
+# skill: a name of 1 to 64 lowercase letters, digits and single hyphens between
+# them, the same as its folder; a description of 1 to 1,024 characters; and a
+# compatibility of 1 to 500 when there is one. claude plugin validate checks
+# none of this: in Claude Code 2.1.316 it warns only when the description is
+# missing. Knackpack's own rule on top keeps the values readable here exactly
+# as YAML reads them: each frontmatter line is one `key: value`, with no key
+# twice, and a value is either double-quoted without escapes, single-quoted, or
+# plain and free of what YAML would read differently: a leading indicator such
+# as `[`, `>` or `-`, a `: ` or ` #` inside, or a `:` at the end.
+spec_ok=1
+for f in skills/*/SKILL.md; do
+	bad=$(frontmatter "$f" | awk '
+		/^[[:space:]]*$/ { next }
+		!/^[a-z][a-z0-9-]*: [^[:space:]]/ { printf "line \"%s\" isn'\''t one `key: value`; ", $0; next }
+		{
+			k = $0; sub(/:.*/, "", k); v = $0; sub(/^[^:]*: /, "", v)
+			if (seen[k]++) printf "%s appears twice; ", k
+			else if (v ~ /^"/) { if (v !~ /^"[^"\\]*"$/) printf "%s has an escape, an inner \" or no closing quote; ", k }
+			else if (v ~ /^\047/) { if (v !~ /^\047([^\047]|\047\047)*\047$/) printf "%s has no closing quote; ", k }
+			else if (v ~ /^[][{}>|*&!%@#`?:,-]/ || v ~ /: |:$| #/) printf "%s needs quotes, as YAML would read it differently; ", k
+		}')
+	[ -z "$bad" ] || { fail "$f frontmatter: ${bad%; }"; spec_ok=0; }
+	dir=$(basename "$(dirname "$f")")
+	name=$(frontmatter "$f" | value name | head -n 1)
+	if [ -z "$name" ]; then
+		fail "$f has no name, which the Agent Skills format requires"; spec_ok=0
+	elif ! printf '%s\n' "$name" | grep -Eqx '[a-z0-9]+(-[a-z0-9]+)*' || [ "$(printf '%s' "$name" | chars)" -gt 64 ]; then
+		fail "$f's name \"$name\" must be 1 to 64 lowercase letters, digits and single hyphens between them"; spec_ok=0
+	elif [ "$name" != "$dir" ]; then
+		fail "$f's name \"$name\" must match its folder, $dir"; spec_ok=0
+	fi
+	n=$(frontmatter "$f" | value description | head -n 1 | tr -d '\n' | chars)
+	[ "$n" -ge 1 ] && [ "$n" -le 1024 ] || { fail "$f's description is $n characters; the Agent Skills format allows 1 to 1,024"; spec_ok=0; }
+	if frontmatter "$f" | grep -q '^compatibility:'; then
+		n=$(frontmatter "$f" | value compatibility | head -n 1 | tr -d '\n' | chars)
+		[ "$n" -ge 1 ] && [ "$n" -le 500 ] || { fail "$f's compatibility is $n characters; the Agent Skills format allows 1 to 500"; spec_ok=0; }
+	fi
+done
+[ "$spec_ok" = 1 ] && pass "Agent Skills format: names, descriptions and one-line frontmatter"
+
 # Skill sizes: compaction keeps about the first 5,000 tokens of each skill.
 for f in skills/*/SKILL.md; do
 	c=$(chars <"$f")
@@ -322,14 +390,14 @@ contract_ok=1
 IFS= read -r save_folder <<'EOF'
 the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 EOF
-for name in challenge-requirements checkpoint create-issues handoff opentelemetry orchestrate-review plan-implementation research; do
+for name in challenge-requirements checkpoint create-issues handoff orchestrate-review plan-implementation research; do
 	grep -qF -- "$save_folder" "skills/$name/SKILL.md" ||
 		{ fail "skills/$name/SKILL.md doesn't name its save folder in the words check.sh holds, which the hook relies on"; contract_ok=0; }
 done
 fallback=$(printf '%s\n' "$save_folder" | sed -n 's/.*`\([A-Za-z0-9._-]*\)${CLAUDE_SESSION_ID}`.*/\1/p')
 [ -n "$fallback" ] || { fail "check.sh's save-folder words name no folder for the hook tests"; contract_ok=0; }
 layout=$(sed -n '/^```markdown$/,/^```$/p' skills/track-intent/SKILL.md)
-for s in '# Intent record: ' '- Status: active | paused | stopped | done' '## Assumed' '- ASM-01: <assumption>. Why: ' '## Not agreed' \
+for s in '# Intent record: ' '- Status: active | paused | stopped | done' '## Assumed' '- ASM-01: <assumption, in one sentence>. Why: ' '## Not agreed' \
 	'- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n>' \
 	'## Open questions' '- Q-01: ' '## History'; do
 	printf '%s\n' "$layout" | grep -qF -- "$s" || { fail "track-intent's record layout no longer has \"$s\", which the hook reads"; contract_ok=0; }
@@ -370,6 +438,8 @@ real_home=$HOME
 nosystem=${GIT_CONFIG_NOSYSTEM-}
 export HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1
 git -C "$long/project" init -q && git -C "$long/project" -c user.name=check -c user.email=check@example.com commit -q --allow-empty -m init &&
+	printf 'a\n' >"$long/project/tracked.txt" && printf 'z\n' >"$long/project/same.txt" && git -C "$long/project" add tracked.txt same.txt &&
+	git -C "$long/project" -c user.name=check -c user.email=check@example.com commit -q -m tracked &&
 	git -C "$long/project" worktree add -q "$long/worktree" 2>/dev/null || fail "couldn't make a git repository and worktree to test the hook in"
 sid=00000000-0000-0000-0000-000000000000
 run() { # <shell> <mode> <event> [state] [project]
@@ -483,8 +553,41 @@ for s in $shells; do
 	[ -s "$tmp/out" ] && { fail "hook under $s forgets a record update made before a message queued mid-turn"; hook_ok=0; }
 	run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"}}" && run "$s" prompt "$event" || hook_ok=0
 	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s flags a turn's edits while the turn is still running"; hook_ok=0; }
+	# The hook ran when that message was sent, so it says the record may be newer.
+	grep -q 'may have been sent while you were working' "$tmp/out" || { fail "hook under $s doesn't say a reminder within a turn can predate the latest record edits"; hook_ok=0; }
 	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 	grep -q 'edited files but not the record' "$tmp/out" || { fail "hook under $s misses a finished turn that edited files but not the record"; hook_ok=0; }
+	# A project file changed with a shell command, which no file-edit event
+	# reports, counts too, and so does a second change to a file already
+	# changed. A turn that changes nothing doesn't, nor does a scratch file in
+	# a temporary folder outside the project.
+	for line in b c; do
+		run "$s" stop "$done_event" && run "$s" prompt "$event" && printf '%s\n' "$line" >>"$long/project/tracked.txt" &&
+			run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+		grep -q 'edited files but not the record' "$tmp/out" || { fail "hook under $s misses a project file changed with a shell command"; hook_ok=0; }
+	done
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s flags a turn that changed nothing"; hook_ok=0; }
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"/tmp/knackpack-check-scratch/render.py\"}}" &&
+		run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s counts a scratch file in /tmp, outside the project, as work"; hook_ok=0; }
+	# Reading what changed mustn't write to the repository. git diff refreshes
+	# the index when a file's timestamp changed but its content didn't, which
+	# rewrites .git/index and can make the user's own git command fail on its
+	# lock, unless the refresh is turned off.
+	touch -t 202901010000 "$long/project/same.txt" && cksum <"$long/project/.git/index" >"$tmp/index.before" &&
+		run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" stop "$done_event" || hook_ok=0
+	cksum <"$long/project/.git/index" | cmp -s - "$tmp/index.before" || { fail "hook under $s rewrites the project's .git/index"; hook_ok=0; }
+	# On macOS, /tmp and /var are links into /private, and git names the
+	# project by the resolved path. An edit reported by the unresolved path of
+	# a project in a temporary folder is still work on the project.
+	case $long in
+	/private/tmp/* | /private/var/*)
+		run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"${long#/private}/project/a.md\"}}" &&
+			run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+		grep -q 'edited files but not the record' "$tmp/out" || { fail "hook under $s misses an edit to a project in a temporary folder, reported by its unresolved path"; hook_ok=0; }
+		;;
+	esac
 	# A background-task notification gets a short note, not the full reminder.
 	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"<task-notification>\\n<status>completed<\/status>"/')" || hook_ok=0
 	{ grep -q 'background-task notification' "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
@@ -498,6 +601,9 @@ for s in $shells; do
 	run "$s" prompt "$event" || hook_ok=0
 	grep -qF "Record: $two (exists)" "$tmp/out" || { fail "hook under $s doesn't switch to the record edited last"; hook_ok=0; }
 	grep -qF "Other records of this session that aren't done: $rec (" "$tmp/out" || { fail "hook under $s doesn't name the session's other record that isn't done"; hook_ok=0; }
+	# A background task can belong to another record, so its note names them.
+	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"<task-notification>\\n<status>completed<\/status>"/')" || hook_ok=0
+	grep -qF "Other records of this session that aren't done: $rec (" "$tmp/out" || { fail "hook under $s doesn't name the other records with a background-task notification"; hook_ok=0; }
 	# A side task's record that's done gives way to one that isn't, even when
 	# it was edited last.
 	printf '%s\n' '- Status: done · Updated: 2026-10-30' >>"$two"
@@ -624,6 +730,38 @@ for s in $shells; do
 	{ grep -q '^- ASM-06: a long assumption with more words.* \[\.\.\.\]$' "$tmp/out" && grep -q '^- ASM-07: the newest assumption' "$tmp/out" &&
 		! grep -q 'and its end' "$tmp/out" && grep -qx 'More in the record: ASM-01, ASM-02, ASM-03, ASM-04, ASM-05\.' "$tmp/out"; } ||
 		{ fail "hook prompt under $s doesn't cut a long newer assumption to keep it ahead of older ones: $(grep -o '^- ASM-0[0-9]' "$tmp/out" | tr '\n' ' ')"; hook_ok=0; }
+	# Where a sentence ends past its first 100 characters, the cut falls there.
+	for d in "$long/state/knackpack/intent"/*/; do
+		{
+			printf '%s\n' '# Intent record: test' '' '## Assumed (not confirmed)'
+			for n in 01 02 03; do printf '%s\n' "- ASM-$n: old assumption $n. Why: x"; done
+			awk 'BEGIN { s = "- ASM-04: the first sentence says what matters most and runs on long enough to pass one hundred characters."; while (length(s) < 900) s = s " Then detail follows"; print s ". Why: y" }'
+			awk 'BEGIN { s = "- ASM-05: the newest assumption"; while (length(s) < 300) s = s " with more words"; print s ". Why: z" }'
+		} >"$d$sid.md"
+	done
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -qx -- '- ASM-04: the first sentence says what matters most and runs on long enough to pass one hundred characters\. \[\.\.\.\]' "$tmp/out" ||
+		{ fail "hook prompt under $s doesn't cut a long assumption at the end of a sentence: $(grep '^- ASM-04' "$tmp/out" | head -c 160)"; hook_ok=0; }
+	# An entry outside its section is still listed and named; a long Status
+	# line and what looks like a credential are flagged; and the credential is
+	# hidden wherever the hook prints the record.
+	key=sk-ant-oat01-$(pad 60 60)
+	for d in "$long/state/knackpack/intent"/*/; do
+		{
+			printf '%s\n' '# Intent record: test' ''
+			awk 'BEGIN { s = "- Status: active, plus how to work:"; while (length(s) < 500) s = s " keep it small"; print s }'
+			printf '%s\n' '' '## Agreed' "- REQ-01: call the API with $key. Said: \"use this\"" '- ASM-05: an assumption under Agreed. Why: y' \
+				'## Assumed (not confirmed)' '- ASM-01: an assumption. Why: z'
+		} >"$d$sid.md"
+	done
+	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	{ grep -qx -- '- ASM-05: an assumption under Agreed\.' "$tmp/out" &&
+		grep -q '^Entries outside their own section, which reminders can miss: ASM-05 under ## Agreed\. ' "$tmp/out" &&
+		grep -q "^The record's Status line is [0-9]* bytes\. " "$tmp/out" && grep -q 'looks like a credential' "$tmp/out" && ! grep -qF "$key" "$tmp/out"; } ||
+		{ fail "hook prompt under $s doesn't flag a misplaced entry, a long Status line or a credential: $(grep -E '^(Entries|The record)' "$tmp/out" | head -c 200)"; hook_ok=0; }
+	run "$s" state "$event" || hook_ok=0
+	{ grep -qF 'call the API with [credential hidden].' "$tmp/out" && ! grep -qF "$key" "$tmp/out"; } ||
+		{ fail "hook state under $s prints what looks like a credential from the record"; hook_ok=0; }
 	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# A full glossary and record, and the other records that aren't done, still
 	# fit under the cap with long paths.
@@ -713,9 +851,10 @@ for s in $shells; do
 		grep -q '^\[Shortened from [0-9]* bytes; left out: the ends of long lines\. ' "$tmp/out"; } ||
 		{ fail "hook state under $s doesn't cut a long line at a space to keep the sections after it: $(printf '%s' "$g" | tail -c 60)"; hook_ok=0; }
 	# It names the files on the record's Files line that are gone, at most
-	# three, whether or not a path is in backticks or holds a space.
+	# three, whether or not a path is in backticks or holds a space, and not a
+	# path that exists with a note after it.
 	for d in "$long/state/knackpack/intent"/*/; do
-		printf '%s\n' '# Intent record: test' "- Files: $long/project, \`$real/gone 1.md\`, $real/gone2.md, $real/gone3.md, $real/gone4.md" >"$d$sid.md"
+		printf '%s\n' '# Intent record: test' "- Files: $long/project (the project folder), \`$real/gone 1.md\`, $real/gone2.md, $real/gone3.md, $real/gone4.md" >"$d$sid.md"
 	done
 	run "$s" state "$event" || hook_ok=0
 	grep -qxF "The record's Files line names files that no longer exist: \`$real/gone 1.md\`, \`$real/gone2.md\`, \`$real/gone3.md\` and 1 more." "$tmp/out" ||

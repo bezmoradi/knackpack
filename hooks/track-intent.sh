@@ -14,13 +14,17 @@
 #   track-intent.sh prompt   (UserPromptSubmit) print a short reminder to
 #                            update the record, with the open items and
 #                            assumptions, and flag a last turn that edited
-#                            files but not the record
+#                            files but not the record, entries outside their
+#                            section, a long Status line and what looks like
+#                            a credential in the record
 #   track-intent.sh tool     (PostToolUse on file edits) note whether this
 #                            turn edited the record or other files, leaving
-#                            out subagents' edits
-#   track-intent.sh stop     (Stop) mark the turn finished, and make Claude
-#                            update the record if it wrote "Noted:" without
-#                            updating it
+#                            out subagents' edits and scratch files outside
+#                            the project
+#   track-intent.sh stop     (Stop) mark the turn finished, note project files
+#                            the turn changed by other means, such as a shell
+#                            command, and make Claude update the record if it
+#                            wrote "Noted:" without updating it
 #   track-intent.sh manual <session-id> [project-dir]
 #                            print the paths, glossary and records without
 #                            the rules (the skill's fallback when hooks
@@ -32,8 +36,11 @@
 # ${XDG_STATE_HOME:-$HOME/.local/state}/knackpack/intent, where it creates
 # folders, keeps one small turn file per session, and deletes files nobody
 # has changed for 30 days and empty folders nobody has touched for a day.
-# It never touches the repository, uses no network, and exits 0 on every
-# failure so a problem here never blocks a session.
+# It never writes to the repository, uses no network, and exits 0 on every
+# failure so a problem here never blocks a session. In a git repository it
+# reads git's view of changed files twice a turn, with optional locks, the
+# index refresh and fsmonitor off, so that read writes nothing and runs no
+# fsmonitor program.
 #
 # KNACKPACK_INTENT=off turns the hooks off. KNACKPACK_INTENT=on also runs them
 # in sessions nobody attends, such as `claude -p`, which they skip by default.
@@ -90,6 +97,7 @@ else
 	dir=${CLAUDE_PROJECT_DIR:-}
 fi
 
+in_git=
 case $sid in '' | *[!A-Za-z0-9-]*) exit 0 ;; esac
 [ "${#sid}" -le 64 ] || exit 0
 if [ -z "$dir" ] || [ ! -d "$dir" ]; then dir=$(pwd -P); fi
@@ -115,6 +123,7 @@ if top=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) && [ -n "$top" ] &
 	esac
 	id=$common
 	project=$top
+	in_git=1
 else
 	id=$(CDPATH='' cd -- "$dir" 2>/dev/null && pwd -P) || exit 0
 	name=${id##*/}
@@ -222,12 +231,16 @@ fi
 [ -z "$moved" ] || state="$state, found by its session ID: the working directory has left the session's repository"
 
 # The turn file starts with "sum <checksum>" of the session's records at the
-# turn's first prompt, then holds one line per file edit in the turn: "record"
-# for this session's record, "work" for anything outside the state folder and
-# the folders where skills save files: Claude Code's scratchpad,
-# <session>/scratchpad, and knackpack's fallback, claude-<session>. A reminder
-# that lists the assumptions adds "listed <checksum>". Stop adds "end", and
-# only a prompt after it starts a new turn.
+# turn's first prompt and, in a git repository, "tree <checksum>" of what git
+# shows as changed in the project then. It holds one line per file edit in
+# the turn: "record" for this session's record, "work" for anything outside
+# the state folder, the folders where skills save files (Claude Code's
+# scratchpad, <session>/scratchpad, and knackpack's fallback,
+# claude-<session>) and, outside the project, the temporary folders. A
+# reminder that lists the assumptions adds "listed <checksum>". Stop adds
+# "work" when the project's changes differ from the turn's start, which
+# catches edits made with a shell command, then "end"; only a prompt after it
+# starts a new turn.
 turns=$root/.turns
 turn=$turns/$sid
 
@@ -252,6 +265,81 @@ records_sum() {
 	for f in "$repo_dir/$sid.md" "$repo_dir/$sid".*.md; do
 		record_n "$f" && cat -- "$f"
 	done 2>/dev/null | cksum 2>/dev/null
+}
+
+# A checksum of what git shows as changed in the project: every changed and
+# untracked file it doesn't ignore, and the changes to tracked files against
+# HEAD, so a second edit to a file already changed shows too. File-edit
+# events don't report a change made with a shell command, such as sed -i or
+# a heredoc, and this does. It misses a second change to a file that was
+# already untracked, and ignored files, such as build output, don't count.
+# Neither git status, with optional locks off, nor git diff, with
+# diff.autoRefreshIndex off, rewrites the index when a file's timestamp
+# changed but its content didn't: that rewrite takes index.lock and can make
+# the user's own git command fail. fsmonitor, whose hook is a program, is off
+# too. Outside a git repository it prints nothing.
+tree_sum() {
+	[ -n "$in_git" ] || return 0
+	{
+		GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false status --porcelain --untracked-files=all 2>/dev/null
+		GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false -c diff.autoRefreshIndex=false diff --no-ext-diff --no-textconv HEAD 2>/dev/null ||
+			GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false -c diff.autoRefreshIndex=false diff --no-ext-diff --no-textconv 2>/dev/null
+	} | cksum 2>/dev/null
+}
+
+# What looks like a credential: an Anthropic, Google, GitHub, Slack or AWS
+# key, or a private key's first line. The hook prints records and glossaries
+# into every later session's context, so a credential quoted in one would be
+# sent to the model again; what it prints hides each such string, and the
+# reminder asks Claude to remove it. Shorter matches are words, not keys.
+cred_re='sk-ant-[A-Za-z0-9_-]+|AIza[0-9A-Za-z_-]+|gh[pousr]_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|xox[abpr]-[A-Za-z0-9-]+|AKIA[0-9A-Z]+|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+redact() {
+	LC_ALL=C awk -v re="$cred_re" '{
+		out = ""
+		s = $0
+		while (match(s, re)) {
+			if (RLENGTH >= 20) out = out substr(s, 1, RSTART - 1) "[credential hidden]"
+			else out = out substr(s, 1, RSTART + RLENGTH - 1)
+			s = substr(s, RSTART + RLENGTH)
+		}
+		print out s
+	}'
+}
+has_credential() { # <file>...
+	LC_ALL=C awk -v re="$cred_re" '{
+		s = $0
+		while (match(s, re)) {
+			if (RLENGTH >= 20) { found = 1; exit }
+			s = substr(s, RSTART + RLENGTH)
+		}
+	}
+	END { exit !found }' "$@" 2>/dev/null
+}
+
+# Names entries that sit outside their own section, where the reminders don't
+# look for them: an assumption outside Assumed, a question outside Open
+# questions, a proposal or what-if outside Not agreed, a requirement outside
+# Agreed and Built. History may hold any of them.
+misplaced() {
+	awk '
+	{ sub(/\r$/, "") }
+	/^## / { sec = $0; next }
+	match($0, /^- (REQ|ASM|Q|PROP|WHATIF)-[0-9]+/) {
+		id = substr($0, 3, RLENGTH - 2)
+		kind = id
+		sub(/-.*/, "", kind)
+		if (sec ~ /^## History/) next
+		if (kind == "REQ" && sec ~ /^## (Agreed|Built)/) next
+		if (kind == "ASM" && sec ~ /^## Assumed/) next
+		if (kind == "Q" && sec ~ /^## Open questions/) next
+		if ((kind == "PROP" || kind == "WHATIF") && sec ~ /^## Not agreed/) next
+		where = (sec == "" ? "above the first section" : "under " sec)
+		l = l (l == "" ? "" : "; ") id " " where
+		if (++c >= 5) exit
+	}
+	END {
+		if (l != "") printf "Entries outside their own section, which reminders can miss: %s. Move each to its own section.", l
+	}' "$1" 2>/dev/null
 }
 
 stopped() {
@@ -372,7 +460,9 @@ assumed_items() { # <record> [ids]
 	}
 	{ sub(/\r$/, "") }
 	/^## / { flush(); sec = $0; next }
-	sec ~ /^## Assumed/ && match($0, /^- ASM-[0-9]+/) {
+	# An assumption outside its section still counts, so a misplaced one
+	# is never silently left out; misplaced() asks Claude to move it.
+	sec !~ /^## History/ && match($0, /^- ASM-[0-9]+/) {
 		flush()
 		id = substr($0, 3, RLENGTH - 2)
 		t = substr($0, 3)
@@ -403,9 +493,11 @@ assumed_items() { # <record> [ids]
 			printf "Assumed, not confirmed, as an earlier reminder listed them: %s; check this message and your next step against them.", l
 			exit
 		}
-		# The newest that fit are shown in full, then the next one cut at a
-		# space, if a useful part of it fits; a space is never inside a
-		# character, however awk counts.
+		# The newest that fit are shown in full, then the next one cut, if a
+		# useful part of it fits: at the end of a sentence where one falls
+		# past the first 100 characters, so the part shown says something whole,
+		# or else at a space. Neither is ever inside a character, however awk
+		# counts.
 		for (j = k; j >= 1; j--) {
 			if (used + length(text[j]) <= 1000) {
 				full[j] = 1
@@ -413,9 +505,17 @@ assumed_items() { # <record> [ids]
 				continue
 			}
 			r = 1000 - used - 6
-			if (r >= 100 && match(substr(text[j], 1, r), /.* /)) {
-				text[j] = substr(text[j], 1, RLENGTH - 1) " [...]"
-				full[j] = 1
+			if (r >= 100) {
+				s = substr(text[j], 1, r)
+				e = 0
+				while ((i = index(substr(s, e + 1), ". ")) > 0) e += i
+				if (e >= 100) {
+					text[j] = substr(text[j], 1, e) " [...]"
+					full[j] = 1
+				} else if (match(s, /.* /)) {
+					text[j] = substr(text[j], 1, RLENGTH - 1) " [...]"
+					full[j] = 1
+				}
 			}
 			break
 		}
@@ -512,22 +612,24 @@ print_file() { # <title> <file> <byte limit> [record]
 				if (keep < h) left = left (left == "" ? "" : ", ") (keep ? "older History entries" : "History")
 			}
 			if (left != "") printf "[Shortened from %s bytes; left out: %s. Read the file for the rest.]\n", size, left
-		}' "$2"
+		}' "$2" | redact
 	else
-		cat -- "$2"
+		redact <"$2"
 	fi
 	printf '\n----- end -----\n'
 }
 
 # Names the files on the record's Files line that no longer exist, at most
 # three, so a resumed session doesn't go looking for them. The line holds
-# absolute paths separated by ", ", which a path rarely contains.
+# absolute paths separated by ", ", which a path rarely contains. A note after
+# a path, such as "/x/env (the local env folder)", isn't part of it: an entry
+# is missing only when neither it nor its text before " (" exists.
 gone_files() {
 	[ "$exists" = 1 ] || return 0
 	list=$(sed -n 's/^- Files:[[:space:]]*//p' "$record" 2>/dev/null | head -n 1 | tr -d '`\r' |
 		awk '{ sub(/[ \t]+$/, ""); n = split($0, a, /, \//); for (i = 1; i <= n; i++) print (i > 1 ? "/" : "") a[i] }' |
 		while IFS= read -r p; do
-			[ "${p#/}" != "$p" ] && [ ! -e "$p" ] && printf '%s\n' "$p"
+			[ "${p#/}" != "$p" ] && [ ! -e "$p" ] && [ ! -e "${p%% (*}" ] && printf '%s\n' "$p"
 		done | awk 'NR <= 3 { printf "%s`%s`", (NR > 1 ? ", " : ""), $0 } END { if (NR > 3) printf " and %d more", NR - 3 }')
 	[ -z "$list" ] || printf '%s\n' "The record's Files line names files that no longer exist: $list."
 }
@@ -640,16 +742,25 @@ prompt)
 	# turn's notes, so an update made before it still counts at Stop, and edits
 	# made before it are checked along with the rest of the turn.
 	missed=0
+	midturn=0
 	if [ "$writable" = 1 ] && { [ ! -f "$turn" ] || grep -qx end "$turn" || ! grep -q '^sum ' "$turn"; }; then
 		if [ -f "$turn" ] && grep -qx work "$turn" && ! grep -qx record "$turn" &&
 			! { grep -q '^sum ' "$turn" && ! grep -qxF "sum $sum" "$turn"; }; then missed=1; fi
-		printf 'sum %s\n' "$sum" 2>/dev/null >"$turn"
+		tree=$(tree_sum)
+		printf 'sum %s\n%s' "$sum" "${tree:+tree $tree
+}" 2>/dev/null >"$turn"
+	elif [ "$writable" = 1 ]; then
+		midturn=1
 	fi
 	missed_line="Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
+	other=$(others | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
 	# Claude Code reports a finished background task as a prompt that starts
 	# with <task-notification>; it isn't the developer, so a short note does.
+	# The task can belong to another record than the current one, so it names
+	# those too.
 	if printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"<task-notification>'; then
 		printf '%s\n' "knackpack intent tracking: this is a background-task notification, not a message from the developer, so on its own it changes nothing in the agreement. Record: $record ($state)."
+		[ -n "$other" ] && printf '%s\n' "Other records of this session that aren't done: $other. The task may belong to one of them."
 		[ "$missed" = 1 ] && printf '%s\n' "$missed_line"
 		exit 0
 	fi
@@ -666,11 +777,22 @@ prompt)
 			[ -n "$assumed" ] && [ "$writable" = 1 ] && printf 'listed %s\n' "$sum" 2>/dev/null >>"$turn"
 		fi
 	fi
-	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it changes the agreement: adds, changes or answers something, or approves a proposal. Approving the next step of work already agreed isn't a change. If it changes the agreement, update the record first, with your file-editing tools, then do the work, and say so in your final message, in one line that starts with \"Noted:\". If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
+	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it changes the agreement: adds, changes or answers something, or approves a proposal. Approving the next step of work already agreed isn't a change. If it changes the agreement, update the record first, with your file-editing tools, then do the work. When the record gained something the developer didn't spell out, such as an assumption, a replaced entry, a proposal's status or an open question, end your final message with a line that starts with \"Noted:\" saying so. If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
-	other=$(others | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
-	[ -n "$other" ] && printf '%s\n' "Other records of this session that aren't done: $other. A message about one of their tasks goes in that record."
-	[ -n "$assumed" ] && printf '%s\n' "$assumed"
+	[ -n "$other" ] && printf '%s\n' "Other records of this session that aren't done: $other. A message about one of their tasks goes in that record, and a side task's record is set to done when it ends."
+	[ -n "$assumed" ] && printf '%s\n' "$assumed" | redact
+	# A message sent while Claude works reaches it with a later tool result,
+	# but this hook ran when it was sent, before any edit made since.
+	[ "$midturn" = 1 ] && printf '%s\n' "This message may have been sent while you were working, so the lines above can predate your latest record edits; the record file is current."
+	if [ "$exists" = 1 ]; then
+		wrong=$(misplaced "$record")
+		[ -n "$wrong" ] && printf '%s\n' "$wrong"
+		# The session-start hook cuts a long record's Status line at 400 bytes,
+		# losing its end, where the newest notes on how to work go.
+		slen=$(sed -n '/^- Status:/{p;q;}' "$record" 2>/dev/null | wc -c | tr -d ' ')
+		[ "${slen:-0}" -gt 401 ] && printf '%s\n' "The record's Status line is $((slen - 1)) bytes. When a long record is printed at the next session start, the line is cut at 400 and the newest notes at its end are lost: keep it to the state and how to work, and put progress under Built."
+		has_credential "$record" "$glossary" && printf '%s\n' "The record or personal glossary holds what looks like a credential, which this hook hides when it prints them. Remove it from the file and describe it instead, such as \"the token the developer pasted\"."
+	fi
 	[ "$missed" = 1 ] && printf '%s\n' "$missed_line"
 	;;
 tool)
@@ -688,15 +810,40 @@ tool)
 	path=$(field file_path)
 	[ -n "$path" ] || path=$(field notebook_path)
 	if [ -n "$path" ]; then event="\"$path\""; else event=$input; fi
+	# A scratch file in a temporary folder outside the project, such as a
+	# throwaway script, isn't work on the task. The project itself can sit in
+	# a temporary folder, as an eval's does, so it's matched first, by the
+	# path git resolved and, on macOS, where /tmp and /var link into /private,
+	# by the unresolved one too.
+	t=${TMPDIR:-/tmp}
+	t=${t%"${t##*[!/]}"}
+	unresolved=$project
+	case $project in /private/tmp/* | /private/var/*) unresolved=${project#/private} ;; esac
 	case $event in
 	*"\"$record\""*) echo record 2>/dev/null >>"$turn" ;;
 	*"\"$root/"* | *"/claude-$sid/"* | *"/$sid/scratchpad/"* | *'/.claude/rules/glossary.md"'*) ;;
-	*) echo work 2>/dev/null >>"$turn" ;;
+	*"\"$project/"* | *"\"$unresolved/"*) echo work 2>/dev/null >>"$turn" ;;
+	*'"/tmp/'* | *'"/private/tmp/'* | *'"/var/folders/'*) ;;
+	*)
+		case ${t:-/} in
+		/) echo work 2>/dev/null >>"$turn" ;;
+		*) case $event in *"\"$t/"*) ;; *) echo work 2>/dev/null >>"$turn" ;; esac ;;
+		esac
+		;;
 	esac
 	;;
 stop)
-	# The turn is over: the next prompt starts a new one.
-	turn_ok && echo end 2>/dev/null >>"$turn"
+	# The turn is over: the next prompt starts a new one. First, a turn that
+	# changed the project by other means than a file-edit tool, such as a
+	# shell command, counts as work too; it's checked only when nothing else
+	# has settled the turn, since it runs git.
+	if turn_ok; then
+		t0=$(sed -n 's/^tree //p' "$turn" 2>/dev/null | head -n 1)
+		if [ -n "$t0" ] && ! grep -qx work "$turn" && ! grep -qx record "$turn" && [ "$(tree_sum)" != "$t0" ]; then
+			echo work 2>/dev/null >>"$turn"
+		fi
+		echo end 2>/dev/null >>"$turn"
+	fi
 	stopped && exit 0
 	printf '%s' "$input" | grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true' && exit 0
 	# Claude's final message, still escaped as in the event's JSON, so the

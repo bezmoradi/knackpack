@@ -4,8 +4,8 @@
 # an uncommitted change that adds a billing service.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p docs/security services/orders
 cat > requirements.txt <<'TXT'
 PyJWT==2.15.1

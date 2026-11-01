@@ -6,8 +6,8 @@
 # bounded name. Exporting directly is a valid choice here, not a defect.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 
 cat > pyproject.toml <<'EOF'
 [project]

@@ -5,8 +5,8 @@
 # that nothing calls, which that linter fails.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p invoice .github/workflows
 cat > go.mod <<'GO'
 module example.com/billing

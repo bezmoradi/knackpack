@@ -4,8 +4,8 @@
 # tests/conftest.py. The branch is left checked out for review.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p taskq tests
 
 cat > pyproject.toml <<'TOML'

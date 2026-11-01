@@ -4,8 +4,8 @@
 # run, and the worker calls dispatch(). The change adds a refund handler.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p handlers
 
 cat > pyproject.toml <<'TOML'

@@ -4,8 +4,8 @@
 # lets the partner dashboard apps call it with their own tokens.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p auth api
 touch auth/__init__.py api/__init__.py
 cat > requirements.txt <<'TXT'

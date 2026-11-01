@@ -6,8 +6,8 @@
 # which under OpenTofu remove the objects from state and keep the bucket.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p infra/reports .github/workflows
 
 cat > README.md <<'MD'

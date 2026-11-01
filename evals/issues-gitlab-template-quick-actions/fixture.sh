@@ -6,8 +6,8 @@
 # uncommitted; the user asks for a draft to paste into GitLab themselves.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p .gitlab/issue_templates
 
 cat > README.md <<'EOF'

@@ -3,8 +3,8 @@
 # with composable discounts. The code is sound; only an assessment is asked for.
 set -euo pipefail
 git init -q
-git config user.name "Eval Fixture"
-git config user.email "fixture@example.com"
+git config user.name "Alex Morgan"
+git config user.email "alex@example.com"
 mkdir -p pricing
 cat > go.mod <<'GO'
 module example.com/shop
