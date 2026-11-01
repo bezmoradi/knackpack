@@ -1,6 +1,6 @@
 ---
 name: challenge-requirements
-description: Challenge and clarify requirements before planning or implementing a software change — feature requests, bug reports, specs, tickets, proposed solutions and any other request to change code, configuration or documents, small ones included. Finds missing outcomes, ambiguous behavior, conflicting constraints, hidden assumptions, unsafe defaults and untestable acceptance criteria, and asks the few questions that matter. Start it yourself before acting on every change request, even a clear one, so the developer is challenged rather than agreed with; started that way it stays short and the change goes ahead. Run by the user, or asked to pressure-test requirements, it also writes a full requirements brief. Not for a request that changes nothing, such as how code works; answer that directly.
+description: Challenge and clarify requirements before planning or implementing a software change — feature requests, bug reports, specs, tickets, proposed solutions and any other request to change code, configuration or documents, small ones included. Finds missing outcomes, ambiguous behavior, conflicting constraints, hidden assumptions, unsafe defaults and untestable acceptance criteria, and asks the few questions that matter. Start it yourself before acting on every change request, even a clear one, so the developer is challenged rather than agreed with; started that way it stays short and the change goes ahead. Run by the user, or asked to pressure-test requirements, it also writes a full requirements brief. It doesn't replace a skill made for the task, so a change to a document still starts Write docs, and a choice between technologies still starts Research. Not for a request that changes nothing, such as how code works; answer that directly.
 argument-hint: "[request, ticket or spec]"
 ---
 
@@ -350,8 +350,6 @@ When feasibility is uncertain, propose or perform an authorized bounded spike:
 Run spike code outside the working tree, in a scratch directory, and delete
 it when the question is answered.
 
-Do not let a feasibility spike become unapproved production implementation.
-
 Keep implementation options separate from requirements unless the mechanism
 is itself an established constraint.
 
@@ -427,8 +425,6 @@ plan mode before coding, a consequential design to
 `knackpack:architecture-reviewer`, and after implementation
 `knackpack:adversarial-reviewer` reports each ID as verified, violated or not
 verified; the UI, Go, Python and React reviewers check code, not requirements.
-
-Do not generate empty sections or unnecessary ceremony for trivial tasks.
 
 ## 13. Maintain independent judgment
 
