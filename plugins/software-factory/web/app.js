@@ -1,5 +1,6 @@
-import { api, events, exchange, forget, signedIn } from './api.js'
+import { api, events, exchange, forget, signedIn, upload } from './api.js'
 import { el } from './dom.js'
+import { initPrefs } from './prefs.js'
 import { VERDICTS, project } from './format.js'
 import './markdown.js'
 import './cards.js'
@@ -52,7 +53,10 @@ function addPrompt(ev) {
   const wasNear = nearBottom()
   reply = null
   const who = ev.from === 'page' ? 'You, from this page' : ev.from === 'history' ? 'You, earlier' : 'You, in the terminal'
-  entry('prompt', who).append(el('div', 'body', ev.text))
+  const item = entry('prompt', who)
+  if (ev.text) item.append(el('div', 'body', ev.text))
+  if (ev.images) item.append(el('span', 'who', ev.images === 1 ? '1 image' : `${ev.images} images`))
+  if (ev.lost) item.append(el('span', 'who bad', `${ev.lost === 1 ? '1 image' : `${ev.lost} images`} couldn't be passed on to Claude`))
   follow(wasNear)
 }
 
@@ -198,7 +202,7 @@ function paintBar() {
     liveKey = key
     byId('overview').live = { id: state.sessionId, cwd: state.cwd, busy: state.busy, needs: cards.size }
   }
-  byId('dot').className = `dot${!state.connected ? ' off' : live || waiting ? ' need' : state.busy ? ' busy' : ''}`
+  byId('dot').className = `dot${!state.connected ? ' off' : live || waiting ? ' need' : state.busy ? ' busy' : ' on'}`
   let label = 'All sessions'
   let detail = ''
   if (view === 'live') {
@@ -215,7 +219,9 @@ function paintBar() {
   byId('disconnect').hidden = !state.connected
   byId('usage').textContent = view === 'live' ? state.usage : ''
   byId('stop').hidden = !(state.connected && state.busy && view === 'live')
-  byId('hint').textContent = state.busy ? 'Claude is working. A message you send now runs when this turn ends.' : 'Enter sends, Shift+Enter adds a line.'
+  byId('hint').textContent = 'Enter sends, Shift+Enter adds a line.'
+  byId('hint').classList.toggle('quiet', state.busy)
+  byId('working').hidden = !state.busy
   document.title = live || waiting ? 'Needs you · Software factory' : 'Software factory'
 }
 
@@ -240,17 +246,92 @@ function paintChecks() {
   }
 }
 
-async function send(text) {
+function say(message) {
+  byId('hint').textContent = message
+  byId('hint').classList.remove('quiet')
+}
+
+async function send(text, images = []) {
   if (/^[/!]/.test(text)) {
-    byId('hint').textContent = 'Slash commands and shell lines can only be typed in the terminal.'
+    say('Slash commands and shell lines can only be typed in the terminal.')
     return false
   }
-  const res = await api('/api/message', { text }).catch(() => null)
+  const res = await api('/api/message', images.length ? { text, images } : { text }).catch(() => null)
   if (!res || !res.ok) {
-    byId('hint').textContent = 'The message did not go through. Check that the session is still running.'
+    say('The message did not go through. Check that the session is still running.')
     return false
   }
   return true
+}
+
+const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+const MAX_SIDE = 1568
+const MAX_IMAGE = 2.5 * 1024 * 1024
+const attached = []
+
+async function shrink(file) {
+  if (file.type === 'image/gif') return file
+  const bitmap = await createImageBitmap(file).catch(() => null)
+  if (!bitmap) return null
+  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height))
+  if (scale === 1 && file.size <= MAX_IMAGE) {
+    bitmap.close()
+    return file
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  bitmap.close()
+  const encode = (type, quality) => new Promise(resolve => canvas.toBlob(resolve, type, quality))
+  const blob = await encode(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.9)
+  return blob && blob.size > MAX_IMAGE ? encode('image/jpeg', 0.85) : blob
+}
+
+function paintAttached() {
+  const box = byId('attachments')
+  box.replaceChildren()
+  attached.forEach((item, i) => {
+    const figure = el('figure', 'thumb')
+    const img = el('img')
+    img.src = item.url
+    img.alt = `Pasted image ${i + 1}`
+    const remove = el('button', 'ghost', '×')
+    remove.type = 'button'
+    remove.setAttribute('aria-label', `Remove image ${i + 1}`)
+    remove.addEventListener('click', () => {
+      URL.revokeObjectURL(item.url)
+      attached.splice(i, 1)
+      paintAttached()
+      text.focus()
+    })
+    figure.append(img, remove)
+    box.append(figure)
+  })
+  box.hidden = attached.length === 0
+}
+
+async function attach(files) {
+  for (const file of files) {
+    if (!IMAGE_TYPES.includes(file.type)) continue
+    if (attached.length >= 4) {
+      say('You can attach up to 4 images to a message.')
+      break
+    }
+    const blob = await shrink(file)
+    if (!blob || blob.size > MAX_IMAGE || !IMAGE_TYPES.includes(blob.type)) {
+      say('That image is too large to send, or not one the page can read.')
+      continue
+    }
+    attached.push({ blob, url: URL.createObjectURL(blob) })
+  }
+  paintAttached()
+}
+
+function clearAttached() {
+  for (const item of attached) URL.revokeObjectURL(item.url)
+  attached.length = 0
+  paintAttached()
 }
 
 function reset() {
@@ -276,6 +357,8 @@ function signOut(note) {
   state.connected = false
   state.usage = ''
   state.note = note
+  byId('gone').textContent = note
+  document.body.classList.add('out')
   paintBar()
   paintChecks()
 }
@@ -334,6 +417,21 @@ const grow = () => {
   text.style.height = `${text.scrollHeight}px`
 }
 text.addEventListener('input', grow)
+text.addEventListener('paste', e => {
+  const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(f => f && IMAGE_TYPES.includes(f.type))
+  if (!files.length) return
+  e.preventDefault()
+  void attach(files)
+})
+byId('composer').addEventListener('dragover', e => {
+  if ([...(e.dataTransfer?.items || [])].some(i => i.kind === 'file')) e.preventDefault()
+})
+byId('composer').addEventListener('drop', e => {
+  const files = [...(e.dataTransfer?.files || [])].filter(f => IMAGE_TYPES.includes(f.type))
+  if (!files.length) return
+  e.preventDefault()
+  void attach(files)
+})
 text.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
@@ -343,15 +441,22 @@ text.addEventListener('keydown', e => {
 byId('composer').addEventListener('submit', async e => {
   e.preventDefault()
   const value = text.value.trim()
-  if (!value || !state.connected || sending) return
+  if ((!value && !attached.length) || !state.connected || sending) return
   sending = true
-  byId('send').disabled = true
-  if (await send(value)) {
+  const ids = []
+  for (const item of attached) {
+    const res = await upload(item.blob).catch(() => null)
+    const body = res && res.ok ? await res.json().catch(() => null) : null
+    if (!body || typeof body.id !== 'string') break
+    ids.push(body.id)
+  }
+  if (ids.length !== attached.length) say('An image did not go through. Try again, or check that the session is still running.')
+  else if (await send(value, ids)) {
     text.value = ''
     grow()
+    clearAttached()
   }
   sending = false
-  byId('send').disabled = false
   text.focus()
 })
 byId('stop').addEventListener('click', () => api('/api/stop', {}).catch(() => null))
@@ -361,4 +466,5 @@ byId('disconnect').addEventListener('click', async () => {
 })
 paintChecks()
 showView()
+initPrefs(body => api('/api/prefs', body).catch(() => null))
 exchange().then(connect)

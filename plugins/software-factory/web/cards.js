@@ -116,21 +116,47 @@ class SfPermission extends HTMLElement {
   }
 
   #render() {
-    const { id, tool, detail, summary, reason, agentId, complete } = this.#card
+    const { id, tool, detail, summary, agentId, complete, always } = this.#card
     start(this, agentId ? 'A subagent wants to run a tool' : 'Claude wants to run a tool', `Allow ${visible(tool)}?`)
     if (detail || summary) this.append(el('pre', 'sum', visible(detail || summary)))
-    if (reason) this.append(el('p', 'small muted', visible(reason)))
-    const deny = button('Deny')
-    deny.addEventListener('click', () => reply(this, id, 'deny'))
-    const actions = el('div', 'actions')
+    const choices = el('div', 'choices')
     if (complete === false) {
-      actions.append(deny, el('span', 'small muted', 'Too long to show in full here, so allow it in the terminal.'))
+      choices.append(el('p', 'small muted', 'Too long to show in full here, so allow it in the terminal.'))
     } else {
-      const allow = button('Allow once', 'primary')
-      allow.addEventListener('click', () => reply(this, id, 'allow'))
-      actions.append(allow, deny, el('span', 'small muted', 'Or answer in the terminal.'))
+      const yes = button('Yes', 'primary')
+      yes.addEventListener('click', () => reply(this, id, { choice: 'yes' }))
+      choices.append(yes)
+      if (always) {
+        const again = button(visible(always))
+        again.addEventListener('click', () => reply(this, id, { choice: 'always' }))
+        choices.append(again)
+      }
     }
-    this.append(actions)
+    const no = button('No, and tell Claude what to do differently')
+    const note = el('form', 'other')
+    note.hidden = true
+    const field = el('input')
+    field.placeholder = 'What should Claude do instead? Optional'
+    field.setAttribute('aria-label', 'What Claude should do instead')
+    field.maxLength = 2000
+    const send = button('Deny')
+    send.type = 'submit'
+    note.append(field, send)
+    no.addEventListener('click', () => {
+      note.hidden = false
+      no.setAttribute('aria-expanded', 'true')
+      field.focus()
+    })
+    note.addEventListener('submit', e => {
+      e.preventDefault()
+      const text = field.value.trim()
+      reply(this, id, text ? { choice: 'no', note: text } : { choice: 'no' })
+    })
+    field.addEventListener('keydown', e => {
+      if (e.key === 'Escape') reply(this, id, { choice: 'no' })
+    })
+    choices.append(no)
+    this.append(choices, note, el('p', 'small muted', 'Or answer in the terminal.'))
   }
 }
 

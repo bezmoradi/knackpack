@@ -24,6 +24,7 @@ let lastAgents = ''
 let logBudget = { at: 0, left: 30 }
 const cards = new Map<string, string>()
 let holding: string | null = null
+let imageTool = ''
 
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g
 
@@ -47,6 +48,41 @@ function summarize(tool: string, input: Record<string, unknown>): string {
 function detail(tool: string, input: Record<string, unknown>): string {
   if (tool === 'Bash' && typeof input.command === 'string') return clip(input.command, 20000)
   return clip(JSON.stringify(input, null, 2), 20000)
+}
+
+const WHERE: Record<string, string> = { session: 'during this session', localSettings: 'in this project', projectSettings: 'in this project, for everyone', userSettings: 'in every project', cliArg: 'during this session' }
+
+const RULE_VERB: Record<string, [string, string]> = { allow: ["don't ask again for", 'allow'], deny: ['always deny', 'deny'], ask: ['always ask before', 'ask'] }
+
+function describe(u: { type: string; destination?: string; rules?: { toolName: string; ruleContent?: string }[]; mode?: string; directories?: string[]; behavior?: string }): string {
+  const where = WHERE[u.destination ?? ''] ?? ''
+  const verb = RULE_VERB[u.behavior ?? '']
+  const what = (u.rules ?? []).map(r => (r.toolName === 'Bash' && r.ruleContent ? `${r.ruleContent.replace(/:\*$|\s\*$/, '')} commands` : r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)).join(', ')
+  const dirs = (u.directories ?? []).join(', ')
+  let text = ''
+  if (u.type === 'addRules' && verb && what) text = `${verb[0]} ${what}`
+  else if (u.type === 'replaceRules' && verb && what) text = `replace the ${verb[1]} rules with ${what}`
+  else if (u.type === 'removeRules' && verb && what) text = `remove the ${verb[1]} rules for ${what}`
+  else if (u.type === 'setMode' && u.mode === 'acceptEdits') text = 'allow all edits'
+  else if (u.type === 'setMode' && u.mode) text = `switch to ${u.mode} mode`
+  else if (u.type === 'addDirectories' && dirs) text = `allow access to ${dirs}`
+  else if (u.type === 'removeDirectories' && dirs) text = `remove access to ${dirs}`
+  return text ? clip(`${text} ${where}`.trim(), 300) : ''
+}
+
+let registering: Promise<string> | null = null
+let sending: Promise<void> = Promise.resolve()
+
+function registerImageTool($: EngineInterface): Promise<string> {
+  if (imageTool) return Promise.resolve(imageTool)
+  registering ??= $.tool
+    .register({ name: 'pasted_image', description: 'Shows an image the user pasted or dropped on the software factory page. Call it with the id their message gives, once per image, when the message mentions one.', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'The image id from the message' } }, required: ['id'] }, isDeferred: false })
+    .then(r => (imageTool = r.tool))
+    .catch(() => '')
+    .finally(() => {
+      registering = null
+    })
+  return registering
 }
 
 function inside(path: string, dir: string): boolean {
@@ -174,7 +210,7 @@ function notice($: EngineInterface, msg: { kind?: string; card?: string; tool?: 
     msg.kind === 'connected' ? 'A browser page connected to this session.'
     : msg.kind === 'reused' ? 'The page link was used twice, so the page was disconnected. Run /factory to open it again.'
     : msg.kind === 'disconnected' ? 'The page disconnected.'
-    : msg.kind === 'answered' && msg.card === 'permission' ? `${msg.choice === 'allow' ? 'Allowed' : 'Denied'} ${msg.tool ?? 'a tool'} from the page.`
+    : msg.kind === 'answered' && msg.card === 'permission' ? `${msg.choice === 'no' ? 'Denied' : 'Allowed'} ${msg.tool ?? 'a tool'} from the page.`
     : msg.kind === 'answered' ? 'A question was answered from the page.'
     : ''
   if (text) $.ui.toast(text, { timeoutMs: 6000 })
@@ -200,9 +236,19 @@ function handle($: EngineInterface, line: string, resolve: (v: { helper: Helper;
     resolve({ helper, code: msg.code })
     tick($)
     void backfill($)
-  } else if (msg.t === 'message' && typeof msg.text === 'string' && msg.text.trim() && msg.text.length <= 20000 && !/^\s*[/!]/.test(msg.text)) {
-    push($, { type: 'prompt', text: clip(msg.text, 20000), from: 'page' })
-    void $.prompt.submit({ text: msg.text, asUser: true })
+  } else if (msg.t === 'message' && typeof msg.text === 'string' && msg.text.length <= 20000 && !/^\s*[/!]/.test(msg.text)) {
+    const ids = Array.isArray(msg.images) ? (msg.images as { id?: unknown }[]).map(i => i?.id).filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id)).slice(0, 4) : []
+    const text = msg.text
+    if (!text.trim() && !ids.length) return
+    sending = sending.then(async () => {
+      const tool = ids.length ? await registerImageTool($) : ''
+      const lost = ids.length && !tool ? ids.length : 0
+      const pictures = (n: number) => (n === 1 ? 'an image' : `${n} images`)
+      push($, { type: 'prompt', text: clip(text, 20000), from: 'page', images: ids.length - lost, lost })
+      if (!text.trim() && lost) return
+      const note = !ids.length ? '' : lost ? `(I also pasted ${pictures(lost)} on the software factory page, but ${lost === 1 ? 'it' : 'they'} couldn't be passed on to you.)` : `(I pasted ${pictures(ids.length)} on the software factory page. To see ${ids.length === 1 ? 'it' : 'them'}, call ${tool} with ${ids.map(id => `id "${id}"`).join(', then ')}.)`
+      void $.prompt.submit({ text: [text.trim(), note].filter(Boolean).join('\n\n'), asUser: true })
+    }).catch(() => {})
   } else if (msg.t === 'stop' && turnId) {
     void $.turn.abort({ turnId })
   } else if (msg.t === 'security') {
@@ -308,6 +354,7 @@ export const register: Register = on => {
       } else {
         ;({ helper: h, code } = await start($))
       }
+      await registerImageTool($)
       if (e.args.trim() === 'link') {
         const copied = await $.ui.copy({ text: `http://127.0.0.1:${h.port}/#c=${code}` }).then(r => r.isCopied).catch(() => false)
         return { text: copied ? 'A one-time link to this session is on your clipboard. Paste it into a browser within a minute.' : "Couldn't reach the clipboard. Run /factory to open the page instead." }
@@ -358,7 +405,21 @@ export const register: Register = on => {
     return done
   })
 
+  on('tool.check', async ($, e, next) => (imageTool && e.tool === imageTool ? { decision: 'allow' as const, reason: 'Reads an image pasted on the software factory page' } : next(e)))
+
   on('tool.call', async ($, e, next) => {
+    if (imageTool && e.tool === imageTool) {
+      const id = String((e as unknown as { id?: unknown }).id ?? '')
+      if (!helper || !/^[0-9a-f]{24}$/.test(id)) return { deny: 'No pasted image has that id. The software factory page may have closed.' }
+      try {
+        const r = await call($, `/image?id=${id}`)
+        if (!r.ok) return { deny: 'No pasted image has that id. The software factory page may have closed.' }
+        const image = JSON.parse(r.text) as { type: string; base64: string }
+        return { result: [{ type: 'image', data: image.base64, mimeType: image.type }] as never }
+      } catch {
+        return { deny: "Couldn't read that image from the software factory page." }
+      }
+    }
     if (!helper) return next(e)
     const input = e as unknown as Record<string, unknown>
     if (e.tool === 'AskUserQuestion' && (await connected($))) return ask($, input as { questions?: Question[] }, next as never, e as never) as never
@@ -371,35 +432,28 @@ export const register: Register = on => {
     return ran
   })
 
-  on('tool.check', async ($, e, next) => {
+  on('classic.PermissionRequest', async ($, e, next) => {
     const decided = await next(e)
-    const own = decided as { plugin?: string; hook?: string }
-    if (
-      decided.decision !== 'ask' ||
-      !helper ||
-      !e.tool_use_id ||
-      next.origin.plugin !== 'engine' ||
-      e.approver !== 'person' ||
-      (e.ceiling !== undefined && e.ceiling !== 'allow') ||
-      (own.plugin !== undefined && own.plugin !== $.plugin.name) ||
-      own.hook !== undefined ||
-      PERSON_ONLY.has(e.tool) ||
-      !(await connected($)) ||
-      holding !== null
-    ) return decided
+    const tool = e.tool_name
+    const agentId = (e as { agent_id?: string }).agent_id ?? ''
+    const signal = (next as { signal?: { aborted: boolean } }).signal
+    if (decided.decision || !helper || PERSON_ONLY.has(tool) || holding !== null || !(await connected($))) return decided
     const claim = `claim-${Math.random()}`
     holding = claim
-    const input = (e.input ?? {}) as Record<string, unknown>
-    const summary = visible(summarize(e.tool, input))
-    const full = e.tool === 'Bash' && typeof input.command === 'string' ? input.command : JSON.stringify(input, null, 2)
+    const input = (e.tool_input ?? {}) as Record<string, unknown>
+    const summary = visible(summarize(tool, input))
+    const full = tool === 'Bash' && typeof input.command === 'string' ? input.command : JSON.stringify(input, null, 2)
+    const updates = e.permission_suggestions ?? []
+    const words = updates.map(describe)
+    const always = updates.length && words.every(Boolean) ? `Yes, and ${words.join(' and ')}` : ''
     let id: string | null = null
     let answer: unknown
     try {
-      id = await card($, { type: 'permission', tool: e.tool, summary, detail: detail(e.tool, input), complete: full.length <= 20000, reason: decided.reason ?? '', agentId: e.agentId ?? '' }, e.agentId ?? '')
+      id = await card($, { type: 'permission', tool, summary, detail: detail(tool, input), complete: full.length <= 20000, always, agentId }, agentId)
       if (!id) return decided
       const cardId = id
-      await update($, pending, () => ({ id: cardId, kind: 'permission' as const, tool: e.tool, summary }))
-      answer = await waitFor($, cardId, next.signal)
+      await update($, pending, () => ({ id: cardId, kind: 'permission' as const, tool, summary }))
+      answer = await waitFor($, cardId, signal)
     } catch {
       answer = undefined
     } finally {
@@ -410,13 +464,18 @@ export const register: Register = on => {
       }
     }
     if (!id) return decided
-    if (next.signal.aborted || answer === undefined) {
+    if (signal?.aborted || !answer || typeof answer !== 'object') {
       withdraw($, id)
       return decided
     }
     cards.delete(id)
-    if (answer === 'allow') return { decision: 'allow' as const, reason: 'Allowed once from the software factory' }
-    if (answer === 'deny') return { decision: 'deny' as const, reason: 'Denied from the software factory' }
+    const a = answer as { choice?: string; note?: string }
+    if (a.choice === 'yes') return { ...decided, decision: { behavior: 'allow' as const } }
+    if (a.choice === 'always' && always) return { ...decided, decision: { behavior: 'allow' as const, updatedPermissions: updates } }
+    if (a.choice === 'no') {
+      const note = typeof a.note === 'string' ? a.note.trim().slice(0, 2000) : ''
+      return { ...decided, decision: note ? { behavior: 'deny' as const, message: `The user denied this from the software factory page and said: ${note}` } : { behavior: 'deny' as const, message: 'The user denied this from the software factory page.', interrupt: true as const } }
+    }
     return decided
   })
 
@@ -424,14 +483,14 @@ export const register: Register = on => {
     const p = await read($, pending)
     if (!p) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const choose = (answer: string) => () => void call($, '/answer', { id: p.id, answer }).catch(() => undefined)
+    const choose = (answer: unknown) => () => void call($, '/answer', { id: p.id, answer }).catch(() => undefined)
     return (
       <Box flexDirection="column">
         <Text>
           Claude wants to run {p.tool}: <Text dimColor>{p.summary}</Text>
         </Text>
         <Box>
-          <Button key="deny" label="Deny" onPress={choose('deny')} />
+          <Button key="deny" label="Deny" onPress={choose({ choice: 'no' })} />
           <Text> </Text>
           <Button key="terminal" label="Show the usual prompt" onPress={choose('terminal')} />
           <Text dimColor> or answer on the software factory page</Text>

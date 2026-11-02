@@ -105,7 +105,7 @@ The limits are fixed token counts, not a share of the context window, because ne
 
 ### The software-factory plugin
 
-This marketplace also lists a second plugin, `software-factory`, installed on its own. It lets you start a session in the terminal and carry on from a page in your browser: the page shows your prompts, Claude's answers, tool calls and agents as they happen, sends your messages into the same session, stops a turn, and answers Claude's questions and permission prompts. It also shows knackpack's adversarial reviewer as a required check, with its verdict. Installing it installs knackpack too. It runs code inside Claude Code and a small local server. Its files sit in every knackpack install, since knackpack is the whole repository, but knackpack never loads or runs them. See [its README](plugins/software-factory/README.md).
+This marketplace also lists a second plugin, `software-factory`, installed on its own. It lets you start a session in the terminal and carry on from a page in your browser: the page shows your prompts, Claude's answers, tool calls and agents as they happen, sends your messages, with pasted images, into the same session, stops a turn, and answers Claude's questions and permission prompts with the same choices the terminal offers. It comes in VS Code's themes, with a text size you set. It also shows knackpack's adversarial reviewer as a required check, with its verdict. Installing it installs knackpack too. It runs code inside Claude Code and a small local server. Its files sit in every knackpack install, since knackpack is the whole repository, but knackpack never loads or runs them. See [its README](plugins/software-factory/README.md).
 
 ## Prerequisites
 

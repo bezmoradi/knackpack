@@ -40,13 +40,17 @@ A link works once, within a minute. After that the page keeps its own key until 
 
 Messages that start with `/` or `!` can't be sent from the page: slash commands and shell lines run only from the terminal.
 
+**Images.** Paste a screenshot with Cmd+V (Ctrl+V on Linux) or drop an image file onto the message box: it shows as a thumbnail you can remove before sending, and you can send it with or without text. PNG, JPEG, GIF and WebP are accepted, up to 4 a message; one larger than 1568 px on its longest side is scaled down first, and one still over 2.5 MB is refused. A plugin can't attach an image to a prompt the way the terminal does, so Claude receives your message with a note naming each image and sees it by calling the plugin's `pasted_image` tool, which Claude Code allows without asking. If Claude Code wouldn't register that tool, the page says the images couldn't be passed on, and Claude gets only your text with a note saying so.
+
+**Appearance.** The **Aa** button at the top right picks a theme and a text size. The themes are VS Code's Solarized Dark (the default), Dark Modern, GitHub Dark Default, One Dark Pro and Dracula, and Solarized Light, Light Modern and GitHub Light Default. Text size runs from 80% to 200% of your browser's default and scales the whole page. Both are saved for every session's page, since each `/factory` run starts on a new port, which the browser treats as a new site.
+
 ## How it works
 
 Typing `/factory` starts a small Node.js server for the session. The plugin and the server talk over a Unix socket in a private folder (mode 0700) under your temporary directory, and the page talks to the server on `127.0.0.1` only, on a random port.
 
-**What the page's key allows:** reading the session's events and the overview of every session knackpack recorded, sending a message, stopping the current turn, answering an open question or permission card, and disconnecting. Nothing else.
+**What the page's key allows:** reading the session's events and the overview of every session knackpack recorded, sending a message, stopping the current turn, answering an open question or permission card, uploading images for its next message, saving the page's theme and text size, and disconnecting. Nothing else.
 
-**Permission prompts** are answered from the page only when Claude Code would ask you anyway and the page is open. The page offers "allow once" and "deny", and shows the whole call; a call too long to show in full can only be denied there. While the page holds a prompt, the terminal shows a row with "Deny" and "Show the usual prompt", which brings back Claude Code's own dialog with the full call, so nothing is allowed from the terminal without seeing it. Nothing is saved as a rule. A call your settings deny stays denied, and so does one your organization limits, or one another plugin's hook or a settings hook wants you to decide. One prompt at a time goes to the page; any other waiting at the same time gets Claude Code's own dialog. Plan approval stays in the terminal; the page shows the plan and says it's waiting there.
+**Permission prompts** go to the page only when Claude Code is about to ask you, after your rules, hooks and auto mode's classifier have had their say, and only while the page is open. The card offers what the terminal's dialog offers: **Yes**; **Yes, and …**, which applies every rule, mode or folder change Claude Code itself suggests for this call, such as not asking again for `npm test` commands in this project, and is the only rule the page can save; the page leaves it out when Claude Code suggests a kind of change the card can't describe; and **No, and tell Claude what to do differently**, which denies the call and passes your note to Claude, or stops Claude when you leave the note empty or press Esc. The card shows the whole call; a call too long to show in full can only be denied there. While the page holds a prompt, the terminal shows a row with "Deny" and "Show the usual prompt", which brings back Claude Code's own dialog with the full call and every option. A call your settings deny stays denied, since Claude Code checks deny rules again after any allow. One prompt at a time goes to the page; any other waiting at the same time gets Claude Code's own dialog. Plan approval stays in the terminal; the page shows the plan and says it's waiting there.
 
 **Protections:**
 
@@ -54,7 +58,7 @@ Typing `/factory` starts a small Node.js server for the session. The plugin and 
 - It accepts only requests from its own page, by `Origin` and `Sec-Fetch-Site`, and sends no CORS headers.
 - It requires the key on every call, from a header only.
 - It limits request size, connections and open streams.
-- The page runs no inline script.
+- The page runs no inline script, and its content security policy allows images only from itself and from the `blob:` previews it makes of pasted images.
 - Everything from the session is shown as text, never as HTML.
 - No key or code goes into a command's arguments, the transcript or Claude's context.
 
@@ -65,6 +69,8 @@ Typing `/factory` starts a small Node.js server for the session. The plugin and 
 | The page's key and the one-time code | The server's memory; the key also in the tab's `sessionStorage` | Until the session ends, or the page disconnects |
 | Session events: prompts, answers, tool summaries, agents | The server's memory, last 3,000 events or 5 MB | Until the server stops |
 | The private folder: socket and launch file | Your temporary directory | Removed when the server stops |
+| Images pasted on the page | The private folder, mode 0600 | Removed when the server stops |
+| The page's theme and text size | `~/.local/state/software-factory/prefs.json` (under `$XDG_STATE_HOME` if you set it), mode 0600 in a 0700 folder | Until you delete it |
 
 **Logs:** the server writes one JSON line to its standard error for each refused request, connection, revoked key and answer given from the page. It records the kind of event, never keys, codes, message text or tool input. The plugin passes these lines to Claude Code's debug log (`claude --debug`), at most 30 a minute.
 
@@ -74,10 +80,12 @@ Typing `/factory` starts a small Node.js server for the session. The plugin and 
 |---|---|
 | `POST /api/session` | `{ "code": "<one-time code>" }`, answered with `{ "token": "<page key>" }` |
 | `GET /api/events` | None. Answered with a stream of JSON lines |
-| `POST /api/message` | `{ "text": "<message>" }`, at most 20,000 characters |
+| `POST /api/message` | `{ "text": "<message>", "images": ["<id>", …] }`: text of at most 20,000 characters, up to 4 images from `/api/image`, each sent once; either may be empty, not both |
+| `POST /api/image` | The image itself, with `Content-Type` `image/png`, `image/jpeg`, `image/gif` or `image/webp`, at most 2.5 MB, its first bytes checked against the type; answered with `{ "id": "<image>" }`. The server keeps at most 40 images not yet sent, removing the oldest such image when another arrives |
 | `POST /api/stop` | `{}` |
-| `POST /api/answer` | `{ "id": "<card>", "answer": "allow" \| "deny" \| { "<question>": "<answer>" } }` |
+| `POST /api/answer` | `{ "id": "<card>", "answer": <answer> }`: for a permission card `{ "choice": "yes" }`, `{ "choice": "always" }` or `{ "choice": "no", "note": "<optional, at most 2,000 characters>" }`; for a question `{ "<question>": "<answer>" }` |
 | `POST /api/disconnect` | `{}` |
+| `POST /api/prefs` | `{ "theme": "<name>", "scale": <percent> }`, either or both; only the names in `themes.css` and the sizes in `app.css` are accepted |
 
 ## The page's code
 
@@ -89,6 +97,8 @@ The page is plain ES modules with no build step. Any `.js` or `.css` file in `we
 | `api.js` | The page key and the helper's routes |
 | `dom.js` | `el()`, which builds an element with text only, and `visible()`, which shows control and bidi characters as escapes |
 | `format.js` | Formatting shared by the components: project names, relative times, verdict colors |
+| `prefs.js` | The **Aa** menu: it lists the themes and text sizes it finds in the stylesheets |
+| `themes.css` | One block of color variables per theme |
 | `markdown.js`, `cards.js`, `check.js`, `intent.js`, `overview.js`, `session.js` | The components below |
 
 **Why native custom elements, without Shadow DOM or a library.** The page loads nothing from outside the helper and the plugin has no dependencies, which rules out Lit and its kind, and the CSP (`style-src 'self'`) blocks the `<style>` a shadow root would need. One page and one stylesheet gain nothing from style encapsulation, so the components render into the light DOM and use the shared classes and color variables in `app.css`. They exist for one reason: each owns state that rebuilding it would destroy, such as an answer being typed, keyboard focus, or which sections of the intent record are open. A new card no longer wipes a half-typed answer, the Run button keeps focus while the agent list updates, and open sections stay open when the record changes.
@@ -97,7 +107,7 @@ The page is plain ES modules with no build step. Any `.js` or `.css` file in `we
 |---|---|---|
 | `<sf-markdown>` | `text`: the source; it repaints once per frame, so streamed text can be appended | `sf-paint` after each paint |
 | `<sf-ask>` | `card`: an `ask` event; `error`: a message to show, which also re-enables the card | `sf-answer` with `{ id, answer }` |
-| `<sf-permission>` | `card`: a `permission` event; `error`, as above | `sf-answer` with `{ id, answer: 'allow' \| 'deny' }` |
+| `<sf-permission>` | `card`: a `permission` event, with `always`, the label of the "Yes, and …" option when Claude Code suggested one; `error`, as above | `sf-answer` with `{ id, answer: { choice: 'yes' \| 'always' \| 'no', note? } }` |
 | `<sf-plan>` | `card`: a `plan` event | none |
 | `<sf-check>` | `check`: `{ name, required, prompt }`; `status`: `{ running, ran, finished, verdict, disabled }` | `sf-run` with `{ prompt }` |
 | `<sf-intent>` | `record`: the helper's `intent` record; it hides itself when there's none | none |
@@ -114,15 +124,51 @@ To add a component:
 2. Take data through properties and render when they're set; don't render in the constructor.
 3. Build nodes with `el()` and set text with `textContent`, never `innerHTML`.
 4. Report what the user does with a bubbling `CustomEvent` named `sf-…`, and let `app.js` call the helper. A component never calls `fetch`.
-5. Add the tag to the `display: block` rule in `app.css`, and style it with the variables in `:root`.
+5. Add the tag to the `display: block` rule in `app.css`, and style it with the color variables from `themes.css`.
 
-**Theme.** The colors are VS Code's built-in Solarized Dark: the background `#002b36`, panels `#00212b`, inputs `#003847`, the cyan accent `#2aa198`, primary buttons in VS Code's translucent cyan (`#2aa19899`), and Solarized's yellow, green and red. Two text colors differ, so that small text keeps WCAG AA contrast: secondary text uses base0 (`#839496`, 4.75:1) instead of Solarized's comment gray base01 (2.8:1), and error text uses a lighter red (`#ef6b68`, 5:1) instead of `#dc322f` (3.3:1), which stays on the disconnected dot.
+**Themes.** Each theme is one block in `themes.css`: `[data-theme="<name>"]` with a `--label`, `color-scheme: dark` or `light`, and the color variables below. The menu, the helper's check of a saved choice and the order of the list all come from that file, so adding a theme takes one block and nothing else. The colors are the theme's own VS Code values, taken from these keys of its theme file, or from VS Code's built-in default for a dark or light theme where the file leaves a key out:
+
+| Variable | Used for | VS Code color |
+|---|---|---|
+| `--paper` | The page | `editor.background` |
+| `--card` | Panels, cards, the menu | `sideBar.background` |
+| `--field` | The message box and inputs | `input.background` |
+| `--line` | Borders and separators | `sideBar.border`, else `input.border`, else `editorGroup.border` |
+| `--hover` | A session row under the pointer | `list.hoverBackground` |
+| `--ink` | Text | `input.foreground`, else `foreground` |
+| `--soft` | Secondary text | `descriptionForeground` |
+| `--placeholder` | Placeholder text | `input.placeholderForeground`, else `--soft` |
+| `--accent` | Links, focus rings, the live tag | `textLink.foreground` |
+| `--select` | Selected text | `selection.background`, else `editor.selectionBackground` |
+| `--button`, `--button-ink` | Primary buttons | `button.background`, `button.foreground` |
+| `--good`, `--warn`, `--bad` | Status dots and card borders | `terminal.ansiGreen`, `terminal.ansiYellow`, `terminal.ansiRed` |
+| `--good-ink`, `--warn-ink`, `--bad-ink` | Status text | the same green and yellow, and `errorForeground` |
+
+Text colors that fall below WCAG AA (4.5:1) on `--paper` or `--card`, or on `--field` for `--ink` and `--placeholder`, are moved toward white on a dark theme or black on a light one, just far enough to pass:
+
+| Theme | Changed |
+|---|---|
+| Solarized Light | text `#586e75` to `#4d6066`, secondary `#92a0a0` to `#606a6a`, green `#859900` to `#606e00`, yellow `#b58900` to `#846400`, button text `#ffffff` to `#333333`, placeholder `#586e75aa` to `#565f5d` |
+| Solarized Dark | placeholder `#93a1a1aa` to `#899ea2` |
+| GitHub Dark Default | placeholder `#6e7681` to `#757d87` |
+| Dracula | placeholder `#6272a4` to `#8390b7` |
+| Light Modern | green `#00bc00` to `#008500`, yellow `#949800` to `#737700`, error `#f85149` to `#cb423c` |
+
+Apart from its placeholder, Solarized Dark keeps the colors it had in 0.1.0, all from VS Code's Solarized Dark: borders are `editor.lineHighlightBackground` (`#073642`), secondary text is `editor.foreground` (`#839496`), the accent is `terminal.ansiCyan` (`#2aa198`), and error text is the red lifted to `#ef6b68`. The values come from microsoft/vscode at commit `67710841ad06` and from the Marketplace releases of GitHub Theme 6.3.5, One Dark Pro 3.20.6 and Dracula Theme 2.25.1, read on 2026-11-01.
+
+To add a theme:
+
+1. Find its color theme file: in the Marketplace package (`extension/package.json` lists each theme's path) or the theme's repository.
+2. Add a `[data-theme="<name>"]` block to `themes.css`, in the order the menu should list it, with `--label`, `color-scheme` and every variable above, taken from the keys in the table.
+3. Check each text color's contrast and lift any that fail AA as above, then add the change to the table.
+4. Open the page, pick the theme from **Aa**, and look at a card, the timeline and the overview.
+
+**Text size.** `app.css` sizes everything in `rem`, and `:root[data-scale="<percent>"]` rules set the root font size. The menu lists those rules, so adding a size takes one rule.
 
 ## Limitations
 
 - On a machine shared with other people's accounts, the one-time code travels in the page address after `#`, which the browser never sends to a server. The page removes it before using it, it's never in a command's arguments, and it works once within a minute.
-- Claude Code doesn't tell plugins when a session is in plan mode, so in plan mode a permission card can appear for a call that plan mode would refuse anyway.
 - Other sessions are read-only on the overview: each session's page key controls only the session that started it. Their details are as current as knackpack's record, which updates with each hook event.
-- Plugins can't see the permission mode. In auto mode, a call Claude Code would hand to its classifier may come to the page as a card while the page is open, and waits for you there.
+- Since 0.2.0 a card comes from Claude Code's PermissionRequest step, which runs only when Claude Code is about to ask you, so calls that auto mode's classifier or plan mode decide shouldn't reach the page. This hasn't been checked in a live session yet. Whether Claude Code shows its own dialog while the page holds a prompt hasn't been checked either; the terminal row above covers the case where it doesn't.
 - Run on the checklist asks Claude to start the reviewer. Nothing is blocked while a required reviewer hasn't run.
 - Everything here was tested by hand in real sessions; the project has no automated tests.

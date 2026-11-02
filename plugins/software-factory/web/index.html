@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="solarized-dark" data-scale="100">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,10 +7,12 @@
 <meta name="theme-color" content="#002b36">
 <meta name="referrer" content="no-referrer">
 <title>Software factory</title>
+<link rel="stylesheet" href="themes.css">
 <link rel="stylesheet" href="app.css">
 <script type="module" src="app.js"></script>
 </head>
 <body>
+<div class="gone" hidden><p id="gone" role="status"></p></div>
 <header class="bar">
   <span class="dot" id="dot" aria-hidden="true"></span>
   <a class="brand" href="#">Software factory</a>
@@ -20,7 +22,13 @@
   <span class="muted small" id="usage"></span>
   <button type="button" class="ghost" id="stop" hidden>Stop</button>
   <button type="button" class="ghost" id="disconnect" hidden>Disconnect</button>
+  <button type="button" class="ghost" popovertarget="prefs" aria-label="Appearance" title="Appearance">Aa</button>
 </header>
+
+<div id="prefs" class="prefs" popover>
+  <fieldset id="theme" class="themes"><legend>Theme</legend></fieldset>
+  <label class="size">Text size <span><input type="range" id="scale" min="0" step="1"><output id="scale-value" for="scale"></output></span></label>
+</div>
 
 <sf-overview id="overview" class="view"></sf-overview>
 
@@ -51,9 +59,10 @@
 </div>
 
 <form id="composer" class="composer" autocomplete="off" hidden>
-  <textarea id="text" rows="1" placeholder="Message Claude…" aria-label="Message Claude"></textarea>
-  <button type="submit" id="send">Send</button>
-  <p class="muted small" id="hint">Enter sends, Shift+Enter adds a line.</p>
+  <span class="dots" id="working" role="img" aria-label="Claude is working" hidden><i></i><i></i><i></i></span>
+  <div class="attachments" id="attachments" hidden></div>
+  <textarea id="text" rows="1" placeholder="Type a message and press Enter" aria-label="Message Claude"></textarea>
+  <p class="muted small hint" id="hint">Enter sends, Shift+Enter adds a line.</p>
 </form>
 </body>
 </html>
