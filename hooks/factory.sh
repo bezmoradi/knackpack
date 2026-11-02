@@ -25,7 +25,7 @@
 # What it stores: event times and kinds, each session's working folder,
 # notification and error types, the error message of a failed agent call,
 # subagent types and IDs, task titles, the text of questions Claude asked in
-# its question dialogs with the answers picked,
+# its question dialogs with their option labels and the answers picked,
 # and, for knackpack's own agents, the report path and verdict line they end
 # with. Never prompts, tool input, file contents or other messages. At render
 # time it also reads the session's intent record, which track-intent keeps in
@@ -78,6 +78,7 @@ prepare() {
 #   agent+ <id> <type>   agent- <id> <type> <report> <verdict>
 #   report <id> <type> <report> <verdict>     agentx <type> <error>
 #   task+ <id> <title>   task- <id> <title>   qa <question> <answer>
+#   ask <question> <options> (a question whose dialog is open)
 #
 # Rebuild the page from the newest session files and their intent records,
 # then swap it in whole, so the browser never reads a half-written page.
