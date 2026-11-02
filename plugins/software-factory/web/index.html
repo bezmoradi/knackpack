@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#002b36">
+<meta name="referrer" content="no-referrer">
+<title>Software factory</title>
+<link rel="stylesheet" href="/app.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<header class="bar">
+  <span class="dot" id="dot" aria-hidden="true"></span>
+  <a class="brand" href="#">Software factory</a>
+  <strong id="state">Connecting…</strong>
+  <span class="muted" id="title"></span>
+  <span class="spacer"></span>
+  <span class="muted small" id="usage"></span>
+  <button type="button" class="ghost" id="stop" hidden>Stop</button>
+  <button type="button" class="ghost" id="disconnect" hidden>Disconnect</button>
+</header>
+
+<sf-overview id="overview" class="view"></sf-overview>
+
+<div id="session-view" class="view" hidden>
+  <a class="back" href="#">← All sessions</a>
+  <sf-session id="session"></sf-session>
+</div>
+
+<div class="layout" id="live-view" hidden>
+  <main>
+    <a class="back" href="#">← All sessions</a>
+    <section id="needs" aria-live="polite"></section>
+    <ol id="timeline" class="timeline"></ol>
+    <p id="empty" class="muted empty">Nothing yet. Type below, or keep working in the terminal: both show here.</p>
+  </main>
+
+  <aside>
+    <section>
+      <h2>Checks</h2>
+      <ul id="checks" class="list"></ul>
+    </section>
+    <section>
+      <h2>Agents</h2>
+      <ul id="agents" class="list"><li class="muted">None yet.</li></ul>
+    </section>
+    <sf-intent id="intent" hidden></sf-intent>
+  </aside>
+</div>
+
+<form id="composer" class="composer" autocomplete="off" hidden>
+  <textarea id="text" rows="1" placeholder="Message Claude…" aria-label="Message Claude"></textarea>
+  <button type="submit" id="send">Send</button>
+  <p class="muted small" id="hint">Enter sends, Shift+Enter adds a line.</p>
+</form>
+</body>
+</html>

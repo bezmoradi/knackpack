@@ -1,0 +1,14 @@
+{
+  "name": "software-factory",
+  "version": "0.1.0",
+  "description": "Continue a terminal Claude Code session from a page in your browser, both ways, with knackpack's reviewers on hand",
+  "author": {
+    "name": "Bez Moradi",
+    "url": "https://github.com/bezmoradi"
+  },
+  "homepage": "https://github.com/bezmoradi/knackpack",
+  "repository": "https://github.com/bezmoradi/knackpack",
+  "license": "MIT",
+  "dependencies": ["knackpack"],
+  "types": "./types/index.d.ts"
+}
