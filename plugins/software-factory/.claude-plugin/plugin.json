@@ -1,6 +1,6 @@
 {
   "name": "software-factory",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Continue a terminal Claude Code session from a page in your browser, both ways, with knackpack's reviewers on hand",
   "author": {
     "name": "Bez Moradi",

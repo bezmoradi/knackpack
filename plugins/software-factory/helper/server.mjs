@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join, dirname, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -270,13 +270,60 @@ function readJson(req, limit = MAX_BODY) {
   })
 }
 
+const SKIP = new Set(['node_modules', 'dist', 'build', 'out', 'target', 'vendor', 'coverage', '__pycache__', 'venv'])
+const SHOWN_DOTS = new Set(['.github', '.claude'])
+let fileCache = { at: 0, list: [] }
+
+function projectFiles() {
+  if (Date.now() - fileCache.at < 20000) return fileCache.list
+  const list = []
+  const started = Date.now()
+  const stack = cwd && isAbsolute(cwd) ? [['', 0]] : []
+  while (stack.length && list.length < 20000 && Date.now() - started < 250) {
+    const [rel, depth] = stack.pop()
+    let entries
+    try {
+      entries = readdirSync(join(cwd, rel), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const d of entries) {
+      if (d.name.startsWith('.') && !SHOWN_DOTS.has(d.name)) continue
+      const path = rel ? `${rel}/${d.name}` : d.name
+      if (d.isDirectory()) {
+        if (!SKIP.has(d.name) && depth < 12) stack.push([path, depth + 1])
+      } else if (d.isFile()) list.push(path)
+    }
+  }
+  fileCache = { at: Date.now(), list }
+  return list
+}
+
+function inOrder(text, query) {
+  let i = 0
+  for (const c of text) if (c === query[i]) i++
+  return i === query.length
+}
+
+function matchFiles(q) {
+  const query = q.toLowerCase()
+  const found = []
+  for (const path of projectFiles()) {
+    const p = path.toLowerCase()
+    const base = p.slice(p.lastIndexOf('/') + 1)
+    const rank = !query ? 3 : base.startsWith(query) ? 0 : p.startsWith(query) ? 1 : p.includes(query) ? 2 : inOrder(p, query) ? 3 : -1
+    if (rank >= 0) found.push([rank, path.split('/').length, path])
+  }
+  return found.sort((a, b) => a[0] - b[0] || a[1] - b[1] || (a[2] < b[2] ? -1 : 1)).slice(0, 15).map(f => f[2])
+}
+
 const TYPES = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' }
 const STATIC = { '/': ['index.html', 'text/html; charset=utf-8'] }
 for (const name of readdirSync(webDir)) {
   const ext = (name.match(/^[a-z][a-z0-9-]*(\.js|\.css)$/) || [])[1]
   if (ext && lstatSync(join(webDir, name)).isFile()) STATIC[`/${name}`] = [name, TYPES[ext]]
 }
-const ROUTES = { '/api/session': 'POST', '/api/events': 'GET', '/api/message': 'POST', '/api/stop': 'POST', '/api/answer': 'POST', '/api/disconnect': 'POST', '/api/prefs': 'POST', '/api/image': 'POST' }
+const ROUTES = { '/api/session': 'POST', '/api/events': 'GET', '/api/message': 'POST', '/api/stop': 'POST', '/api/answer': 'POST', '/api/disconnect': 'POST', '/api/prefs': 'POST', '/api/image': 'POST', '/api/files': 'POST' }
 
 const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async (req, res) => {
   const origin = `http://127.0.0.1:${port}`
@@ -403,10 +450,15 @@ const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async
     if (Object.keys(body).some(k => k !== 'text' && k !== 'images') || text.length > 20000) return send(res, 400, { error: 'text' })
     if (!Array.isArray(ids) || ids.length > 4 || new Set(ids).size !== ids.length || ids.some(id => typeof id !== 'string' || !images.has(id) || images.get(id).sent)) return send(res, 400, { error: 'images' })
     if (!text && !ids.length) return send(res, 400, { error: 'text' })
-    if (/^[/!]/.test(text)) return send(res, 400, { error: 'command' })
+    if (text.startsWith('!') || (text.startsWith('/') && ids.length)) return send(res, 400, { error: 'command' })
     for (const id of ids) images.get(id).sent = true
     say(ids.length ? { t: 'message', text, images: ids.map(id => ({ id, type: images.get(id).type })) } : { t: 'message', text })
     return send(res, 202, { ok: true })
+  }
+  if (url.pathname === '/api/files') {
+    const q = body.q
+    if (Object.keys(body).some(k => k !== 'q') || typeof q !== 'string' || q.length > 200) return send(res, 400, { error: 'query' })
+    return send(res, 200, { files: matchFiles(q) })
   }
   if (url.pathname === '/api/prefs') {
     const keys = Object.keys(body)

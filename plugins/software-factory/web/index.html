@@ -35,6 +35,7 @@
   </div>
 </div>
 
+<div class="scroller" id="scroller">
 <sf-overview id="overview" class="view"></sf-overview>
 
 <div id="session-view" class="view" hidden>
@@ -60,11 +61,15 @@
     <sf-intent id="intent" hidden></sf-intent>
   </aside>
 </div>
+</div>
 
 <form id="composer" class="composer" autocomplete="off" hidden>
-  <span class="dots" id="working" role="img" aria-label="Claude is working" hidden><i></i><i></i><i></i></span>
   <div class="attachments" id="attachments" hidden></div>
-  <textarea id="text" rows="1" placeholder="Type a message and press Enter" aria-label="Message Claude"></textarea>
+  <div class="field">
+    <span class="dots" id="working" role="img" aria-label="Claude is working" hidden><i></i><i></i><i></i></span>
+    <ul id="complete" class="complete" role="listbox" aria-label="Suggestions" hidden></ul>
+    <textarea id="text" rows="1" placeholder="Type a message and press Enter" aria-label="Message Claude"></textarea>
+  </div>
   <p class="muted small hint" id="hint" role="status"></p>
 </form>
 

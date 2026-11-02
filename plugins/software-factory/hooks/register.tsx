@@ -25,6 +25,8 @@ let logBudget = { at: 0, left: 30 }
 const cards = new Map<string, string>()
 let holding: string | null = null
 let imageTool = ''
+let lastCatalog = ''
+const offered = new Map<string, string>()
 
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g
 
@@ -210,7 +212,29 @@ function tick($: EngineInterface) {
         push($, { type: 'agents', agents })
       }
     }).catch(() => undefined)
+    void catalog($)
   })
+}
+
+async function catalog($: EngineInterface) {
+  const commands = await $.command.list().then(list => list.slice(0, 400).map(c => ({ name: clip(c.name, 120), description: clip(c.description, 240) }))).catch(() => null)
+  if (!commands || !helper) return
+  const agents = [...offered].slice(0, 200).map(([name, description]) => ({ name: clip(name, 120), description: clip(description, 240) }))
+  const key = JSON.stringify([commands, agents])
+  if (key === lastCatalog) return
+  lastCatalog = key
+  push($, { type: 'catalog', commands, agents })
+}
+
+async function runCommand($: EngineInterface, text: string) {
+  const [, name, args] = /^\/(\S+)\s*([\s\S]*)$/.exec(text) ?? []
+  if (!name) return
+  try {
+    const result = await $.command.run({ command: name, args: args.trim() })
+    if (result.text) push($, { type: 'command', name: clip(name, 120), text: clip(result.text, 20000) })
+  } catch (err) {
+    push($, { type: 'command', name: clip(name, 120), text: clip(err instanceof Error ? err.message : String(err), 2000), failed: true })
+  }
 }
 
 async function backfill($: EngineInterface) {
@@ -273,6 +297,12 @@ function handle($: EngineInterface, line: string, resolve: (v: { helper: Helper;
     resolve({ helper, code: msg.code })
     tick($)
     void backfill($)
+  } else if (msg.t === 'message' && typeof msg.text === 'string' && msg.text.length <= 20000 && /^\//.test(msg.text) && !msg.images) {
+    const text = msg.text
+    sending = sending.then(async () => {
+      push($, { type: 'prompt', text: clip(text, 20000), from: 'page' })
+      await runCommand($, text)
+    }).catch(() => {})
   } else if (msg.t === 'message' && typeof msg.text === 'string' && msg.text.length <= 20000 && !/^\s*[/!]/.test(msg.text)) {
     const ids = Array.isArray(msg.images) ? (msg.images as { id?: unknown }[]).map(i => i?.id).filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id)).slice(0, 4) : []
     const text = msg.text
@@ -283,8 +313,8 @@ function handle($: EngineInterface, line: string, resolve: (v: { helper: Helper;
       const pictures = (n: number) => (n === 1 ? 'an image' : `${n} images`)
       push($, { type: 'prompt', text: clip(text, 20000), from: 'page', images: ids.length - lost, lost })
       if (!text.trim() && lost) return
-      const note = !ids.length ? '' : lost ? `(I also pasted ${pictures(lost)} on the software factory page, but ${lost === 1 ? 'it' : 'they'} couldn't be passed on to you.)` : `(I pasted ${pictures(ids.length)} on the software factory page. To see ${ids.length === 1 ? 'it' : 'them'}, call ${tool} with ${ids.map(id => `id "${id}"`).join(', then ')}.)`
-      void $.prompt.submit({ text: [text.trim(), note].filter(Boolean).join('\n\n'), asUser: true })
+      const note = !ids.length ? '' : lost ? `I pasted ${pictures(lost)} on the software factory page, but ${lost === 1 ? 'it' : 'they'} couldn't be passed on to you.` : `I pasted ${pictures(ids.length)} on the software factory page. To see ${ids.length === 1 ? 'it' : 'them'}, call ${tool} with ${ids.map(id => `id "${id}"`).join(', then ')}.`
+      void $.prompt.submit({ text: [note, text.trim()].filter(Boolean).join('\n\n'), asUser: true })
     }).catch(() => {})
   } else if (msg.t === 'stop' && turnId) {
     void $.turn.abort({ turnId })
@@ -331,6 +361,7 @@ function start($: EngineInterface): Promise<{ helper: Helper; code: string }> {
         ticker?.cancel()
         ticker = null
         lastAgents = ''
+        lastCatalog = ''
         queue = []
         void update($, pending, () => null).catch(() => undefined)
         reject(new Error('software-factory: the helper stopped before it was ready.'))
@@ -439,6 +470,11 @@ export const register: Register = on => {
       }
     }
     return done
+  })
+
+  on('agent.offer', async ($, e, next) => {
+    if (e.agent && !offered.has(e.agent)) offered.set(e.agent, e.description ?? '')
+    return next(e)
   })
 
   on('tool.check', async ($, e, next) => (imageTool && e.tool === imageTool ? { decision: 'allow' as const, reason: 'Reads an image pasted on the software factory page' } : next(e)))
