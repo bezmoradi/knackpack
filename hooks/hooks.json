@@ -1,5 +1,5 @@
 {
-  "description": "Knackpack's intent tracking: loads the rules and record at session start, reminds Claude to update the record with each message, and checks each turn for a missed update. Set KNACKPACK_INTENT=off to turn it off. Also prints knackpack's rules for challenging the developer instead of agreeing with them at session start; set KNACKPACK_CHALLENGE=off to turn that off. At each message, warns when the conversation's context passes 400,000 tokens and asks Claude to stop for a checkpoint and compaction past 500,000; set KNACKPACK_CONTEXT=off to turn that off. Once you run /knackpack:software-factory on, also records each session's state, the questions Claude asked and the answers picked, its agents and their results, and its tasks, and keeps a self-updating HTML page, software-factory.html, in knackpack's state folder; set KNACKPACK_FACTORY=off to stop that.",
+  "description": "Knackpack's intent tracking: loads the rules and record at session start, reminds Claude to update the record with each message, and checks each turn for a missed update. Set KNACKPACK_INTENT=off to turn it off. Also prints knackpack's rules for challenging the developer instead of agreeing with them at session start; set KNACKPACK_CHALLENGE=off to turn that off. At each message, warns when the conversation's context passes 400,000 tokens and asks Claude to stop for a checkpoint and compaction past 500,000; set KNACKPACK_CONTEXT=off to turn that off. Once you run /knackpack:software-factory on, also records each session's state, the questions Claude asked, while they wait and with the answers picked, its agents and their results, and its tasks, and keeps a self-updating HTML page, software-factory.html, in knackpack's state folder; set KNACKPACK_FACTORY=off to stop that.",
   "hooks": {
     "SessionStart": [
       {
@@ -60,6 +60,19 @@
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/factory.sh\" record",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/factory.sh\" record detail",
+            "timeout": 10,
+            "async": true
           }
         ]
       }

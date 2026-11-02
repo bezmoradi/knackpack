@@ -20,6 +20,23 @@ knackpack is a Claude Code plugin made of Markdown plus four hook scripts: skill
 - **Test your edits, not the installed copy.** A session working on knackpack loads the installed plugin, so the knackpack agents and skills it can start are the released version, not your edits. Test a change in a session started with `claude --plugin-dir .`, or headless with `claude -p --plugin-dir .`.
 - **Run live tests on a real project in a throwaway clone.** Clone it into a scratch folder and remove the clone's remote: a project's own settings can pre-approve `git commit` and `git push` for every session started in it. In a headless run, set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, or Claude Code stops a reviewer still working in the background 10 minutes after the last turn and drops its report, and cap the spend with `--max-budget-usd`. Bring back only what generalizes, without the project's names, paths or code.
 
+## The software-factory plugin
+
+`plugins/software-factory/` is a second plugin in this marketplace, installed on its own. It is a mod (`hooks/register.tsx`, run by Claude Code), a Node.js helper (`helper/server.mjs`) and a plain HTML, CSS and JavaScript page (`web/`). Because the root plugin is the whole repository, its files also sit in every knackpack install, where Claude Code never loads them. The rules above about knackpack's hooks, skills and agents don't apply to it; these do.
+
+- **Give it its own version.** Bump `plugins/software-factory/.claude-plugin/plugin.json` for any change under its folder, not knackpack's version; `scripts/check.sh` checks each plugin's version and runs `claude plugin validate` on each.
+- **No comments in its code, and no dependencies.** The helper uses only Node's standard library, Node 18 or later, and the page loads nothing from outside the helper.
+- **No tests in code.** Don't add `*.test.ts` or run `claude plugin test`. Test by hand in a real session started with `claude --plugin-dir plugins/software-factory` in a throwaway project: what the terminal and the page each show, a message from the page, Stop, a question and a permission prompt answered from the page and from the terminal, and that no helper is left after `/exit`, `/reload-plugins` and `kill -9` of the claude process.
+- **Keep its security properties, and check them with curl after a change to the helper:**
+  - no key or code in a process's arguments, in the transcript or in Claude's context;
+  - only `127.0.0.1`, with `Host`, `Origin` and `Sec-Fetch-Site` checked and no CORS headers;
+  - the key in a header only;
+  - the CSP sent as a header, with no inline script;
+  - session content rendered with `textContent`, never `innerHTML` or the like;
+  - a `tool.check` hook that only answers an `ask` from the engine meant for the person, never a deny, an organization's ceiling, another plugin's ask or a classic hook's ask, holds one at a time, and offers only allow once and deny, with allow only where the page shows the whole call; the terminal row never allows.
+- **Build the page from native custom elements in the light DOM, with no library, Shadow DOM or build step.** A library would be a dependency, and the CSP blocks a shadow root's `<style>`. Make something a component only when it owns state that a rebuild would destroy, such as typed text, focus or an open section, or when two places use it; plain functions and the shared classes in `app.css` cover the rest. Components take data through properties, report with bubbling `sf-…` events and never call the helper. The README's "The page's code" section lists them and gives the steps for adding one.
+- **It depends on knackpack's public interface**: agent names such as `knackpack:adversarial-reviewer`, the verdict words, where intent records are kept, and the session list in the `<script id="data">` block of knackpack's software factory page, which its overview reads. When a knackpack release changes one of them, update this plugin in the same release.
+
 ## Writing and improving skills and agents
 
 These cover what a skill or agent says and the eval cases that check it.

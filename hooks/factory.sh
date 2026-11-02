@@ -25,7 +25,7 @@
 # What it stores: event times and kinds, each session's working folder,
 # notification and error types, the error message of a failed agent call,
 # subagent types and IDs, task titles, the text of questions Claude asked in
-# its question dialogs with the answers picked,
+# its question dialogs with their option labels and the answers picked,
 # and, for knackpack's own agents, the report path and verdict line they end
 # with. Never prompts, tool input, file contents or other messages. At render
 # time it also reads the session's intent record, which track-intent keeps in
@@ -78,6 +78,7 @@ prepare() {
 #   agent+ <id> <type>   agent- <id> <type> <report> <verdict>
 #   report <id> <type> <report> <verdict>     agentx <type> <error>
 #   task+ <id> <title>   task- <id> <title>   qa <question> <answer>
+#   ask <question> <options> (a question whose dialog is open)
 #
 # Rebuild the page from the newest session files and their intent records,
 # then swap it in whole, so the browser never reads a half-written page.
@@ -95,15 +96,25 @@ render() {
 	# shellcheck disable=SC2010
 	files=$(cd "$sessions" 2>/dev/null && ls -t 2>/dev/null | grep -E '^[A-Za-z0-9-]{1,64}\.tsv$' | head -n "$max_sessions")
 	set --
+	ids=
 	for f in $files; do
 		set -- "$@" kind=s "$sessions/$f"
-		sid=${f%.tsv}
-		if ours "$intent"; then
-			for r in "$intent"/*/"$sid".md "$intent"/*/"$sid".[0-9]*.md; do
-				[ -f "$r" ] && [ ! -L "$r" ] && set -- "$@" kind=r "sid=$sid" "$r"
-			done
-		fi
+		ids=$ids${ids:+|}${f%.tsv}
 	done
+	# The sessions' intent records, newest first, so the record being worked
+	# in comes first whatever its number (.10.md sorts before .2.md by name).
+	# One ls and one grep for all sessions: a process per session would add
+	# about 4 ms each to every page rebuild. The grep keeps only the listed
+	# sessions' records, named as track-intent names them, so the names are
+	# safe to split on spaces.
+	if [ -n "$ids" ] && ours "$intent"; then
+		# shellcheck disable=SC2010
+		recs=$(cd "$intent" 2>/dev/null && ls -t -- */*.md 2>/dev/null | grep -E "^[A-Za-z0-9._-]+/($ids)(\.[0-9]+)?\.md\$")
+		for r in $recs; do
+			b=${r##*/}
+			[ -f "$intent/$r" ] && [ ! -L "$intent/$r" ] && set -- "$@" kind=r "sid=${b%%.*}" "$intent/$r"
+		done
+	fi
 	# With no files, awk would read stdin instead.
 	[ "$#" -gt 0 ] || set -- /dev/null
 	LC_ALL=C awk -v tpl="$template" -v now="$rnow" '
@@ -122,7 +133,7 @@ render() {
 		return "\"" o "\""
 	}
 	function sess(sid) {
-		if (!(sid in idx)) { n++; idx[sid] = n; id[n] = sid; st[n] = "started"; det[n] = ""; first[n] = ""; nt[n] = 0; na[n] = 0; nq[n] = 0; nr[n] = 0 }
+		if (!(sid in idx)) { n++; idx[sid] = n; id[n] = sid; st[n] = "started"; det[n] = ""; first[n] = ""; nt[n] = 0; na[n] = 0; nq[n] = 0; nr[n] = 0; np[n] = 0 }
 		return idx[sid]
 	}
 	function newagent(i, aid, type) { na[i]++; ak[i, na[i]] = aid; atype[i, na[i]] = type; ast[i, na[i]] = "running"; abeg[i, na[i]] = $1 + 0; aend[i, na[i]] = 0; aver[i, na[i]] = ""; arep[i, na[i]] = ""; aerr[i, na[i]] = ""; return na[i] }
@@ -130,13 +141,19 @@ render() {
 	BEGIN { FS = "\t"; n = 0 }
 	kind == "s" {
 		if (FNR == 1) { sid = FILENAME; sub(/.*\//, "", sid); sub(/\.tsv$/, "", sid); i = sess(sid); first[i] = $2 }
-		k = $2; last[i] = $1 + 0
+		k = $2; last[i] = $1 + 0; pk = lastk[i]; lastk[i] = k
 		if (cwd[i] == "" && $3 != "") cwd[i] = $3
+		# A waiting question ends with its answer, or with any sign that its
+		# dialog closed: a new turn or prompt, or the session ending. Tool,
+		# agent and task lines can come from background work while the dialog
+		# is open, so they leave it.
+		if (k == "qa" || k == "prompt" || k == "stop" || k == "start" || k == "fail" || k == "end") np[i] = 0
 		if (k == "start") { st[i] = "ready"; det[i] = "" }
 		else if (k == "prompt") { st[i] = "working"; det[i] = "" }
-		else if (k == "notify" && $4 == "permission_prompt") { st[i] = "waiting"; det[i] = "needs your permission" }
+		# An open dialog can also raise a permission prompt notification.
+		else if (k == "notify" && $4 == "permission_prompt") { st[i] = "waiting"; det[i] = np[i] ? "waiting for your answer" : "needs your permission" }
 		else if (k == "notify" && $4 == "idle_prompt") { st[i] = "waiting"; det[i] = "waiting for your reply" }
-		else if (k == "tool") { if (st[i] == "waiting") { st[i] = "working"; det[i] = "" } }
+		else if (k == "tool") { if (st[i] == "waiting" && !np[i]) { st[i] = "working"; det[i] = "" } }
 		else if (k == "stop") { st[i] = "your turn"; det[i] = "" }
 		else if (k == "fail") { st[i] = "failed"; det[i] = $4 }
 		else if (k == "end") { st[i] = "ended"; det[i] = "" }
@@ -162,12 +179,23 @@ render() {
 			else if ($5 != "") task[i, $4] = $5
 			if (k == "task-") tdone[i, $4] = 1
 		}
-		else if (k == "qa" && $4 != "") { nq[i]++; qq[i, nq[i]] = $4; qa[i, nq[i]] = $5; qt[i, nq[i]] = $1 + 0 }
+		else if (k == "ask" && $4 != "") {
+			# One dialog writes all its questions together; a later dialog replaces them.
+			if (pk != "ask") { np[i] = 0; pts[i] = $1 + 0 }
+			np[i]++; pq[i, np[i]] = $4; po[i, np[i]] = $5; st[i] = "waiting"; det[i] = "waiting for your answer"
+		}
+		else if (k == "qa" && $4 != "") { if (st[i] == "waiting") { st[i] = "working"; det[i] = "" }; nq[i]++; qq[i, nq[i]] = $4; qa[i, nq[i]] = $5; qt[i, nq[i]] = $1 + 0 }
 		next
 	}
 	kind == "r" {
-		if (FNR == 1) { i = sess(sid); nr[i]++; r = nr[i]; rtitle[i, r] = ""; rn[i, r, "a"] = 0; rn[i, r, "s"] = 0; rn[i, r, "o"] = 0; part = "" }
+		if (FNR == 1) {
+			i = sess(sid); nr[i]++; r = nr[i]; rtitle[i, r] = ""; rstat[i, r] = ""; rn[i, r, "a"] = 0; rn[i, r, "s"] = 0; rn[i, r, "o"] = 0; part = ""
+			# The page keeps a section open by the file name less the session
+			# ID, such as ".3", which never changes as records are added.
+			t = FILENAME; sub(/.*\//, "", t); sub(/\.md$/, "", t); rkey[i, r] = substr(t, length(sid) + 1)
+		}
 		if ($0 ~ /^# Intent record: /) { t = $0; sub(/^# Intent record: /, "", t); rtitle[i, r] = t; next }
+		if (part == "" && $0 ~ /^- Status: /) { t = $0; sub(/^- Status: /, "", t); sub(/ · Updated: .*/, "", t); rstat[i, r] = t; next }
 		if ($0 ~ /^## /) { part = ($0 ~ /^## Agreed/) ? "a" : ($0 ~ /^## Assumed/) ? "s" : ($0 ~ /^## Open questions/) ? "o" : ""; next }
 		if (part == "" || $0 !~ /^- [A-Z]+-[0-9]+: /) next
 		line = $0; sub(/^- /, "", line); rid = line; sub(/:.*/, "", rid); txt = line; sub(/^[A-Z]+-[0-9]+: /, "", txt)
@@ -200,8 +228,12 @@ render() {
 					",\"verdict\":" js(aver[i, a]) ",\"report\":" js(arep[i, a]) ",\"error\":" js(aerr[i, a]) ",\"knackpack\":" (atype[i, a] ~ /^knackpack:/ ? "true" : "false") "}"
 			s = s "],\"questions\":["
 			for (q = 1; q <= nq[i]; q++) s = s (q > 1 ? "," : "") "{\"q\":" js(qq[i, q]) ",\"a\":" js(qa[i, q]) ",\"ts\":" qt[i, q] "}"
+			s = s "],\"pending\":["
+			for (q = 1; q <= np[i]; q++) s = s (q > 1 ? "," : "") "{\"q\":" js(pq[i, q]) ",\"options\":" js(po[i, q]) ",\"ts\":" pts[i] "}"
 			s = s "],\"records\":["
-			for (r = 1; r <= nr[i]; r++) s = s (r > 1 ? "," : "") "{\"title\":" js(rtitle[i, r]) ",\"agreed\":" list(i, r, "a") ",\"assumed\":" list(i, r, "s") ",\"open\":" list(i, r, "o") "}"
+			# Records arrive newest first; the current one is the newest not done.
+			cur = 0; for (r = 1; r <= nr[i] && !cur; r++) if (rstat[i, r] !~ /^done/) cur = r
+			for (r = 1; r <= nr[i]; r++) s = s (r > 1 ? "," : "") "{\"key\":" js(rkey[i, r]) ",\"title\":" js(rtitle[i, r]) ",\"status\":" js(rstat[i, r]) ",\"current\":" (r == cur ? "true" : "false") ",\"agreed\":" list(i, r, "a") ",\"assumed\":" list(i, r, "s") ",\"open\":" list(i, r, "o") "}"
 			json = json (x > 1 ? "," : "") s "]}"
 		}
 		json = json "]}"
@@ -296,7 +328,8 @@ record)
 	# The first line out is the session ID, the event and the notification
 	# type, for the decisions below; the rest are the lines to append. JSON
 	# strings are decoded for the common escapes, with \u escapes as "?", and
-	# every stored value is capped at 300 bytes, cut at a word and marked.
+	# every stored value is capped at 300 bytes (a verdict at 2,000), cut at a
+	# word and marked.
 	out=$(head -c 1048576 | tr '\n\r' '  ' | LC_ALL=C awk -v now="$now" '
 	function decode(s, i, keepnl,    n, c, o) {
 		o = ""; n = length(s)
@@ -314,14 +347,15 @@ record)
 		}
 		end_at = n; return o
 	}
-	function clean(s,    t) {
+	function clean(s, cap,    t) {
+		if (cap + 0 <= 0) cap = 300
 		gsub(/[\001-\037\177]/, " ", s); gsub(/  +/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s)
 		# Mark a cut, so the page never shows a clipped word as if it were
 		# whole. The cut drops the last UTF-8 character, which may be partial,
 		# and goes back to a space if one is near; text without spaces, such
 		# as Chinese or Japanese, is cut between characters.
-		if (length(s) > 300) {
-			s = substr(s, 1, 297); sub(/[\300-\377][\200-\277]*$/, "", s)
+		if (length(s) > cap) {
+			s = substr(s, 1, cap - 3); sub(/[\300-\377][\200-\277]*$/, "", s)
 			t = s; sub(/ [^ ]*$/, "", t); if (t != s && length(s) - length(t) <= 40) s = t
 			s = s "..."
 		}
@@ -354,7 +388,7 @@ record)
 		for (x = 1; x <= n && x <= 40; x++) {
 			# Drop Markdown emphasis and code marks and a leading quote, list or
 			# heading mark, but keep comparisons such as "pct > 1".
-			l = parts[x]; gsub(/[`*]/, "", l); l = clean(l); sub(/^[#>-]+ */, "", l)
+			l = parts[x]; gsub(/[`*]/, "", l); l = clean(l, 2000); sub(/^[#>-]+ */, "", l)
 			if (l == "") continue
 			# A bare "Verdict" heading: the verdict is the line under it.
 			if (tolower(l) ~ /^(verdict|recommendation)[: ]*$/) { under = 1; continue }
@@ -383,6 +417,26 @@ record)
 		}
 		else if (ev == "TaskCreated") line("task+", jstr(s, "task_id", 1), jstr(s, "task_subject", 1))
 		else if (ev == "TaskCompleted") line("task-", jstr(s, "task_id", 1), jstr(s, "task_subject", 1))
+		# While a dialog waits: each question in tool_input.questions, with its
+		# option labels in order. The answer arrives later with PostToolUse.
+		else if (ev == "PreToolUse" && tool == "AskUserQuestion") {
+			p = at(s, "tool_input"); qtext = ""; opts = ""
+			while (p) {
+				t = substr(s, p)
+				mq = match(t, /"question"[ \t]*:[ \t]*"/) ? RSTART : 0; ql = RLENGTH
+				ml = match(t, /"label"[ \t]*:[ \t]*"/) ? RSTART : 0; ll = RLENGTH
+				if (!mq && !ml) break
+				if (mq && (!ml || mq < ml)) {
+					if (qtext != "") line("ask", qtext, clean(opts))
+					qtext = clean(decode(s, p + mq + ql - 1)); opts = ""
+				} else {
+					v = clean(decode(s, p + ml + ll - 1))
+					if (qtext != "") opts = opts (opts == "" ? "" : " / ") v
+				}
+				p = end_at + 1
+			}
+			if (qtext != "") line("ask", qtext, clean(opts))
+		}
 		else if (ev == "PostToolUse" || ev == "PostToolUseFailure") {
 			if (ev == "PostToolUse" && tool == "AskUserQuestion") {
 				# Pair each answer with its question from tool_response.answers,
@@ -399,6 +453,9 @@ record)
 							while (i <= n && substr(s, i, 1) != "\"" && substr(s, i, 1) != "}") i++
 							if (substr(s, i, 1) != "\"") break
 							v = clean(decode(s, i + 1)); i = end_at + 1
+							# Each picked label, joined by ", " when several are, loses the
+							# " (Recommended)" that marks an option: part of the label, not the answer.
+							gsub(/ \(Recommended\),/, ",", v); sub(/ \(Recommended\)$/, "", v)
 							line("qa", k, v)
 						} else i++
 					}
