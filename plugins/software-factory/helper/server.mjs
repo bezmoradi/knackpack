@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { chmodSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -148,7 +148,16 @@ function addEvent(ev) {
 }
 
 function validAnswer(card, value, fromTerminal) {
-  if (card.type === 'permission') return value === 'allow' || value === 'deny' || (fromTerminal && value === 'terminal')
+  if (card.type === 'permission') {
+    if (fromTerminal && value === 'terminal') return true
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+    const keys = Object.keys(value)
+    if (value.choice === 'no') return keys.every(k => k === 'choice' || k === 'note') && (value.note === undefined || (typeof value.note === 'string' && value.note.length <= 2000))
+    if (keys.length !== 1) return false
+    if (value.choice === 'yes') return card.complete !== false
+    if (value.choice === 'always') return card.complete !== false && typeof card.always === 'string' && card.always !== ''
+    return false
+  }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const asked = new Set(card.questions.map(q => q.question))
   const keys = Object.keys(value)
@@ -171,7 +180,7 @@ function answer(id, value, fromTerminal) {
   addEvent({ type: 'resolved', id })
   if (!fromTerminal) {
     log('answered', { kind: card.type })
-    say({ t: 'security', kind: 'answered', card: card.type, tool: card.tool, choice: card.type === 'permission' ? value : undefined })
+    say({ t: 'security', kind: 'answered', card: card.type, tool: card.tool, choice: card.type === 'permission' && fromTerminal !== true ? value.choice : undefined })
   }
   return 200
 }
@@ -184,7 +193,7 @@ function same(given, expected) {
 }
 
 const HEADERS = {
-  'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
+  'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'Cache-Control': 'no-store',
@@ -200,6 +209,35 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
 }
 
 const TOO_BIG = Symbol('too big')
+const MAX_IMAGE = 2.5 * 1024 * 1024
+const MAX_IMAGES = 40
+const IMAGE_TYPES = { 'image/png': /^\x89PNG\r\n\x1a\n/, 'image/jpeg': /^\xff\xd8\xff/, 'image/gif': /^GIF8[79]a/, 'image/webp': /^RIFF[\s\S]{4}WEBP/ }
+const images = new Map()
+
+function readRaw(req, limit) {
+  return new Promise(resolve => {
+    if (Number(req.headers['content-length'] || 0) > limit) {
+      req.resume()
+      return resolve(TOO_BIG)
+    }
+    let total = 0
+    let failed = false
+    const parts = []
+    req.on('data', c => {
+      if (failed) return
+      total += c.length
+      if (total > limit) {
+        failed = true
+        parts.length = 0
+        resolve(TOO_BIG)
+      } else parts.push(c)
+    })
+    req.on('end', () => {
+      if (!failed) resolve(total ? Buffer.concat(parts) : undefined)
+    })
+    req.on('error', () => resolve(undefined))
+  })
+}
 
 function readJson(req, limit = MAX_BODY) {
   return new Promise(resolve => {
@@ -238,7 +276,7 @@ for (const name of readdirSync(webDir)) {
   const ext = (name.match(/^[a-z][a-z0-9-]*(\.js|\.css)$/) || [])[1]
   if (ext && lstatSync(join(webDir, name)).isFile()) STATIC[`/${name}`] = [name, TYPES[ext]]
 }
-const ROUTES = { '/api/session': 'POST', '/api/events': 'GET', '/api/message': 'POST', '/api/stop': 'POST', '/api/answer': 'POST', '/api/disconnect': 'POST' }
+const ROUTES = { '/api/session': 'POST', '/api/events': 'GET', '/api/message': 'POST', '/api/stop': 'POST', '/api/answer': 'POST', '/api/disconnect': 'POST', '/api/prefs': 'POST', '/api/image': 'POST' }
 
 const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async (req, res) => {
   const origin = `http://127.0.0.1:${port}`
@@ -262,6 +300,7 @@ const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async
     if (req.method !== 'GET') return send(res, 405, { error: 'method' })
     const [file, type] = STATIC[url.pathname]
     try {
+      if (file === 'index.html') return send(res, 200, page(), type)
       return send(res, 200, readFileSync(join(webDir, file)), type)
     } catch {
       return send(res, 404, { error: 'missing' })
@@ -272,7 +311,8 @@ const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async
   if (req.method !== ROUTES[url.pathname]) return send(res, 405, { error: 'method' })
   if (req.method === 'POST') {
     if (req.headers.origin !== origin) return send(res, 403, { error: 'origin' })
-    if (!String(req.headers['content-type'] || '').startsWith('application/json')) return send(res, 415, { error: 'type' })
+    const kind = String(req.headers['content-type'] || '')
+    if (url.pathname === '/api/image' ? !Object.hasOwn(IMAGE_TYPES, kind) : !kind.startsWith('application/json')) return send(res, 415, { error: 'type' })
   }
 
   if (url.pathname === '/api/session') {
@@ -327,16 +367,49 @@ const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async
     return
   }
 
+  if (url.pathname === '/api/image') {
+    if (images.size >= MAX_IMAGES) return send(res, 429, { error: 'images' })
+    const data = await readRaw(req, MAX_IMAGE)
+    if (data === TOO_BIG) return send(res, 413, { error: 'too big' })
+    const type = String(req.headers['content-type'])
+    if (!data || !IMAGE_TYPES[type].test(data.subarray(0, 12).toString('latin1'))) return send(res, 400, { error: 'image' })
+    const id = randomBytes(12).toString('hex')
+    const dir = join(runDir, 'images')
+    try {
+      mkdirSync(dir, { mode: 0o700 })
+    } catch {}
+    const path = join(dir, id)
+    try {
+      writeFileSync(path, data, { mode: 0o600, flag: 'wx' })
+    } catch {
+      return send(res, 500, { error: 'save' })
+    }
+    images.set(id, { path, type, sent: false })
+    return send(res, 200, { id })
+  }
+
   const body = await readJson(req)
   if (body === TOO_BIG) return send(res, 413, { error: 'too big' })
   if (!body) return send(res, 400, { error: 'body' })
 
   if (url.pathname === '/api/message') {
     const text = typeof body.text === 'string' ? body.text.trim() : ''
-    if (Object.keys(body).length !== 1 || !text || text.length > 20000) return send(res, 400, { error: 'text' })
+    const ids = body.images === undefined ? [] : body.images
+    if (Object.keys(body).some(k => k !== 'text' && k !== 'images') || text.length > 20000) return send(res, 400, { error: 'text' })
+    if (!Array.isArray(ids) || ids.length > 4 || new Set(ids).size !== ids.length || ids.some(id => typeof id !== 'string' || !images.has(id) || images.get(id).sent)) return send(res, 400, { error: 'images' })
+    if (!text && !ids.length) return send(res, 400, { error: 'text' })
     if (/^[/!]/.test(text)) return send(res, 400, { error: 'command' })
-    say({ t: 'message', text })
+    for (const id of ids) images.get(id).sent = true
+    say(ids.length ? { t: 'message', text, images: ids.map(id => ({ id, type: images.get(id).type })) } : { t: 'message', text })
     return send(res, 202, { ok: true })
+  }
+  if (url.pathname === '/api/prefs') {
+    const keys = Object.keys(body)
+    if (!keys.length || keys.some(k => k !== 'theme' && k !== 'scale')) return send(res, 400, { error: 'prefs' })
+    const next = cleanPrefs({ ...readPrefs(), ...body })
+    if (keys.some(k => next[k] !== body[k])) return send(res, 400, { error: 'prefs' })
+    if (!writePrefs(next)) return send(res, 500, { error: 'save' })
+    return send(res, 200, { ok: true })
   }
   if (url.pathname === '/api/stop') {
     say({ t: 'stop' })
@@ -358,6 +431,15 @@ const mod = createServer(async (req, res) => {
   lastBeat = Date.now()
   const url = new URL(req.url, 'http://sf')
   if (req.method === 'GET' && url.pathname === '/status') return send(res, 200, { streams: streams.size })
+  if (req.method === 'GET' && url.pathname === '/image') {
+    const found = images.get(url.searchParams.get('id') || '')
+    if (!found || !found.sent) return send(res, 404, { error: 'image' })
+    try {
+      return send(res, 200, { type: found.type, base64: readFileSync(found.path).toString('base64') })
+    } catch {
+      return send(res, 404, { error: 'image' })
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/wait') {
     const id = url.searchParams.get('id') || ''
     if (answers.has(id)) {
@@ -427,6 +509,53 @@ const mod = createServer(async (req, res) => {
 
 function stateBase() {
   return process.env.XDG_STATE_HOME && process.env.XDG_STATE_HOME.startsWith('/') ? process.env.XDG_STATE_HOME : join(homedir(), '.local', 'state')
+}
+
+function choices(file, pattern) {
+  try {
+    return [...readFileSync(join(webDir, file), 'utf8').matchAll(pattern)].map(m => m[1])
+  } catch {
+    return []
+  }
+}
+
+function cleanPrefs(p) {
+  const out = {}
+  if (p && choices('themes.css', /^\[data-theme="([a-z0-9-]+)"\] \{/gm).includes(p.theme)) out.theme = p.theme
+  if (p && choices('app.css', /^:root\[data-scale="(\d+)"\]/gm).map(Number).includes(p.scale)) out.scale = p.scale
+  return out
+}
+
+const prefsDir = () => join(stateBase(), 'software-factory')
+
+function readPrefs() {
+  const file = join(prefsDir(), 'prefs.json')
+  try {
+    if (!own(prefsDir(), true) || !own(file, false) || statSync(file).size > 4096) return {}
+    return cleanPrefs(JSON.parse(readFileSync(file, 'utf8')))
+  } catch {
+    return {}
+  }
+}
+
+function writePrefs(p) {
+  const dir = prefsDir()
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    if (!own(dir, true)) return false
+    chmodSync(dir, 0o700)
+    const tmp = join(dir, `.prefs-${process.pid}.json`)
+    writeFileSync(tmp, JSON.stringify(p), { mode: 0o600 })
+    renameSync(tmp, join(dir, 'prefs.json'))
+    return true
+  } catch {
+    return false
+  }
+}
+
+function page() {
+  const p = { theme: 'solarized-dark', scale: 100, ...readPrefs() }
+  return readFileSync(join(webDir, 'index.html'), 'utf8').replace('data-theme="solarized-dark" data-scale="100"', `data-theme="${p.theme}" data-scale="${p.scale}"`)
 }
 
 function readIntent() {

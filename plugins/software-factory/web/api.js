@@ -28,3 +28,7 @@ export function events() {
 export function api(path, body) {
   return fetch(path, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store' })
 }
+
+export function upload(blob) {
+  return fetch('/api/image', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': blob.type }, body: blob, cache: 'no-store' })
+}

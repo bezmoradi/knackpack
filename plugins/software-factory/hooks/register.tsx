@@ -24,6 +24,7 @@ let lastAgents = ''
 let logBudget = { at: 0, left: 30 }
 const cards = new Map<string, string>()
 let holding: string | null = null
+let imageTool = ''
 
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g
 
@@ -47,6 +48,20 @@ function summarize(tool: string, input: Record<string, unknown>): string {
 function detail(tool: string, input: Record<string, unknown>): string {
   if (tool === 'Bash' && typeof input.command === 'string') return clip(input.command, 20000)
   return clip(JSON.stringify(input, null, 2), 20000)
+}
+
+const WHERE: Record<string, string> = { session: 'during this session', localSettings: 'in this project', projectSettings: 'in this project, for everyone', userSettings: 'in every project', cliArg: 'during this session' }
+
+function describe(u: { type: string; destination?: string; rules?: { toolName: string; ruleContent?: string }[]; mode?: string; directories?: string[]; behavior?: string }): string {
+  const where = WHERE[u.destination ?? ''] ?? ''
+  if (u.type === 'addRules' && u.behavior === 'allow' && u.rules?.length) {
+    const what = u.rules.map(r => (r.toolName === 'Bash' && r.ruleContent ? `${r.ruleContent.replace(/:\*$|\s\*$/, '')} commands` : r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)).join(', ')
+    return clip(`don't ask again for ${what} ${where}`.trim(), 300)
+  }
+  if (u.type === 'setMode' && u.mode === 'acceptEdits') return `allow all edits ${where}`.trim()
+  if (u.type === 'setMode' && u.mode) return `switch to ${u.mode} mode`
+  if (u.type === 'addDirectories' && u.directories?.length) return clip(`allow access to ${u.directories.join(', ')} ${where}`.trim(), 300)
+  return ''
 }
 
 function inside(path: string, dir: string): boolean {
@@ -174,7 +189,7 @@ function notice($: EngineInterface, msg: { kind?: string; card?: string; tool?: 
     msg.kind === 'connected' ? 'A browser page connected to this session.'
     : msg.kind === 'reused' ? 'The page link was used twice, so the page was disconnected. Run /factory to open it again.'
     : msg.kind === 'disconnected' ? 'The page disconnected.'
-    : msg.kind === 'answered' && msg.card === 'permission' ? `${msg.choice === 'allow' ? 'Allowed' : 'Denied'} ${msg.tool ?? 'a tool'} from the page.`
+    : msg.kind === 'answered' && msg.card === 'permission' ? `${msg.choice === 'no' ? 'Denied' : 'Allowed'} ${msg.tool ?? 'a tool'} from the page.`
     : msg.kind === 'answered' ? 'A question was answered from the page.'
     : ''
   if (text) $.ui.toast(text, { timeoutMs: 6000 })
@@ -200,9 +215,12 @@ function handle($: EngineInterface, line: string, resolve: (v: { helper: Helper;
     resolve({ helper, code: msg.code })
     tick($)
     void backfill($)
-  } else if (msg.t === 'message' && typeof msg.text === 'string' && msg.text.trim() && msg.text.length <= 20000 && !/^\s*[/!]/.test(msg.text)) {
-    push($, { type: 'prompt', text: clip(msg.text, 20000), from: 'page' })
-    void $.prompt.submit({ text: msg.text, asUser: true })
+  } else if (msg.t === 'message' && typeof msg.text === 'string' && msg.text.length <= 20000 && !/^\s*[/!]/.test(msg.text)) {
+    const ids = Array.isArray(msg.images) ? (msg.images as { id?: unknown }[]).map(i => i?.id).filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id)).slice(0, 4) : []
+    if (!msg.text.trim() && !ids.length) return
+    push($, { type: 'prompt', text: clip(msg.text, 20000), from: 'page', images: ids.length })
+    const note = ids.length && imageTool ? `(I pasted ${ids.length === 1 ? 'an image' : `${ids.length} images`} on the software factory page. To see ${ids.length === 1 ? 'it' : 'them'}, call ${imageTool} with ${ids.map(id => `id "${id}"`).join(', then ')}.)` : ''
+    void $.prompt.submit({ text: [msg.text.trim(), note].filter(Boolean).join('\n\n'), asUser: true })
   } else if (msg.t === 'stop' && turnId) {
     void $.turn.abort({ turnId })
   } else if (msg.t === 'security') {
@@ -308,6 +326,12 @@ export const register: Register = on => {
       } else {
         ;({ helper: h, code } = await start($))
       }
+      if (!imageTool) {
+        imageTool = await $.tool
+          .register({ name: 'pasted_image', description: 'Shows an image the user pasted or dropped on the software factory page. Call it with the id their message gives, once per image, when the message mentions one.', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'The image id from the message' } }, required: ['id'] }, isDeferred: false })
+          .then(r => r.tool)
+          .catch(() => '')
+      }
       if (e.args.trim() === 'link') {
         const copied = await $.ui.copy({ text: `http://127.0.0.1:${h.port}/#c=${code}` }).then(r => r.isCopied).catch(() => false)
         return { text: copied ? 'A one-time link to this session is on your clipboard. Paste it into a browser within a minute.' : "Couldn't reach the clipboard. Run /factory to open the page instead." }
@@ -358,7 +382,21 @@ export const register: Register = on => {
     return done
   })
 
+  on('tool.check', async ($, e, next) => (imageTool && e.tool === imageTool ? { decision: 'allow' as const, reason: 'Reads an image pasted on the software factory page' } : next(e)))
+
   on('tool.call', async ($, e, next) => {
+    if (imageTool && e.tool === imageTool) {
+      const id = String((e as unknown as { id?: unknown }).id ?? '')
+      if (!helper || !/^[0-9a-f]{24}$/.test(id)) return { deny: 'No pasted image has that id. The software factory page may have closed.' }
+      try {
+        const r = await call($, `/image?id=${id}`)
+        if (!r.ok) return { deny: 'No pasted image has that id. The software factory page may have closed.' }
+        const image = JSON.parse(r.text) as { type: string; base64: string }
+        return { result: [{ type: 'image', data: image.base64, mimeType: image.type }] as never }
+      } catch {
+        return { deny: "Couldn't read that image from the software factory page." }
+      }
+    }
     if (!helper) return next(e)
     const input = e as unknown as Record<string, unknown>
     if (e.tool === 'AskUserQuestion' && (await connected($))) return ask($, input as { questions?: Question[] }, next as never, e as never) as never
@@ -371,35 +409,27 @@ export const register: Register = on => {
     return ran
   })
 
-  on('tool.check', async ($, e, next) => {
+  on('classic.PermissionRequest', async ($, e, next) => {
     const decided = await next(e)
-    const own = decided as { plugin?: string; hook?: string }
-    if (
-      decided.decision !== 'ask' ||
-      !helper ||
-      !e.tool_use_id ||
-      next.origin.plugin !== 'engine' ||
-      e.approver !== 'person' ||
-      (e.ceiling !== undefined && e.ceiling !== 'allow') ||
-      (own.plugin !== undefined && own.plugin !== $.plugin.name) ||
-      own.hook !== undefined ||
-      PERSON_ONLY.has(e.tool) ||
-      !(await connected($)) ||
-      holding !== null
-    ) return decided
+    const tool = e.tool_name
+    const agentId = (e as { agent_id?: string }).agent_id ?? ''
+    const signal = (next as { signal?: { aborted: boolean } }).signal
+    if (decided.decision || !helper || PERSON_ONLY.has(tool) || holding !== null || !(await connected($))) return decided
     const claim = `claim-${Math.random()}`
     holding = claim
-    const input = (e.input ?? {}) as Record<string, unknown>
-    const summary = visible(summarize(e.tool, input))
-    const full = e.tool === 'Bash' && typeof input.command === 'string' ? input.command : JSON.stringify(input, null, 2)
+    const input = (e.tool_input ?? {}) as Record<string, unknown>
+    const summary = visible(summarize(tool, input))
+    const full = tool === 'Bash' && typeof input.command === 'string' ? input.command : JSON.stringify(input, null, 2)
+    const updates = (e.permission_suggestions ?? []).filter(u => describe(u) !== '')
+    const always = updates.length ? `Yes, and ${updates.map(describe).join(' and ')}` : ''
     let id: string | null = null
     let answer: unknown
     try {
-      id = await card($, { type: 'permission', tool: e.tool, summary, detail: detail(e.tool, input), complete: full.length <= 20000, reason: decided.reason ?? '', agentId: e.agentId ?? '' }, e.agentId ?? '')
+      id = await card($, { type: 'permission', tool, summary, detail: detail(tool, input), complete: full.length <= 20000, always, agentId }, agentId)
       if (!id) return decided
       const cardId = id
-      await update($, pending, () => ({ id: cardId, kind: 'permission' as const, tool: e.tool, summary }))
-      answer = await waitFor($, cardId, next.signal)
+      await update($, pending, () => ({ id: cardId, kind: 'permission' as const, tool, summary }))
+      answer = await waitFor($, cardId, signal)
     } catch {
       answer = undefined
     } finally {
@@ -410,13 +440,18 @@ export const register: Register = on => {
       }
     }
     if (!id) return decided
-    if (next.signal.aborted || answer === undefined) {
+    if (signal?.aborted || !answer || typeof answer !== 'object') {
       withdraw($, id)
       return decided
     }
     cards.delete(id)
-    if (answer === 'allow') return { decision: 'allow' as const, reason: 'Allowed once from the software factory' }
-    if (answer === 'deny') return { decision: 'deny' as const, reason: 'Denied from the software factory' }
+    const a = answer as { choice?: string; note?: string }
+    if (a.choice === 'yes') return { ...decided, decision: { behavior: 'allow' as const } }
+    if (a.choice === 'always' && always) return { ...decided, decision: { behavior: 'allow' as const, updatedPermissions: updates } }
+    if (a.choice === 'no') {
+      const note = typeof a.note === 'string' ? a.note.trim().slice(0, 2000) : ''
+      return { ...decided, decision: note ? { behavior: 'deny' as const, message: `The user denied this from the software factory page and said: ${note}` } : { behavior: 'deny' as const, message: 'The user denied this from the software factory page.', interrupt: true as const } }
+    }
     return decided
   })
 
@@ -424,14 +459,14 @@ export const register: Register = on => {
     const p = await read($, pending)
     if (!p) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const choose = (answer: string) => () => void call($, '/answer', { id: p.id, answer }).catch(() => undefined)
+    const choose = (answer: unknown) => () => void call($, '/answer', { id: p.id, answer }).catch(() => undefined)
     return (
       <Box flexDirection="column">
         <Text>
           Claude wants to run {p.tool}: <Text dimColor>{p.summary}</Text>
         </Text>
         <Box>
-          <Button key="deny" label="Deny" onPress={choose('deny')} />
+          <Button key="deny" label="Deny" onPress={choose({ choice: 'no' })} />
           <Text> </Text>
           <Button key="terminal" label="Show the usual prompt" onPress={choose('terminal')} />
           <Text dimColor> or answer on the software factory page</Text>
