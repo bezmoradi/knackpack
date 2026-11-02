@@ -6,8 +6,11 @@ Start a Claude Code session in the terminal, then carry on from a page in your b
 - a message you type on the page runs in the same session as your own words, and the terminal shows it;
 - **Stop** ends the current turn;
 - Claude's questions and permission prompts appear as cards below the conversation, just above the message box, which the page scrolls to when one arrives; you can answer on the page or in the terminal, and the first answer wins;
-- a checklist shows knackpack's adversarial reviewer, marked required, with its verdict once it has run, and **Run** asks Claude to start it;
+- the side panel's execution path shows where the task stands: Define (agreed requirements), Plan, Implement (the current commit), Verify (knackpack's adversarial and slop reviewers, each with its verdict and a **Run** button that asks Claude to start it) and Deliver (whether Claude may push);
+- while the page is open, Claude can't push until the current commit has a plan behind it and both reviewers have passed it, as the push gate below describes;
 - the side panel shows the session's knackpack intent record: open questions, agreed requirements, assumptions and what's built.
+
+The top bar, tabs, message box and status bar stay put; only the conversation scrolls, with its scrollbar beside the text rather than at the window's edge, and the wheel scrolls it from the empty margins too. On a window 1,000 px or wider the side panel sits beside the conversation and scrolls on its own; on a narrower one it follows the conversation.
 
 Other sessions open read-only: what they're waiting on, the questions asked and answered, agents and their verdicts, tasks and intent record. To control one from the browser, run `/factory` in it. The overview lists other sessions only while knackpack records them (`/knackpack:software-factory on`); it reads the session list knackpack writes for its own page.
 
@@ -50,6 +53,18 @@ A message that starts with `/` runs that command as if you had typed it in the t
 
 **Tool calls** show as the terminal shows them: a dot that's grey while the tool runs, green when it's done and red when it failed or was denied, the tool's name and its argument, and a line under it with the outcome, worded by the plugin from the tool's own result: the first lines of a command's output, the lines read, added or removed, a fetch's size and status, or the first line of an error.
 
+**Push gate.** While the page is open, a push Claude makes, itself or through a subagent, is refused until three things hold:
+
+- **A plan:** a `PLAN.md` or `PLAN-<name>.md` from `/knackpack:plan-implementation`, in the session's knackpack folder (`$TMPDIR/claude-<session id>/`) or named on the Files line of the session's intent record. Research shows as done or skipped and never holds a push.
+- **Two reviews of the commit being pushed:** one by `knackpack:adversarial-reviewer` and one by `knackpack:slop-reviewer`, each started and finished on the commit that's checked out. A new commit makes them stale, so commit first, then review, then push.
+- **No blocking verdict:** "Changes required" and "Needs verification" block for the adversarial reviewer, "CHANGES REQUIRED" and "NEEDS CONTEXT" for the slop reviewer. A reply with no verdict the gate recognizes counts as not run.
+
+A blocking verdict can be overridden on the page: **Override**, then **Confirm override** within 5 seconds. The override holds for that review of that commit only: a new commit, or the same reviewer run again, needs a new one if its verdict blocks again. It shows on the timeline, and Claude is told about it when the push goes through.
+
+A push is a Bash command with `git … push` or `git subtree push` in it, `gh pr create`, `gh repo sync`, or the push, file-writing and branch-creating tools of an MCP server whose name contains `github`. While the page is open, only a plain `git push` of the current branch or `HEAD`, with nothing else in the same call and none of `--all`, `--mirror`, `--tags`, `--delete` or another refspec, or a plain `gh pr create`, can pass. Anything else is refused with a request to push plainly, since a command that commits and then pushes would push a commit nobody reviewed. When the gate can't check a push, for example because it can't read the current commit, it refuses. The gate reads the commit from the repository's `.git` files without running git, since a repository's git configuration can make git run programs. After `/factory stop`, pushes work as they do without the plugin.
+
+The gate guards against pushing by mistake; it isn't a security boundary. It recognizes pushes by their command, so a script, alias or tool that pushes some other way gets through, and you can always push from your own shell.
+
 **Status bar.** A bar along the bottom, as in VS Code, shows how many sessions need you and how many are working, then the last turn's token count, on the left, and, on the right, knackpack's version, which links to its GitHub repository, and the license. knackpack writes its version into the session list it keeps, so the page shows only "knackpack" while knackpack isn't recording sessions or is older than 0.20.0. The overview's section headings carry their own counts.
 
 **Appearance.** The **Aa** button at the top right picks a theme and a text size. The themes are VS Code's Solarized Dark (the default), Dark Modern, GitHub Dark Default, One Dark Pro and Dracula, and Solarized Light, Light Modern and GitHub Light Default. Text size steps with **−** and **+** through 80, 90, 100, 110, 125, 150, 175 and 200% of your browser's default, Chrome's own zoom levels, and scales the whole page; **Reset**, beside the heading once the size isn't 100%, sets it back. Both are saved for every session's page, since each `/factory` run starts on a new port, which the browser treats as a new site.
@@ -58,7 +73,7 @@ A message that starts with `/` runs that command as if you had typed it in the t
 
 Typing `/factory` starts a small Node.js server for the session. The plugin and the server talk over a Unix socket in a private folder (mode 0700) under your temporary directory, and the page talks to the server on `127.0.0.1` only, on a random port.
 
-**What the page's key allows:** reading the session's events and the overview of every session knackpack recorded, sending a message, running any slash command the terminal could run, built-ins such as `/clear` and `/exit` included, listing the names of files in the session's folder for `@` suggestions, stopping the current turn, answering an open question or permission card, uploading images for its next message, saving the page's theme and text size, and disconnecting. Nothing else.
+**What the page's key allows:** reading the session's events and the overview of every session knackpack recorded, sending a message, running any slash command the terminal could run, built-ins such as `/clear` and `/exit` included, listing the names of files in the session's folder for `@` suggestions, stopping the current turn, answering an open question or permission card, uploading images for its next message, saving the page's theme and text size, overriding a reviewer's blocking verdict on the current commit for the push gate, and disconnecting. Nothing else.
 
 **Permission prompts** go to the page only when Claude Code is about to ask you, after your rules, hooks and auto mode's classifier have had their say, and only while the page is open. The card offers what the terminal's dialog offers: **Yes**; **Yes, and …**, which applies every rule, mode or folder change Claude Code itself suggests for this call, such as not asking again for `npm test` commands in this project, and is the only rule the page can save; the page leaves it out when Claude Code suggests a kind of change the card can't describe; and **No, and tell Claude what to do differently**, which denies the call and passes your note to Claude, or stops Claude when you leave the note empty or press Esc. The card shows the whole call; a call too long to show in full can only be denied there. While the page holds a prompt, the terminal shows a row with "Deny" and "Show the usual prompt", which brings back Claude Code's own dialog with the full call and every option. A call your settings deny stays denied, since Claude Code checks deny rules again after any allow. One prompt at a time goes to the page; any other waiting at the same time gets Claude Code's own dialog. Plan approval stays in the terminal; the page shows the plan and says it's waiting there.
 
@@ -80,6 +95,7 @@ Typing `/factory` starts a small Node.js server for the session. The plugin and 
 | Session events: prompts, answers, tool summaries, agents | The server's memory, last 3,000 events or 5 MB | Until the server stops |
 | The private folder: socket and launch file | Your temporary directory | Removed when the server stops |
 | Images pasted on the page | The private folder, mode 0600 | Removed when the server stops |
+| The push gate's reviews and overrides | The plugin's memory | Until the session ends or `/reload-plugins` |
 | The page's theme and text size | `~/.local/state/software-factory/prefs.json` (under `$XDG_STATE_HOME` if you set it), mode 0600 in a 0700 folder | Until you delete it |
 
 **Logs:** the server writes one JSON line to its standard error for each refused request, connection, revoked key and answer given from the page. It records the kind of event, never keys, codes, message text or tool input. The plugin passes these lines to Claude Code's debug log (`claude --debug`), at most 30 a minute.
@@ -95,6 +111,7 @@ Typing `/factory` starts a small Node.js server for the session. The plugin and 
 | `POST /api/image` | The image itself, with `Content-Type` `image/png`, `image/jpeg`, `image/gif` or `image/webp`, at most 2.5 MB, its first bytes checked against the type; answered with `{ "id": "<image>" }`. The server keeps at most 40 images not yet sent, removing the oldest such image when another arrives |
 | `POST /api/stop` | `{}` |
 | `POST /api/answer` | `{ "id": "<card>", "answer": <answer> }`: for a permission card `{ "choice": "yes" }`, `{ "choice": "always" }` or `{ "choice": "no", "note": "<optional, at most 2,000 characters>" }`; for a question `{ "<question>": "<answer>" }` |
+| `POST /api/override` | `{ "type": "knackpack:adversarial-reviewer" \| "knackpack:slop-reviewer", "head": "<commit id>" }`, a 40- or 64-character commit id; the plugin accepts it only when that reviewer's verdict on that commit blocks and the commit is still checked out |
 | `POST /api/disconnect` | `{}` |
 | `POST /api/prefs` | `{ "theme": "<name>", "scale": <percent> }`, either or both; only the names in `themes.css` and the sizes in `app.css` are accepted |
 
@@ -111,6 +128,7 @@ The page is plain ES modules with no build step. Any `.js` or `.css` file in `we
 | `tabs.js` | The tab bar, `<sf-tabs>` |
 | `prefs.js` | The **Aa** menu: it lists the themes and text sizes it finds in the stylesheets |
 | `themes.css` | One block of color variables per theme |
+| `path.js` | The execution path in the side panel: plain functions that set each stage's mark and line, leaving the reviewer rows in place |
 | `complete.js` | The `/` and `@` suggestions above the message box: plain functions, since the list owns nothing a rebuild would lose |
 | `markdown.js`, `cards.js`, `check.js`, `intent.js`, `overview.js`, `session.js` | The components below |
 
@@ -122,7 +140,7 @@ The page is plain ES modules with no build step. Any `.js` or `.css` file in `we
 | `<sf-ask>` | `card`: an `ask` event; `error`: a message to show, which also re-enables the card | `sf-answer` with `{ id, answer }` |
 | `<sf-permission>` | `card`: a `permission` event, with `always`, the label of the "Yes, and …" option when Claude Code suggested one; `error`, as above | `sf-answer` with `{ id, answer: { choice: 'yes' \| 'always' \| 'no', note? } }` |
 | `<sf-plan>` | `card`: a `plan` event | none |
-| `<sf-check>` | `check`: `{ name, required, prompt }`; `status`: `{ running, ran, finished, verdict, disabled }` | `sf-run` with `{ prompt }` |
+| `<sf-check>` | `check`: `{ type, name, prompt }`; `status`: `{ running, ran, gate, disabled, error }`, where `gate` is the reviewer's entry in the helper's `gate` event: `{ state: 'none' \| 'running' \| 'stale' \| 'pass' \| 'block' \| 'overridden', verdict }`. It shows **Override** only for `block`, and a second click within 5 seconds confirms | `sf-run` with `{ prompt }`; `sf-override` with `{ type }` once confirmed |
 | `<sf-intent>` | `record`: the helper's `intent` record; it hides itself when there's none | none |
 | `<sf-overview>` | `data`: the helper's `overview` event; `live`: `{ id, cwd, busy, needs }` for this session, which is more current than knackpack's record of it. It redraws every 30 seconds for the relative times and puts keyboard focus back on the row it was on | `sf-counts` with `{ waiting, working }` after each redraw, for the status bar; each row is a link whose `data-view` names its tab, `live` or `s/<session>`, which `app.js` opens |
 | `<sf-session>` | `session`: one session from the overview | none |
@@ -194,5 +212,6 @@ To add a theme:
 - In 0.2.0 Claude Code dropped every pasted image, showing Claude "(media removed — rejected by API)", because the tool returned MCP's image block rather than the Messages API's. 0.3.0 returns the API's block; a live paste with it hasn't been checked yet.
 - A tool call's outcome line is the plugin's own wording, since Claude Code doesn't pass its own to plugins. Grep, Glob and other tools whose results this Claude Code version doesn't describe to plugins get no outcome line, and lines such as "Allowed by auto mode" aren't shown.
 - 0.4.0's suggestions and commands from the page were checked on a test helper only. In a live session it's still unchecked when Claude Code first offers its agents to a plugin, whether `@agent-<name>` and `@<file>` in a message the page sends work as they do when typed in the terminal, and what each built-in command shows when run from the page.
-- Run on the checklist asks Claude to start the reviewer. Nothing is blocked while a required reviewer hasn't run.
+- 0.5.0's push gate was checked in live headless sessions on Haiku for its refusals: no plan and no reviews, a commit and a push in one call, `git status` left alone, a normal push once the page was closed, a plan found in the session's folder, and a branch read from `packed-refs`. A push let through by two passing reviews, a review gone stale after a commit, and an override haven't run end to end in a live session yet; the page's side of them was checked on a test helper.
+- The gate's reviews and overrides live in the plugin's memory, so `/reload-plugins` forgets them: run the reviewers again after a reload.
 - Everything here was tested by hand in real sessions; the project has no automated tests.

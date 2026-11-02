@@ -21,7 +21,8 @@ body {
   background: var(--paper);
 }
 body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
-.scroller { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.frame { flex: 1; min-height: 0; display: flex; justify-content: center; }
+.scroller { flex: 0 1 70rem; min-width: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: transparent transparent; }
 .scroller:hover { scrollbar-color: color-mix(in srgb, var(--soft) 45%, transparent) transparent; }
 body.out { padding: 0; }
 body.out > :not(.gone) { display: none !important; }
@@ -73,8 +74,9 @@ button:disabled, button[aria-disabled="true"] { opacity: .5; cursor: default; }
   padding: 1.5rem 1.25rem;
 }
 @media (min-width: 1000px) {
-  .layout { grid-template-columns: minmax(0, 1fr) 16.25rem; }
-  aside { position: sticky; top: 1.5rem; align-self: start; max-height: calc(var(--view, 100vh) - 3rem); overflow-y: auto; scrollbar-width: thin; }
+  body.live .scroller { flex-basis: 51.75rem; }
+  .frame > aside { flex: none; width: 16.25rem; margin: 0 1.25rem 0 .75rem; padding: 1.5rem 0; overflow-y: auto; scrollbar-width: thin; }
+  body:not(.live) .frame > aside { display: none; }
 }
 main { min-width: 0; }
 
@@ -159,12 +161,26 @@ input::placeholder, textarea::placeholder { color: var(--placeholder); }
 
 aside h2, .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 .5rem; font-weight: 600; }
 aside section, sf-intent { margin-bottom: 1.6rem; }
+.path { list-style: none; margin: 0; padding: 0; }
+.path > li { position: relative; display: grid; grid-template-columns: 1rem minmax(0, 1fr); column-gap: .65rem; padding-bottom: .85rem; }
+.path > li:not(:last-child)::before { content: ''; position: absolute; left: calc(.5rem - 1px); top: 1.35rem; bottom: .15rem; width: 2px; background: var(--line); }
+.path .mark { display: grid; place-items: center; width: 1rem; height: 1rem; margin-top: .2rem; border: 2px solid var(--line); border-radius: 50%; }
+.path .done .mark { border-color: var(--good); background: var(--good); }
+.path .done .mark::after { content: ''; width: .25rem; height: .45rem; margin-top: -.1rem; border: solid var(--paper); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.path .current .mark { border-color: var(--good); }
+.path .current .mark::after { content: ''; width: .4rem; height: .4rem; border-radius: 50%; background: var(--good); }
+.path strong { font-size: .875rem; font-weight: 600; }
+.path li:not(.done, .current) strong { color: var(--muted); }
+.path .detail { margin: 0; }
+.path .detail:empty { display: none; }
+.path .list { margin-top: .3rem; }
+.path button { white-space: nowrap; }
+.path .missing { margin: .2rem 0 0; padding-left: 1rem; }
 .list { list-style: none; margin: 0; padding: 0; }
 .list li { padding: .4rem 0; border-bottom: 1px solid var(--line); font-size: .875rem; }
 .list li:last-child { border-bottom: 0; }
 .row { display: flex; align-items: center; gap: .5rem; }
 .tag { font-size: .6875rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 .45rem; }
-.tag.req { color: var(--warn-ink); border-color: var(--warn); }
 .ok { color: var(--good-ink); }
 .bad { color: var(--bad-ink); }
 .warn { color: var(--warn-ink); }

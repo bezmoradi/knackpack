@@ -1,11 +1,19 @@
 import { el } from './dom.js'
 
+const NOTES = {
+  none: ['Not run on this commit', 'muted'],
+  running: ['Reviewing…', 'muted'],
+  stale: ['Reviewed an earlier commit: run it again', 'warn'],
+}
+
 class SfCheck extends HTMLElement {
   #check = null
   #run = null
+  #override = null
   #note = null
   #status = {}
   #sentAt = 0
+  #armedAt = 0
 
   get check() {
     return this.#check
@@ -15,7 +23,6 @@ class SfCheck extends HTMLElement {
     this.#check = value
     const row = el('div', 'row')
     row.append(el('span', '', value.name))
-    if (value.required) row.append(el('span', 'tag req', 'Required'))
     row.append(el('span', 'spacer'))
     this.#run = el('button', 'ghost small', 'Run')
     this.#run.type = 'button'
@@ -26,21 +33,49 @@ class SfCheck extends HTMLElement {
       setTimeout(() => (this.status = this.#status), 30000)
       this.dispatchEvent(new CustomEvent('sf-run', { bubbles: true, detail: { prompt: value.prompt } }))
     })
-    row.append(this.#run)
-    this.#note = el('div', 'small muted', 'Not run in this session')
+    this.#override = el('button', 'ghost small', 'Override')
+    this.#override.type = 'button'
+    this.#override.hidden = true
+    this.#override.addEventListener('click', () => {
+      if (this.#override.getAttribute('aria-disabled') === 'true') return
+      if (Date.now() - this.#armedAt > 5000) {
+        this.#armedAt = Date.now()
+        this.status = this.#status
+        setTimeout(() => (this.status = this.#status), 5000)
+        return
+      }
+      this.#armedAt = 0
+      this.status = this.#status
+      this.dispatchEvent(new CustomEvent('sf-override', { bubbles: true, detail: { type: value.type } }))
+    })
+    row.append(this.#override, this.#run)
+    this.#note = el('div', 'small muted', NOTES.none[0])
     this.replaceChildren(row, this.#note)
   }
 
   set status(value = {}) {
     this.#status = value
-    const { running = false, ran = false, finished = '', verdict = null, disabled = false } = value
+    const { running = false, ran = false, disabled = false, gate = null, error = '' } = value
     if (!this.#run) return
     if (running) this.#sentAt = 0
     const sent = Date.now() - this.#sentAt < 30000
-    this.#run.textContent = running ? 'Running…' : sent ? 'Asked…' : ran || verdict ? 'Run again' : 'Run'
+    const state = gate?.state ?? (running ? 'running' : 'none')
+    this.#run.textContent = running ? 'Running…' : sent ? 'Asked…' : ran ? 'Run again' : 'Run'
     this.#run.setAttribute('aria-disabled', String(running || sent || disabled))
-    this.#note.className = `small ${verdict ? verdict[1] : 'muted'}`
-    this.#note.textContent = verdict ? verdict[0] : running ? 'Reviewing…' : finished ? `Finished: ${finished}` : 'Not run in this session'
+    this.#override.hidden = state !== 'block'
+    this.#override.textContent = Date.now() - this.#armedAt < 5000 ? 'Confirm override' : 'Override'
+    this.#override.setAttribute('aria-disabled', String(disabled))
+    const [text, tone] = error
+      ? [error, 'bad']
+      : state === 'pass'
+        ? [gate.verdict, 'ok']
+        : state === 'block'
+          ? [gate.verdict, 'bad']
+          : state === 'overridden'
+            ? [`Overridden: ${gate.verdict}`, 'warn']
+            : NOTES[state] ?? NOTES.none
+    this.#note.className = `small ${tone}`
+    this.#note.textContent = text
   }
 }
 

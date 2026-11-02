@@ -28,6 +28,180 @@ let imageTool = ''
 let lastCatalog = ''
 const offered = new Map<string, string>()
 
+type Review = { type: string; start: string; end?: string; verdict?: string; state: 'running' | 'pass' | 'block' | 'none' }
+type Head = { sha: string; branch: string }
+
+const REVIEWERS: Record<string, { name: string; block: RegExp; pass: RegExp }> = {
+  'knackpack:adversarial-reviewer': { name: 'Adversarial reviewer', block: /\b(changes required|needs verification)\b/i, pass: /\bno blocking issues found\b/i },
+  'knackpack:slop-reviewer': { name: 'Slop reviewer', block: /\b(changes required|needs context)\b/i, pass: /\b(simpler change available|nothing to remove in scope)\b/i },
+}
+const HEX = /^[0-9a-f]{40}([0-9a-f]{24})?$/
+const GIT_PUSH = /(?:^|[\s;&|(`$])git(?:\s+(?:-C\s+\S+|-c\s+\S+|--?[A-Za-z][\w-]*(?:=\S+)?))*\s+(?:subtree\s+)?push\b/
+const GH_PUSH = /(?:^|[\s;&|(`$])gh\s+(?:pr\s+create|repo\s+sync)\b/
+const MCP_PUSH = /^mcp__.*github.*__(push_files|create_or_update_file|delete_file|create_branch)$/i
+const PUSH_FLAGS = /^(-u|--set-upstream|-q|--quiet|-v|--verbose|-n|--dry-run|-f|--force|--force-with-lease(=\S+)?|--force-if-includes|--progress|--no-progress|--porcelain)$/
+const GATE_FAILED = "The software factory's push gate couldn't check this push, so it held it. Push from your own shell, or try again."
+
+const runs = new Map<string, Review>()
+const reviews = new Map<string, Review>()
+const overrides = new Map<string, Review>()
+let lastGate = ''
+
+function pushShaped(tool: string, input: Record<string, unknown>): boolean {
+  if (MCP_PUSH.test(tool)) return true
+  if (tool !== 'Bash' || typeof input.command !== 'string') return false
+  return GIT_PUSH.test(input.command) || GH_PUSH.test(input.command)
+}
+
+function plainPush(command: string, branch: string): boolean {
+  const t = command.trim()
+  if (/[;&|\n\r`<>]|\$\(/.test(t)) return false
+  if (/^gh\s+pr\s+create(\s|$)/.test(t)) return !/\s(-H|--head|-R|--repo)(\s|=|$)/.test(t)
+  const m = /^git\s+push(\s.*)?$/.exec(t)
+  if (!m) return false
+  const args = (m[1] ?? '').trim().split(/\s+/).filter(Boolean)
+  if (args.some(a => a.startsWith('-') && !PUSH_FLAGS.test(a))) return false
+  const rest = args.filter(a => !a.startsWith('-'))
+  if (rest.length > 2) return false
+  const ref = rest[1]
+  if (ref === undefined) return true
+  const mine = branch ? [branch, `${branch}:${branch}`, `HEAD:${branch}`, `refs/heads/${branch}`, `HEAD:refs/heads/${branch}`] : []
+  return ref === 'HEAD' || mine.includes(ref.replace(/^\+/, ''))
+}
+
+async function readHead($: EngineInterface): Promise<Head | null> {
+  let dir = (await $.session.cwd()).replace(/\/+$/, '')
+  for (let i = 0; i < 64 && dir; i++) {
+    const dot = `${dir}/.git`
+    const info = await $.fs.stat(dot).catch(() => null)
+    if (info) {
+      let gitdir = dot
+      if (info.kind === 'file') {
+        const to = /^gitdir: (.+)$/m.exec(await $.fs.read(dot))?.[1]?.trim()
+        if (!to) return null
+        gitdir = to.startsWith('/') ? to : `${dir}/${to}`
+      }
+      const common = (await $.fs.read(`${gitdir}/commondir`).catch(() => '')).trim()
+      const root = !common ? gitdir : common.startsWith('/') ? common : `${gitdir}/${common}`
+      const head = (await $.fs.read(`${gitdir}/HEAD`)).trim()
+      if (HEX.test(head)) return { sha: head, branch: '' }
+      const ref = /^ref: (refs\/heads\/\S+)$/.exec(head)?.[1]
+      if (!ref) return null
+      const loose = (await $.fs.read(`${root}/${ref}`).catch(() => '')).trim()
+      if (HEX.test(loose)) return { sha: loose, branch: ref.slice(11) }
+      const packed = (await $.fs.read(`${root}/packed-refs`).catch(() => '')).split('\n').map(l => l.split(' ')).find(([sha, name]) => name === ref && HEX.test(sha))
+      return packed ? { sha: packed[0], branch: ref.slice(11) } : null
+    }
+    const up = dir.slice(0, dir.lastIndexOf('/'))
+    if (up === dir) return null
+    dir = up
+  }
+  return null
+}
+
+async function findFiles($: EngineInterface): Promise<{ plan: string; research: string; define: boolean }> {
+  const out = { plan: '', research: '', define: false }
+  const id = await $.session.id()
+  const tmp = ((await $.env.get('TMPDIR')) || '/tmp').replace(/\/+$/, '')
+  const pick = (names: string[], dir: string, base: string) => {
+    const name = names.find(n => new RegExp(`^${base}(-[\\w.-]+)?\\.md$`).test(n))
+    return name ? `${dir}/${name}` : ''
+  }
+  const here = await $.fs.list(`${tmp}/claude-${id}`).then(l => l.filter(f => f.kind === 'file' && !f.isLink).map(f => f.name)).catch(() => [] as string[])
+  out.plan = pick(here, `${tmp}/claude-${id}`, 'PLAN')
+  out.research = pick(here, `${tmp}/claude-${id}`, 'RESEARCH')
+  out.define = !!pick(here, `${tmp}/claude-${id}`, 'REQUIREMENTS')
+  const state = (await $.env.get('XDG_STATE_HOME'))?.startsWith('/') ? await $.env.get('XDG_STATE_HOME') : `${await $.env.get('HOME')}/.local/state`
+  const intent = `${state}/knackpack/intent`
+  let newest = { path: '', mtime: 0 }
+  for (const repo of await $.fs.list(intent).catch(() => [])) {
+    if (repo.kind !== 'dir') continue
+    for (const f of await $.fs.list(`${intent}/${repo.name}`).catch(() => [])) {
+      const rest = f.name.startsWith(id) ? f.name.slice(id.length) : null
+      if (f.kind === 'file' && (rest === '.md' || (rest && /^\.\d+\.md$/.test(rest))) && f.mtimeMs > newest.mtime) newest = { path: `${intent}/${repo.name}/${f.name}`, mtime: f.mtimeMs }
+    }
+  }
+  if (!newest.path) return out
+  const text = await $.fs.read(newest.path).catch(() => '')
+  out.define ||= /^## Agreed\n- /m.test(text)
+  const files = (/^- Files: (.*)$/m.exec(text)?.[1] ?? '').split(/,\s+/).filter(p => p.startsWith('/'))
+  for (const [key, base] of [['plan', 'PLAN'], ['research', 'RESEARCH']] as const) {
+    if (out[key]) continue
+    for (const p of files) {
+      if (new RegExp(`/${base}(-[\\w.-]+)?\\.md$`).test(p) && (await $.fs.stat(p).then(s => s.kind === 'file').catch(() => false))) {
+        out[key] = p
+        break
+      }
+    }
+  }
+  return out
+}
+
+async function verdictOf($: EngineInterface, type: string, answer: string): Promise<{ state: 'pass' | 'block' | 'none'; verdict: string }> {
+  const rule = REVIEWERS[type]
+  const judge = (lines: string[]) => {
+    const line = lines.map(l => l.replace(/[*_`#>]/g, '').trim()).find(l => rule.block.test(l) || rule.pass.test(l))
+    return line ? { state: rule.block.test(line) ? ('block' as const) : ('pass' as const), verdict: clip(line, 200) } : null
+  }
+  const lines = answer.split('\n').filter(l => l.trim() && !l.trim().startsWith('/'))
+  const fromReply = judge(lines)
+  if (fromReply) return fromReply
+  const path = answer.split('\n').map(l => l.trim()).find(l => /^\/\S+\.md$/.test(l))
+  const tmp = ((await $.env.get('TMPDIR')) || '/tmp').replace(/\/+$/, '')
+  if (path && !path.includes('/../') && (path.startsWith(`${tmp}/`) || path.startsWith('/tmp/'))) {
+    const head = await $.fs.read(path).then(t => t.split('\n').slice(0, 40)).catch(() => [] as string[])
+    const fromReport = judge(head)
+    if (fromReport) return fromReport
+  }
+  return { state: 'none', verdict: '' }
+}
+
+async function gateState($: EngineInterface) {
+  const head = await readHead($).catch(() => null)
+  const files = await findFiles($).catch(() => ({ plan: '', research: '', define: false }))
+  const missing: string[] = []
+  if (!head) missing.push("the current commit, which the gate couldn't read")
+  if (!files.plan) missing.push('a plan from /knackpack:plan-implementation')
+  const list = Object.entries(REVIEWERS).map(([type, { name }]) => {
+    const r = reviews.get(type)
+    const current = !!head && !!r && r.start === head.sha && (r.state === 'running' || r.end === head.sha)
+    let state: string = !r ? 'none' : r.state === 'running' ? (current ? 'running' : 'stale') : !current ? 'stale' : r.state
+    if (state === 'block' && r && overrides.get(type) === r) state = 'overridden'
+    if (state === 'none' || state === 'stale' || state === 'running') missing.push(state === 'stale' ? `a fresh ${name.toLowerCase()} review (the last one saw another commit)` : state === 'running' ? `the ${name.toLowerCase()} to finish` : `a review by ${type}`)
+    if (state === 'block') missing.push(`an override or a fix for the ${name.toLowerCase()}'s verdict "${r?.verdict}"`)
+    return { type, name, state, verdict: r?.verdict ?? '' }
+  })
+  return { type: 'gate', head: head?.sha ?? '', branch: head?.branch ?? '', define: files.define, plan: files.plan, research: files.research, reviewers: list, allowed: !missing.length, missing }
+}
+
+async function refreshGate($: EngineInterface) {
+  if (!helper) return
+  const gate = await gateState($)
+  const key = JSON.stringify(gate)
+  if (key === lastGate) return
+  lastGate = key
+  push($, gate)
+}
+
+async function override($: EngineInterface, type: string, sha: string) {
+  const head = await readHead($).catch(() => null)
+  const review = reviews.get(type)
+  if (!head || head.sha !== sha || !review || review.state !== 'block' || review.start !== sha || review.end !== sha) return
+  overrides.set(type, review)
+  push($, { type: 'command', name: 'override', text: `You overrode the ${REVIEWERS[type].name.toLowerCase()}'s verdict "${review.verdict}" on commit ${sha.slice(0, 7)}. Claude can push this commit.` })
+  void refreshGate($)
+}
+
+async function gateRefusal($: EngineInterface, tool: string, input: Record<string, unknown>): Promise<string> {
+  const gate = await gateState($)
+  lastGate = ''
+  void refreshGate($)
+  if (tool === 'Bash' && !plainPush(String(input.command), gate.branch)) return 'The software factory page is on, so its push gate only lets through a plain `git push` of the current branch (or a plain `gh pr create`) run on its own, since anything else could push a commit nobody reviewed. Run the push on its own, or ask the developer to push from their own shell.'
+  if (tool !== 'Bash') return 'The software factory page is on, so its push gate holds pushes made through this tool. Use a plain `git push`, or ask the developer to push from their own shell.'
+  if (gate.allowed) return ''
+  return `The software factory page is on, and its push gate holds this push until it has: ${gate.missing.join('; ')}. The reviews must see the commit being pushed, so commit first, then review. The developer can override a blocking verdict on the page, or push from their own shell.`
+}
+
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g
 
 function visible(text: string): string {
@@ -213,6 +387,7 @@ function tick($: EngineInterface) {
       }
     }).catch(() => undefined)
     void catalog($)
+    void refreshGate($)
   })
 }
 
@@ -316,6 +491,8 @@ function handle($: EngineInterface, line: string, resolve: (v: { helper: Helper;
       const note = !ids.length ? '' : lost ? `I pasted ${pictures(lost)} on the software factory page, but ${lost === 1 ? 'it' : 'they'} couldn't be passed on to you.` : `I pasted ${pictures(ids.length)} on the software factory page. To see ${ids.length === 1 ? 'it' : 'them'}, call ${tool} with ${ids.map(id => `id "${id}"`).join(', then ')}.`
       void $.prompt.submit({ text: [note, text.trim()].filter(Boolean).join('\n\n'), asUser: true })
     }).catch(() => {})
+  } else if (msg.t === 'override' && typeof msg.type === 'string' && REVIEWERS[msg.type] && typeof msg.head === 'string' && HEX.test(msg.head)) {
+    void override($, msg.type, msg.head)
   } else if (msg.t === 'stop' && turnId) {
     void $.turn.abort({ turnId })
   } else if (msg.t === 'security') {
@@ -443,6 +620,15 @@ export const register: Register = on => {
     if (!e.agentId) {
       turnId = e.turnId
       push($, { type: 'busy', turnId: e.turnId })
+    } else {
+      const type = await $.agent.list().then(list => list.find(a => a.id === e.agentId)?.type).catch(() => undefined)
+      if (type && REVIEWERS[type]) {
+        const head = await readHead($).catch(() => null)
+        const review: Review = { type, start: head?.sha ?? '', state: 'running' }
+        runs.set(e.agentId, review)
+        reviews.set(type, review)
+        void refreshGate($)
+      }
     }
     return next(e)
   })
@@ -458,9 +644,16 @@ export const register: Register = on => {
     const done = await next(e)
     const loop = e.agentId ?? ''
     await Promise.all([...cards].filter(([, agent]) => agent === loop).map(([id]) => call($, '/withdraw', { id }).then(r => r.ok && cards.delete(id)).catch(() => undefined)))
-    if (e.agentId && helper && e.answer) {
-      const agent = await $.agent.list().then(list => list.find(a => a.id === e.agentId)).catch(() => undefined)
-      if (agent) push($, { type: 'verdict', agentType: agent.type, text: clip(e.answer, 1500) })
+    if (e.agentId) {
+      const review = runs.get(e.agentId)
+      if (review) {
+        runs.delete(e.agentId)
+        review.end = (await readHead($).catch(() => null))?.sha ?? ''
+        const judged = e.reason === 'answer' && e.answer ? await verdictOf($, review.type, e.answer).catch(() => ({ state: 'none' as const, verdict: '' })) : { state: 'none' as const, verdict: '' }
+        review.state = judged.state
+        review.verdict = judged.verdict
+        void refreshGate($)
+      }
     }
     if (!e.agentId) {
       turnId = undefined
@@ -499,10 +692,23 @@ export const register: Register = on => {
     const isAgent = e.tool === 'Agent' || e.tool === 'Task'
     push($, { type: 'tool', id, tool: e.tool, summary: summarize(e.tool, input), agentId: e.agentId })
     if (e.tool === 'ExitPlanMode') push($, { type: 'plan', id, plan: clip(input.plan, 20000) })
+    const gated = pushShaped(e.tool, input)
+    if (gated) {
+      const why = await gateRefusal($, e.tool, input).catch(() => GATE_FAILED)
+      if (why) {
+        push($, { type: 'tool_done', id, ok: false, outcome: clip(why, 300) })
+        return { deny: why }
+      }
+    }
+    const head = gated ? await readHead($).catch(() => null) : null
     const ran = await next(e)
     push($, { type: 'tool_done', id, ok: !(ran.deny !== undefined || ran.isError === true), outcome: outcome(e.tool, ran as never), text: isAgent ? clip(ran.text, 1500) : undefined, agentType: isAgent ? input.subagent_type : undefined })
-    return ran
-  })
+    if (e.tool === 'Bash') void refreshGate($)
+    const overridden = head ? Object.keys(REVIEWERS).filter(type => { const r = overrides.get(type); return !!r && r === reviews.get(type) && r.end === head.sha }).map(type => REVIEWERS[type].name.toLowerCase()) : []
+    if (!overridden.length || ran.deny !== undefined || !head) return ran
+    const done = ran as typeof ran & { context?: readonly string[] }
+    return { ...done, context: [...(done.context ?? []), `This push went through on the developer's override, made on the software factory page, of the blocking verdict of the ${overridden.join(' and the ')} on commit ${head.sha.slice(0, 7)}.`] } as typeof ran
+  }).catch(($, e, next) => (next.called ? next(e) : helper && pushShaped(e.tool, e as unknown as Record<string, unknown>) ? { deny: GATE_FAILED } : next(e)))
 
   on('classic.PermissionRequest', async ($, e, next) => {
     const decided = await next(e)
