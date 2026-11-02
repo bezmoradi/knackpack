@@ -75,7 +75,7 @@ button:disabled, button[aria-disabled="true"] { opacity: .5; cursor: default; }
 }
 @media (min-width: 1000px) {
   body.live .scroller { flex-basis: 51.75rem; }
-  .frame > aside { flex: none; width: 16.25rem; margin: 0 1.25rem 0 .75rem; padding: 1.5rem 0; overflow-y: auto; scrollbar-width: thin; }
+  .frame > aside { flex: none; width: 17rem; margin: 0 .5rem 0 .75rem; padding: 1.5rem .75rem 1.5rem 0; overflow-y: auto; scrollbar-width: thin; }
   body:not(.live) .frame > aside { display: none; }
 }
 main { min-width: 0; }
@@ -196,7 +196,7 @@ sf-intent li { margin-bottom: .25rem; }
   padding: 1.1rem 1.25rem 1rem;
   background: var(--paper);
 }
-@media (min-width: 1000px) { .composer { padding-right: calc(1.25rem + 16.25rem + 2rem); } }
+@media (min-width: 1000px) { .composer { padding-right: calc(1.25rem + 17rem + 1.25rem); } }
 .composer .field { position: relative; display: grid; }
 .composer textarea {
   font: inherit; resize: none; max-height: 40vh;
