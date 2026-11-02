@@ -323,7 +323,8 @@ for (const name of readdirSync(webDir)) {
   const ext = (name.match(/^[a-z][a-z0-9-]*(\.js|\.css)$/) || [])[1]
   if (ext && lstatSync(join(webDir, name)).isFile()) STATIC[`/${name}`] = [name, TYPES[ext]]
 }
-const ROUTES = { '/api/session': 'POST', '/api/events': 'GET', '/api/message': 'POST', '/api/stop': 'POST', '/api/answer': 'POST', '/api/disconnect': 'POST', '/api/prefs': 'POST', '/api/image': 'POST', '/api/files': 'POST' }
+const REVIEWER_TYPES = ['knackpack:adversarial-reviewer', 'knackpack:slop-reviewer']
+const ROUTES = { '/api/session': 'POST', '/api/events': 'GET', '/api/message': 'POST', '/api/stop': 'POST', '/api/answer': 'POST', '/api/disconnect': 'POST', '/api/prefs': 'POST', '/api/image': 'POST', '/api/files': 'POST', '/api/override': 'POST' }
 
 const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async (req, res) => {
   const origin = `http://127.0.0.1:${port}`
@@ -453,6 +454,12 @@ const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async
     if (text.startsWith('!') || (text.startsWith('/') && ids.length)) return send(res, 400, { error: 'command' })
     for (const id of ids) images.get(id).sent = true
     say(ids.length ? { t: 'message', text, images: ids.map(id => ({ id, type: images.get(id).type })) } : { t: 'message', text })
+    return send(res, 202, { ok: true })
+  }
+  if (url.pathname === '/api/override') {
+    const keys = Object.keys(body)
+    if (keys.length !== 2 || !REVIEWER_TYPES.includes(body.type) || typeof body.head !== 'string' || !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(body.head)) return send(res, 400, { error: 'override' })
+    say({ t: 'override', type: body.type, head: body.head })
     return send(res, 202, { ok: true })
   }
   if (url.pathname === '/api/files') {

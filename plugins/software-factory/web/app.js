@@ -2,7 +2,8 @@ import { api, events, exchange, forget, signedIn, upload } from './api.js'
 import { el } from './dom.js'
 import { complete } from './complete.js'
 import { initPrefs } from './prefs.js'
-import { VERDICTS, project } from './format.js'
+import { project } from './format.js'
+import { paintPath } from './path.js'
 import './markdown.js'
 import './cards.js'
 import './check.js'
@@ -11,15 +12,19 @@ import './overview.js'
 import './session.js'
 import './tabs.js'
 
-const CHECKS = [{ type: 'knackpack:adversarial-reviewer', name: 'Adversarial reviewer', required: true, prompt: 'Use the knackpack:adversarial-reviewer agent to review the current change against the requirements agreed in this session.' }]
+const CHECKS = [
+  { type: 'knackpack:adversarial-reviewer', name: 'Adversarial reviewer', prompt: 'Use the knackpack:adversarial-reviewer agent to review the committed change on this branch against the requirements agreed in this session.' },
+  { type: 'knackpack:slop-reviewer', name: 'Slop reviewer', prompt: 'Use the knackpack:slop-reviewer agent to review the committed change on this branch against the requirements agreed in this session.' },
+]
 const TOOL_NAMES = { WebFetch: 'Fetch' }
 const CARD_TAGS = { permission: 'sf-permission', ask: 'sf-ask', plan: 'sf-plan' }
 const CARD_ORDER = Object.keys(CARD_TAGS)
 const ACTIVE = ['pending', 'running', 'waiting']
 
 const byId = id => document.getElementById(id)
-const state = { catalog: null, connected: false, note: '', busy: false, title: '', sessionId: '', cwd: '', usage: '', agents: [], verdicts: new Map(), overview: null }
+const state = { catalog: null, connected: false, note: '', busy: false, title: '', sessionId: '', cwd: '', usage: '', agents: [], gate: null, overview: null }
 const cards = new Map()
+const overrideErrors = new Map()
 const tools = new Map()
 let reply = null
 let following = false
@@ -99,13 +104,6 @@ function addTool(ev) {
   follow(wasNear)
 }
 
-function verdict(ev) {
-  if (!ev.agentType || !ev.text) return
-  const found = VERDICTS.find(([word]) => ev.text.includes(word))
-  if (found) state.verdicts.set(ev.agentType, found)
-  paintChecks()
-}
-
 function outLine(text) {
   const out = el('div', 'out')
   const elbow = el('span', '', '⎿')
@@ -122,7 +120,6 @@ function toolDone(ev) {
     li.querySelector('.out')?.remove()
     if (ev.outcome) li.append(outLine(ev.outcome))
   }
-  verdict(ev)
   dropCard(ev.id)
 }
 
@@ -167,8 +164,9 @@ function apply(ev) {
     case 'tool_done':
       toolDone(ev)
       break
-    case 'verdict':
-      verdict(ev)
+    case 'gate':
+      state.gate = ev
+      paintChecks()
       break
     case 'busy':
       state.busy = true
@@ -338,8 +336,10 @@ function paintAgents() {
 function paintChecks() {
   for (const [check, node] of checks) {
     const last = state.agents.filter(a => a.type === check.type).at(-1)
-    node.status = { running: !!last && ACTIVE.includes(last.status), ran: !!last, finished: last ? last.status : '', verdict: state.verdicts.get(check.type), disabled: !state.connected }
+    const gate = state.gate?.reviewers?.find(r => r.type === check.type) ?? null
+    node.status = { running: !!last && ACTIVE.includes(last.status), ran: !!last, gate, disabled: !state.connected, error: overrideErrors.get(check.type) ?? '' }
   }
+  paintPath(byId('path'), state.connected ? state.gate : null)
 }
 
 function say(message) {
@@ -450,7 +450,7 @@ function signOut(note) {
   forget()
   reset()
   state.agents = []
-  state.verdicts.clear()
+  state.gate = null
   paintAgents()
   byId('intent').record = null
   state.overview = null
@@ -518,6 +518,13 @@ byId('needs').addEventListener('sf-answer', async e => {
   if (!res || !res.ok) e.target.error = 'That answer did not go through. It may already have been answered in the terminal.'
 })
 byId('checks').addEventListener('sf-run', e => send(e.detail.prompt))
+byId('checks').addEventListener('sf-override', async e => {
+  const head = state.gate?.head
+  const res = head ? await api('/api/override', { type: e.detail.type, head }).catch(() => null) : null
+  if (res && res.ok) overrideErrors.delete(e.detail.type)
+  else overrideErrors.set(e.detail.type, 'The override did not go through. Try again.')
+  paintChecks()
+})
 document.addEventListener('click', e => {
   const link = e.target.closest('a[data-view]')
   if (!link) return
@@ -543,7 +550,15 @@ byId('overview').addEventListener('sf-counts', e => {
   item(working, 'busy', 'working')
 })
 
-new ResizeObserver(() => document.documentElement.style.setProperty('--view', `${scroller.clientHeight}px`)).observe(scroller)
+const wide = matchMedia('(min-width: 1000px)')
+const placeSide = () => (wide.matches ? byId('frame') : byId('live-view')).append(byId('side'))
+wide.addEventListener('change', placeSide)
+placeSide()
+
+byId('frame').addEventListener('wheel', e => {
+  if (e.target !== e.currentTarget) return
+  scroller.scrollTop += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * scroller.clientHeight : e.deltaY
+}, { passive: true })
 
 const text = byId('text')
 complete(text, byId('complete'), {
