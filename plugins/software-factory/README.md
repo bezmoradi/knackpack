@@ -81,7 +81,7 @@ Typing `/factory` starts a small Node.js server for the session. The plugin and 
 | `POST /api/session` | `{ "code": "<one-time code>" }`, answered with `{ "token": "<page key>" }` |
 | `GET /api/events` | None. Answered with a stream of JSON lines |
 | `POST /api/message` | `{ "text": "<message>", "images": ["<id>", …] }`: text of at most 20,000 characters, up to 4 images from `/api/image`, each sent once; either may be empty, not both |
-| `POST /api/image` | The image itself, with `Content-Type` `image/png`, `image/jpeg`, `image/gif` or `image/webp`, at most 2.5 MB, its first bytes checked against the type; answered with `{ "id": "<image>" }` |
+| `POST /api/image` | The image itself, with `Content-Type` `image/png`, `image/jpeg`, `image/gif` or `image/webp`, at most 2.5 MB, its first bytes checked against the type; answered with `{ "id": "<image>" }`. The server keeps at most 40 images not yet sent, removing the oldest such image when another arrives |
 | `POST /api/stop` | `{}` |
 | `POST /api/answer` | `{ "id": "<card>", "answer": <answer> }`: for a permission card `{ "choice": "yes" }`, `{ "choice": "always" }` or `{ "choice": "no", "note": "<optional, at most 2,000 characters>" }`; for a question `{ "<question>": "<answer>" }` |
 | `POST /api/disconnect` | `{}` |
@@ -144,14 +144,17 @@ To add a component:
 | `--good`, `--warn`, `--bad` | Status dots and card borders | `terminal.ansiGreen`, `terminal.ansiYellow`, `terminal.ansiRed` |
 | `--good-ink`, `--warn-ink`, `--bad-ink` | Status text | the same green and yellow, and `errorForeground` |
 
-Text colors that fall below WCAG AA (4.5:1) on `--paper` or `--card`, or on `--field` for `--ink`, are moved toward white on a dark theme or black on a light one, just far enough to pass:
+Text colors that fall below WCAG AA (4.5:1) on `--paper` or `--card`, or on `--field` for `--ink` and `--placeholder`, are moved toward white on a dark theme or black on a light one, just far enough to pass:
 
 | Theme | Changed |
 |---|---|
-| Solarized Light | text `#586e75` to `#4d6066`, secondary `#92a0a0` to `#606a6a`, green `#859900` to `#606e00`, yellow `#b58900` to `#846400`, button text `#ffffff` to `#333333` |
+| Solarized Light | text `#586e75` to `#4d6066`, secondary `#92a0a0` to `#606a6a`, green `#859900` to `#606e00`, yellow `#b58900` to `#846400`, button text `#ffffff` to `#333333`, placeholder `#586e75aa` to `#565f5d` |
+| Solarized Dark | placeholder `#93a1a1aa` to `#899ea2` |
+| GitHub Dark Default | placeholder `#6e7681` to `#757d87` |
+| Dracula | placeholder `#6272a4` to `#8390b7` |
 | Light Modern | green `#00bc00` to `#008500`, yellow `#949800` to `#737700`, error `#f85149` to `#cb423c` |
 
-Solarized Dark keeps the colors it had in 0.1.0, all from VS Code's Solarized Dark: borders are `editor.lineHighlightBackground` (`#073642`), secondary text is `editor.foreground` (`#839496`), the accent is `terminal.ansiCyan` (`#2aa198`), and error text is the red lifted to `#ef6b68`. The values come from microsoft/vscode at commit `67710841ad06` and from the Marketplace releases of GitHub Theme 6.3.5, One Dark Pro 3.20.6 and Dracula Theme 2.25.1, read on 2026-11-01.
+Apart from its placeholder, Solarized Dark keeps the colors it had in 0.1.0, all from VS Code's Solarized Dark: borders are `editor.lineHighlightBackground` (`#073642`), secondary text is `editor.foreground` (`#839496`), the accent is `terminal.ansiCyan` (`#2aa198`), and error text is the red lifted to `#ef6b68`. The values come from microsoft/vscode at commit `67710841ad06` and from the Marketplace releases of GitHub Theme 6.3.5, One Dark Pro 3.20.6 and Dracula Theme 2.25.1, read on 2026-11-01.
 
 To add a theme:
 

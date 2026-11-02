@@ -368,11 +368,16 @@ const web = createServer({ headersTimeout: 10000, requestTimeout: 30000 }, async
   }
 
   if (url.pathname === '/api/image') {
-    if (images.size >= MAX_IMAGES) return send(res, 429, { error: 'images' })
     const data = await readRaw(req, MAX_IMAGE)
     if (data === TOO_BIG) return send(res, 413, { error: 'too big' })
     const type = String(req.headers['content-type'])
     if (!data || !IMAGE_TYPES[type].test(data.subarray(0, 12).toString('latin1'))) return send(res, 400, { error: 'image' })
+    const unsent = [...images].filter(([, image]) => !image.sent)
+    if (unsent.length >= MAX_IMAGES) {
+      const [oldest, { path }] = unsent[0]
+      rmSync(path, { force: true })
+      images.delete(oldest)
+    }
     const id = randomBytes(12).toString('hex')
     const dir = join(runDir, 'images')
     try {

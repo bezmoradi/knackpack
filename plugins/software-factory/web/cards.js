@@ -116,10 +116,9 @@ class SfPermission extends HTMLElement {
   }
 
   #render() {
-    const { id, tool, detail, summary, reason, agentId, complete, always } = this.#card
+    const { id, tool, detail, summary, agentId, complete, always } = this.#card
     start(this, agentId ? 'A subagent wants to run a tool' : 'Claude wants to run a tool', `Allow ${visible(tool)}?`)
     if (detail || summary) this.append(el('pre', 'sum', visible(detail || summary)))
-    if (reason) this.append(el('p', 'small muted', visible(reason)))
     const choices = el('div', 'choices')
     if (complete === false) {
       choices.append(el('p', 'small muted', 'Too long to show in full here, so allow it in the terminal.'))
