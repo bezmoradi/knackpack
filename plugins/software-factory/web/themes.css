@@ -19,6 +19,14 @@
   --warn-ink: #b58900;
   --bad: #dc322f;
   --bad-ink: #ef6b68;
+  --tabs-bg: #004052;
+  --tab-active: #002B37;
+  --tab-inactive: #004052;
+  --tab-ink: #d6dbdb;
+  --tab-ink-inactive: #99a7a7;
+  --tab-border: #003847;
+  --status-bg: #00212B;
+  --status-ink: #93A1A1;
 }
 [data-theme="dark-modern"] {
   --label: "Dark Modern";
@@ -41,6 +49,17 @@
   --warn-ink: #e5e510;
   --bad: #cd3131;
   --bad-ink: #f85149;
+  --tabs-bg: #181818;
+  --tab-active: #1F1F1F;
+  --tab-inactive: #181818;
+  --tab-ink: #FFFFFF;
+  --tab-ink-inactive: #9D9D9D;
+  --tab-border: #2B2B2B;
+  --tab-hover: #1F1F1F;
+  --tab-top: #0078D4;
+  --status-bg: #181818;
+  --status-ink: #CCCCCC;
+  --status-border: #2B2B2B;
 }
 [data-theme="github-dark"] {
   --label: "GitHub Dark Default";
@@ -63,6 +82,17 @@
   --warn-ink: #d29922;
   --bad: #ff7b72;
   --bad-ink: #f85149;
+  --tabs-bg: #010409;
+  --tab-active: #0d1117;
+  --tab-inactive: #010409;
+  --tab-ink: #e6edf3;
+  --tab-ink-inactive: #7d8590;
+  --tab-border: #30363d;
+  --tab-hover: #0d1117;
+  --tab-top: #f78166;
+  --status-bg: #0d1117;
+  --status-ink: #7d8590;
+  --status-border: #30363d;
 }
 [data-theme="one-dark-pro"] {
   --label: "One Dark Pro";
@@ -85,6 +115,15 @@
   --warn-ink: #d18f52;
   --bad: #e05561;
   --bad-ink: #f48771;
+  --tabs-bg: #21252b;
+  --tab-active: #282c34;
+  --tab-inactive: #21252b;
+  --tab-ink: #dcdcdc;
+  --tab-ink-inactive: #9ea0a3;
+  --tab-border: #181a1f;
+  --tab-hover: #323842;
+  --status-bg: #21252b;
+  --status-ink: #9da5b4;
 }
 [data-theme="dracula"] {
   --label: "Dracula";
@@ -107,6 +146,15 @@
   --warn-ink: #f1fa8c;
   --bad: #ff5555;
   --bad-ink: #ff5555;
+  --tabs-bg: #191A21;
+  --tab-active: #282A36;
+  --tab-inactive: #21222C;
+  --tab-ink: #F8F8F2;
+  --tab-ink-inactive: #7888ba;
+  --tab-border: #191A21;
+  --tab-top: #FF79C680;
+  --status-bg: #191A21;
+  --status-ink: #F8F8F2;
 }
 [data-theme="solarized-light"] {
   --label: "Solarized Light";
@@ -129,6 +177,14 @@
   --warn-ink: #846400;
   --bad: #dc322f;
   --bad-ink: #a1260d;
+  --tabs-bg: #D9D2C2;
+  --tab-active: #FDF6E3;
+  --tab-inactive: #D3CBB7;
+  --tab-ink: #333333;
+  --tab-ink-inactive: #445a61;
+  --tab-border: #DDD6C1;
+  --status-bg: #EEE8D5;
+  --status-ink: #566c73;
 }
 [data-theme="light-modern"] {
   --label: "Light Modern";
@@ -151,6 +207,17 @@
   --warn-ink: #737700;
   --bad: #cd3131;
   --bad-ink: #cb423c;
+  --tabs-bg: #F8F8F8;
+  --tab-active: #FFFFFF;
+  --tab-inactive: #F8F8F8;
+  --tab-ink: #3B3B3B;
+  --tab-ink-inactive: #616161;
+  --tab-border: #E5E5E5;
+  --tab-hover: #FFFFFF;
+  --tab-top: #005FB8;
+  --status-bg: #F8F8F8;
+  --status-ink: #3B3B3B;
+  --status-border: #E5E5E5;
 }
 [data-theme="github-light"] {
   --label: "GitHub Light Default";
@@ -173,4 +240,15 @@
   --warn-ink: #4d2d00;
   --bad: #cf222e;
   --bad-ink: #cf222e;
+  --tabs-bg: #f6f8fa;
+  --tab-active: #ffffff;
+  --tab-inactive: #f6f8fa;
+  --tab-ink: #1f2328;
+  --tab-ink-inactive: #656d76;
+  --tab-border: #d0d7de;
+  --tab-hover: #ffffff;
+  --tab-top: #fd8c73;
+  --status-bg: #ffffff;
+  --status-ink: #656d76;
+  --status-border: #d0d7de;
 }

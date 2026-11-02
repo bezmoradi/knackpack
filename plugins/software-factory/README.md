@@ -5,7 +5,7 @@ Start a Claude Code session in the terminal, then carry on from a page in your b
 - what you type in the terminal, Claude's answer as it streams, each tool call and each agent show on the page;
 - a message you type on the page runs in the same session as your own words, and the terminal shows it;
 - **Stop** ends the current turn;
-- Claude's questions and permission prompts appear as cards you can answer on the page or in the terminal, and the first answer wins;
+- Claude's questions and permission prompts appear as cards below the conversation, just above the message box, which the page scrolls to when one arrives; you can answer on the page or in the terminal, and the first answer wins;
 - a checklist shows knackpack's adversarial reviewer, marked required, with its verdict once it has run, and **Run** asks Claude to start it;
 - the side panel shows the session's knackpack intent record: open questions, agreed requirements, assumptions and what's built.
 
@@ -42,7 +42,13 @@ Messages that start with `/` or `!` can't be sent from the page: slash commands 
 
 **Images.** Paste a screenshot with Cmd+V (Ctrl+V on Linux) or drop an image file onto the message box: it shows as a thumbnail you can remove before sending, and you can send it with or without text. PNG, JPEG, GIF and WebP are accepted, up to 4 a message; one larger than 1568 px on its longest side is scaled down first, and one still over 2.5 MB is refused. A plugin can't attach an image to a prompt the way the terminal does, so Claude receives your message with a note naming each image and sees it by calling the plugin's `pasted_image` tool, which Claude Code allows without asking. If Claude Code wouldn't register that tool, the page says the images couldn't be passed on, and Claude gets only your text with a note saying so.
 
-**Appearance.** The **Aa** button at the top right picks a theme and a text size. The themes are VS Code's Solarized Dark (the default), Dark Modern, GitHub Dark Default, One Dark Pro and Dracula, and Solarized Light, Light Modern and GitHub Light Default. Text size runs from 80% to 200% of your browser's default and scales the whole page. Both are saved for every session's page, since each `/factory` run starts on a new port, which the browser treats as a new site.
+**Tabs.** As in VS Code's editor, each session you open from the overview gets a tab under the top bar. **All sessions** is the first tab and can't be closed; this session's tab opens by itself when the page connects. Clicking a session that's already open switches to its tab. Each tab but **All sessions** shows a ×, which closes the tab only: the session keeps running and stays on the overview. A tab whose session needs you shows a yellow dot where the × would be, which turns into the × when you point at it, and **All sessions** shows the dot when another session needs you. Closing the tab you're on goes back to the one you used before it. Arrow keys, Home and End move between tabs, and a middle click closes one. Each tab keeps its scroll position. The address stays `http://127.0.0.1:<port>/`: the open tab is remembered in the browser tab's session storage, so a reload brings back the overview, this session's tab and the tab you were on, and the others close. The browser's Back and Forward don't switch tabs.
+
+**Tool calls** show as the terminal shows them: a dot that's grey while the tool runs, green when it's done and red when it failed or was denied, the tool's name and its argument, and a line under it with the outcome, worded by the plugin from the tool's own result: the first lines of a command's output, the lines read, added or removed, a fetch's size and status, or the first line of an error.
+
+**Status bar.** A bar along the bottom, as in VS Code, shows how many sessions need you and how many are working, then the last turn's token count, on the left, and, on the right, knackpack's version, which links to its GitHub repository, and the license. knackpack writes its version into the session list it keeps, so the page shows only "knackpack" while knackpack isn't recording sessions or is older than 0.20.0. The overview's section headings carry their own counts.
+
+**Appearance.** The **Aa** button at the top right picks a theme and a text size. The themes are VS Code's Solarized Dark (the default), Dark Modern, GitHub Dark Default, One Dark Pro and Dracula, and Solarized Light, Light Modern and GitHub Light Default. Text size steps with **−** and **+** through 80, 90, 100, 110, 125, 150, 175 and 200% of your browser's default, Chrome's own zoom levels, and scales the whole page; **Reset**, beside the heading once the size isn't 100%, sets it back. Both are saved for every session's page, since each `/factory` run starts on a new port, which the browser treats as a new site.
 
 ## How it works
 
@@ -97,6 +103,7 @@ The page is plain ES modules with no build step. Any `.js` or `.css` file in `we
 | `api.js` | The page key and the helper's routes |
 | `dom.js` | `el()`, which builds an element with text only, and `visible()`, which shows control and bidi characters as escapes |
 | `format.js` | Formatting shared by the components: project names, relative times, verdict colors |
+| `tabs.js` | The tab bar, `<sf-tabs>` |
 | `prefs.js` | The **Aa** menu: it lists the themes and text sizes it finds in the stylesheets |
 | `themes.css` | One block of color variables per theme |
 | `markdown.js`, `cards.js`, `check.js`, `intent.js`, `overview.js`, `session.js` | The components below |
@@ -111,12 +118,13 @@ The page is plain ES modules with no build step. Any `.js` or `.css` file in `we
 | `<sf-plan>` | `card`: a `plan` event | none |
 | `<sf-check>` | `check`: `{ name, required, prompt }`; `status`: `{ running, ran, finished, verdict, disabled }` | `sf-run` with `{ prompt }` |
 | `<sf-intent>` | `record`: the helper's `intent` record; it hides itself when there's none | none |
-| `<sf-overview>` | `data`: the helper's `overview` event; `live`: `{ id, cwd, busy, needs }` for this session, which is more current than knackpack's record of it. It redraws every 30 seconds for the relative times and puts keyboard focus back on the row it was on | none; rows are links to `#live` and `#s/<session>` |
+| `<sf-overview>` | `data`: the helper's `overview` event; `live`: `{ id, cwd, busy, needs }` for this session, which is more current than knackpack's record of it. It redraws every 30 seconds for the relative times and puts keyboard focus back on the row it was on | `sf-counts` with `{ waiting, working }` after each redraw, for the status bar; each row is a link whose `data-view` names its tab, `live` or `s/<session>`, which `app.js` opens |
 | `<sf-session>` | `session`: one session from the overview | none |
+| `<sf-tabs>` | `state`: `{ tabs, active }`, each tab `{ id, label, title, closable, need }`; it keeps keyboard focus on the tab it was on and scrolls the active tab into view | `sf-open` and `sf-close` with `{ id }` |
 
 `<sf-markdown>` is used twice: in each reply on the timeline, where it receives streamed text, and inside `<sf-plan>`. `<sf-intent>` is too: in the live session's side panel and in `<sf-session>`.
 
-The page has three views, chosen by the address: `#` (or nothing) for the overview, `#live` for this session, and `#s/<session>` for another session.
+The page has three views, one per tab: `overview`, `live` for this session, and `s/<session>` for another session. The open one is kept in session storage, not in the address, and any link with a `data-view` attribute opens its view.
 
 To add a component:
 
@@ -143,6 +151,11 @@ To add a component:
 | `--button`, `--button-ink` | Primary buttons | `button.background`, `button.foreground` |
 | `--good`, `--warn`, `--bad` | Status dots and card borders | `terminal.ansiGreen`, `terminal.ansiYellow`, `terminal.ansiRed` |
 | `--good-ink`, `--warn-ink`, `--bad-ink` | Status text | the same green and yellow, and `errorForeground` |
+| `--tabs-bg`, `--tab-border` | The tab bar and the lines between tabs | `editorGroupHeader.tabsBackground`, `tab.border` |
+| `--tab-active`, `--tab-ink` | The open tab | `tab.activeBackground`, `tab.activeForeground` |
+| `--tab-inactive`, `--tab-ink-inactive` | The other tabs | `tab.inactiveBackground`, `tab.inactiveForeground` |
+| `--status-bg`, `--status-ink`, `--status-border` | The status bar along the bottom; the border is left out where the theme draws none | `statusBar.background`, `statusBar.foreground`, `statusBar.border` |
+| `--tab-hover`, `--tab-top` | A tab under the pointer, and the line above the open tab; left out where the theme draws none | `tab.hoverBackground`, `tab.activeBorderTop` |
 
 Text colors that fall below WCAG AA (4.5:1) on `--paper` or `--card`, or on `--field` for `--ink` and `--placeholder`, are moved toward white on a dark theme or black on a light one, just far enough to pass:
 
@@ -153,6 +166,8 @@ Text colors that fall below WCAG AA (4.5:1) on `--paper` or `--card`, or on `--f
 | GitHub Dark Default | placeholder `#6e7681` to `#757d87` |
 | Dracula | placeholder `#6272a4` to `#8390b7` |
 | Light Modern | green `#00bc00` to `#008500`, yellow `#949800` to `#737700`, error `#f85149` to `#cb423c` |
+
+Solarized Light's status bar text `#586E75` is lifted to `#566c73` on `#EEE8D5`. Inactive tab text is checked against its own tab's background, and four themes fall short: Solarized Dark `#93A1A1` to `#99a7a7`, Solarized Light `#586E75` to `#445a61`, One Dark Pro `#dcdcdc80`, VS Code's default of half the active tab's text, to `#9ea0a3`, and Dracula `#6272A4` to `#7888ba`. Tab colors a theme doesn't set are VS Code's defaults from `src/vs/workbench/common/theme.ts`; they come from microsoft/vscode at commit `67710841ad06`, GitHub Theme v6.3.5, One Dark Pro at commit `75c80ab18d90` and Dracula at commit `b50e62e32090`, read on 2026-11-01.
 
 Apart from its placeholder, Solarized Dark keeps the colors it had in 0.1.0, all from VS Code's Solarized Dark: borders are `editor.lineHighlightBackground` (`#073642`), secondary text is `editor.foreground` (`#839496`), the accent is `terminal.ansiCyan` (`#2aa198`), and error text is the red lifted to `#ef6b68`. The values come from microsoft/vscode at commit `67710841ad06` and from the Marketplace releases of GitHub Theme 6.3.5, One Dark Pro 3.20.6 and Dracula Theme 2.25.1, read on 2026-11-01.
 
@@ -170,5 +185,7 @@ To add a theme:
 - On a machine shared with other people's accounts, the one-time code travels in the page address after `#`, which the browser never sends to a server. The page removes it before using it, it's never in a command's arguments, and it works once within a minute.
 - Other sessions are read-only on the overview: each session's page key controls only the session that started it. Their details are as current as knackpack's record, which updates with each hook event.
 - Since 0.2.0 a card comes from Claude Code's PermissionRequest step, which runs only when Claude Code is about to ask you, so calls that auto mode's classifier or plan mode decide shouldn't reach the page. This hasn't been checked in a live session yet. Whether Claude Code shows its own dialog while the page holds a prompt hasn't been checked either; the terminal row above covers the case where it doesn't.
+- In 0.2.0 Claude Code dropped every pasted image, showing Claude "(media removed — rejected by API)", because the tool returned MCP's image block rather than the Messages API's. 0.3.0 returns the API's block; a live paste with it hasn't been checked yet.
+- A tool call's outcome line is the plugin's own wording, since Claude Code doesn't pass its own to plugins. Grep, Glob and other tools whose results this Claude Code version doesn't describe to plugins get no outcome line, and lines such as "Allowed by auto mode" aren't shown.
 - Run on the checklist asks Claude to start the reviewer. Nothing is blocked while a required reviewer hasn't run.
 - Everything here was tested by hand in real sessions; the project has no automated tests.

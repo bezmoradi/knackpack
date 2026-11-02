@@ -440,7 +440,7 @@ const mod = createServer(async (req, res) => {
     const found = images.get(url.searchParams.get('id') || '')
     if (!found || !found.sent) return send(res, 404, { error: 'image' })
     try {
-      return send(res, 200, { type: found.type, base64: readFileSync(found.path).toString('base64') })
+      return send(res, 200, { type: found.type, path: found.path, base64: readFileSync(found.path).toString('base64') })
     } catch {
       return send(res, 404, { error: 'image' })
     }
@@ -622,7 +622,8 @@ function readOverview() {
     if (!own(page, false) || statSync(page).size > MAX_PAGE) return { type: 'overview', enabled: true, sessions: [] }
     const found = readFileSync(page, 'utf8').match(DATA)
     const data = found ? JSON.parse(found[1]) : {}
-    return { type: 'overview', enabled: true, sessions: Array.isArray(data.sessions) ? data.sessions.slice(0, 100) : [] }
+    const version = typeof data.version === 'string' && /^[0-9A-Za-z.+-]{1,40}$/.test(data.version) ? data.version : ''
+    return { type: 'overview', enabled: true, version, sessions: Array.isArray(data.sessions) ? data.sessions.slice(0, 100) : [] }
   } catch {
     return { type: 'overview', enabled: false, sessions: [] }
   }

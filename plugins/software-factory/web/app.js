@@ -8,8 +8,10 @@ import './check.js'
 import './intent.js'
 import './overview.js'
 import './session.js'
+import './tabs.js'
 
 const CHECKS = [{ type: 'knackpack:adversarial-reviewer', name: 'Adversarial reviewer', required: true, prompt: 'Use the knackpack:adversarial-reviewer agent to review the current change against the requirements agreed in this session.' }]
+const TOOL_NAMES = { WebFetch: 'Fetch' }
 const CARD_TAGS = { permission: 'sf-permission', ask: 'sf-ask', plan: 'sf-plan' }
 const CARD_ORDER = Object.keys(CARD_TAGS)
 const ACTIVE = ['pending', 'running', 'waiting']
@@ -21,6 +23,7 @@ const tools = new Map()
 let reply = null
 let following = false
 let retry = 1000
+let lost = 0
 let liveKey = ''
 let sending = false
 
@@ -69,8 +72,13 @@ function addText(ev) {
 function addTool(ev) {
   const wasNear = nearBottom()
   reply = null
-  const li = entry(`tool${ev.agentId ? ' sub' : ''}`)
-  li.append(el('span', 'name', ev.tool), el('span', 'sum', ev.summary || ''))
+  const li = entry(`tool run${ev.agentId ? ' sub' : ''}`)
+  const mark = el('span', 'mark', '●')
+  mark.setAttribute('aria-hidden', 'true')
+  const call = el('div', 'call')
+  call.append(el('b', '', TOOL_NAMES[ev.tool] || ev.tool))
+  if (ev.summary) call.append(`(${ev.summary})`)
+  li.append(mark, call, outLine('Running…'))
   li.title = ev.summary || ev.tool
   if (ev.id) tools.set(ev.id, li)
   follow(wasNear)
@@ -83,9 +91,22 @@ function verdict(ev) {
   paintChecks()
 }
 
+function outLine(text) {
+  const out = el('div', 'out')
+  const elbow = el('span', '', '⎿')
+  elbow.setAttribute('aria-hidden', 'true')
+  out.append(elbow, el('span', '', text))
+  return out
+}
+
 function toolDone(ev) {
   const li = tools.get(ev.id)
-  if (li && !ev.ok) li.classList.add('fail')
+  if (li) {
+    li.classList.remove('run')
+    li.classList.add(ev.ok ? 'ok' : 'fail')
+    li.querySelector('.out')?.remove()
+    if (ev.outcome) li.append(outLine(ev.outcome))
+  }
   verdict(ev)
   dropCard(ev.id)
 }
@@ -99,6 +120,8 @@ function showCard(ev) {
   const before = [...cards.values()].find(n => CARD_ORDER.indexOf(n.dataset.kind) > rank)
   byId('needs').insertBefore(node, before || null)
   cards.set(ev.id, node)
+  if (route().view === 'live') follow(true)
+  else scrolls.delete('live')
 }
 
 function dropCard(id) {
@@ -111,6 +134,8 @@ function dropCard(id) {
 function apply(ev) {
   switch (ev.type) {
     case 'hello':
+      if (!liveOpened && !openTabs.includes('live')) openTabs = [openTabs[0], 'live', ...openTabs.slice(1)]
+      liveOpened = true
       state.title = ev.title || ''
       state.sessionId = ev.sessionId || ''
       state.cwd = ev.cwd || ''
@@ -136,12 +161,11 @@ function apply(ev) {
     case 'idle':
       state.busy = false
       reply = null
-      if (ev.tokens !== undefined || ev.usd !== undefined) {
-        const parts = []
-        if (ev.tokens) parts.push(`${ev.tokens.toLocaleString()} tokens last turn`)
-        if (typeof ev.usd === 'number') parts.push(`$${ev.usd.toFixed(2)} so far`)
-        state.usage = parts.join(' · ')
+      for (const li of byId('timeline').querySelectorAll('li.tool.run:not(.sub)')) {
+        li.classList.remove('run')
+        li.querySelector('.out')?.remove()
       }
+      if (ev.tokens !== undefined) state.usage = ev.tokens ? `${ev.tokens.toLocaleString()} tokens last turn` : ''
       break
     case 'ask':
     case 'permission':
@@ -161,6 +185,7 @@ function apply(ev) {
       break
     case 'overview':
       state.overview = ev
+      byId('knackpack').textContent = ev.version ? `knackpack ${ev.version}` : 'knackpack'
       byId('overview').data = ev
       showView()
       break
@@ -168,10 +193,60 @@ function apply(ev) {
   paintBar()
 }
 
+let openTabs = ['overview']
+let liveOpened = false
+let recent = []
+const scrolls = new Map()
+
+function tabKey() {
+  const { view, id } = route()
+  return view === 'session' ? `s/${id}` : view
+}
+
+const VIEW = `sf-view-${location.port}`
+let current = sessionStorage.getItem(VIEW) || 'overview'
+if (location.hash) history.replaceState(null, '', location.pathname)
+let shownKey = current
+
+function go(key) {
+  if (key === tabKey()) return
+  if (openTabs.includes(shownKey)) scrolls.set(shownKey, window.scrollY)
+  current = key
+  sessionStorage.setItem(VIEW, key)
+  showView()
+  shownKey = tabKey()
+  window.scrollTo(0, scrolls.get(shownKey) ?? (shownKey === 'live' ? document.body.scrollHeight : 0))
+}
+
+function openTab(key) {
+  if (!openTabs.includes(key)) openTabs = key === 'live' ? [openTabs[0], key, ...openTabs.slice(1)] : [...openTabs, key]
+  recent = [key, ...recent.filter(k => k !== key)]
+}
+
+function closeTab(key) {
+  if (key === 'overview') return
+  openTabs = openTabs.filter(k => k !== key)
+  recent = recent.filter(k => k !== key && openTabs.includes(k))
+  scrolls.delete(key)
+  if (key === tabKey()) go(recent[0] || 'overview')
+  else paintBar()
+}
+
+function paintTabs(view) {
+  const key = tabKey()
+  const sessions = state.overview?.sessions || []
+  const tabs = openTabs.map(k => {
+    if (k === 'overview') return { id: k, label: 'All sessions', closable: false, need: sessions.some(s => s.state === 'waiting' && s.id !== state.sessionId) && view !== 'overview' }
+    if (k === 'live') return { id: k, label: state.title || project(state.cwd), title: `This session · ${state.cwd}`, closable: true, need: cards.size > 0 }
+    const s = otherSession(k.slice(2))
+    return { id: k, label: s ? project(s.cwd) : 'Session', title: s ? `${s.cwd} · read-only` : 'read-only', closable: true, need: s?.state === 'waiting' }
+  })
+  byId('tabs').state = { tabs, active: key }
+}
+
 function route() {
-  const hash = decodeURIComponent(location.hash.slice(1))
-  if (hash === 'live' || (hash.startsWith('s/') && hash.slice(2) === state.sessionId)) return { view: 'live' }
-  if (hash.startsWith('s/')) return { view: 'session', id: hash.slice(2) }
+  if (current === 'live' || (current.startsWith('s/') && current.slice(2) === state.sessionId)) return { view: 'live' }
+  if (current.startsWith('s/')) return { view: 'session', id: current.slice(2) }
   return { view: 'overview' }
 }
 
@@ -181,6 +256,7 @@ function otherSession(id) {
 
 function showView() {
   const { view, id } = route()
+  openTab(tabKey())
   byId('overview').hidden = view !== 'overview'
   byId('live-view').hidden = view !== 'live'
   byId('composer').hidden = view !== 'live'
@@ -219,10 +295,9 @@ function paintBar() {
   byId('disconnect').hidden = !state.connected
   byId('usage').textContent = view === 'live' ? state.usage : ''
   byId('stop').hidden = !(state.connected && state.busy && view === 'live')
-  byId('hint').textContent = 'Enter sends, Shift+Enter adds a line.'
-  byId('hint').classList.toggle('quiet', state.busy)
   byId('working').hidden = !state.busy
-  document.title = live || waiting ? 'Needs you · Software factory' : 'Software factory'
+  paintTabs(view)
+  document.title = live || waiting ? 'Needs you · knackpack Software Factory' : 'knackpack Software Factory'
 }
 
 function paintAgents() {
@@ -248,7 +323,6 @@ function paintChecks() {
 
 function say(message) {
   byId('hint').textContent = message
-  byId('hint').classList.remove('quiet')
 }
 
 async function send(text, images = []) {
@@ -256,6 +330,7 @@ async function send(text, images = []) {
     say('Slash commands and shell lines can only be typed in the terminal.')
     return false
   }
+  say('')
   const res = await api('/api/message', images.length ? { text, images } : { text }).catch(() => null)
   if (!res || !res.ok) {
     say('The message did not go through. Check that the session is still running.')
@@ -345,6 +420,8 @@ function reset() {
 }
 
 function signOut(note) {
+  clearTimeout(lost)
+  lost = 0
   forget()
   reset()
   state.agents = []
@@ -370,6 +447,9 @@ async function connect() {
     if (res.status === 401) return signOut('This page was disconnected. Run /factory in the terminal to open it again.')
     if (!res.ok || !res.body) throw new Error(String(res.status))
     reset()
+    clearTimeout(lost)
+    lost = 0
+    document.body.classList.remove('out')
     state.connected = true
     retry = 1000
     paintBar()
@@ -383,7 +463,10 @@ async function connect() {
       for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
         const line = buf.slice(0, i)
         buf = buf.slice(i + 1)
-        if (line.trim()) apply(JSON.parse(line))
+        if (!line.trim()) continue
+        try {
+          apply(JSON.parse(line))
+        } catch {}
       }
     }
   } catch {
@@ -393,6 +476,10 @@ async function connect() {
   state.note = state.note || 'Reconnecting…'
   paintBar()
   paintChecks()
+  lost ||= setTimeout(() => {
+    byId('gone').textContent = 'Disconnected. The session may have ended, or the connection dropped. Retrying…'
+    document.body.classList.add('out')
+  }, 3000)
   setTimeout(connect, retry)
   retry = Math.min(retry * 2, 10000)
 }
@@ -406,10 +493,33 @@ byId('needs').addEventListener('sf-answer', async e => {
   if (!res || !res.ok) e.target.error = 'That answer did not go through. It may already have been answered in the terminal.'
 })
 byId('checks').addEventListener('sf-run', e => send(e.detail.prompt))
-window.addEventListener('hashchange', () => {
-  showView()
-  window.scrollTo(0, 0)
+document.addEventListener('click', e => {
+  const link = e.target.closest('a[data-view]')
+  if (!link) return
+  e.preventDefault()
+  go(link.dataset.view)
 })
+byId('tabs').addEventListener('sf-open', e => go(e.detail.id))
+byId('tabs').addEventListener('sf-close', e => closeTab(e.detail.id))
+
+byId('overview').addEventListener('sf-counts', e => {
+  const { waiting, working } = e.detail
+  const box = byId('counts')
+  box.replaceChildren()
+  const item = (n, cls, text) => {
+    if (!n) return
+    const span = el('span', 'count')
+    const dot = el('span', `dot ${cls}`)
+    dot.setAttribute('aria-hidden', 'true')
+    span.append(dot, `${n} ${text}`)
+    box.append(span)
+  }
+  item(waiting, 'need', waiting === 1 ? 'needs you' : 'need you')
+  item(working, 'busy', 'working')
+})
+
+const chrome = document.querySelector('.chrome')
+new ResizeObserver(() => document.documentElement.style.setProperty('--bar', `${chrome.offsetHeight}px`)).observe(chrome)
 
 const text = byId('text')
 const grow = () => {
