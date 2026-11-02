@@ -44,7 +44,7 @@ const GATE_FAILED = "The software factory's push gate couldn't check this push, 
 
 const runs = new Map<string, Review>()
 const reviews = new Map<string, Review>()
-const overrides = new Map<string, string>()
+const overrides = new Map<string, Review>()
 let lastGate = ''
 
 function pushShaped(tool: string, input: Record<string, unknown>): boolean {
@@ -160,13 +160,13 @@ async function gateState($: EngineInterface) {
   const head = await readHead($).catch(() => null)
   const files = await findFiles($).catch(() => ({ plan: '', research: '', define: false }))
   const missing: string[] = []
-  if (!head) missing.push('the current commit, which the gate couldn\'t read')
+  if (!head) missing.push("the current commit, which the gate couldn't read")
   if (!files.plan) missing.push('a plan from /knackpack:plan-implementation')
   const list = Object.entries(REVIEWERS).map(([type, { name }]) => {
     const r = reviews.get(type)
     const current = !!head && !!r && r.start === head.sha && (r.state === 'running' || r.end === head.sha)
     let state: string = !r ? 'none' : r.state === 'running' ? (current ? 'running' : 'stale') : !current ? 'stale' : r.state
-    if (state === 'block' && head && overrides.get(type) === head.sha) state = 'overridden'
+    if (state === 'block' && r && overrides.get(type) === r) state = 'overridden'
     if (state === 'none' || state === 'stale' || state === 'running') missing.push(state === 'stale' ? `a fresh ${name.toLowerCase()} review (the last one saw another commit)` : state === 'running' ? `the ${name.toLowerCase()} to finish` : `a review by ${type}`)
     if (state === 'block') missing.push(`an override or a fix for the ${name.toLowerCase()}'s verdict "${r?.verdict}"`)
     return { type, name, state, verdict: r?.verdict ?? '' }
@@ -187,7 +187,7 @@ async function override($: EngineInterface, type: string, sha: string) {
   const head = await readHead($).catch(() => null)
   const review = reviews.get(type)
   if (!head || head.sha !== sha || !review || review.state !== 'block' || review.start !== sha || review.end !== sha) return
-  overrides.set(type, sha)
+  overrides.set(type, review)
   push($, { type: 'command', name: 'override', text: `You overrode the ${REVIEWERS[type].name.toLowerCase()}'s verdict "${review.verdict}" on commit ${sha.slice(0, 7)}. Claude can push this commit.` })
   void refreshGate($)
 }
@@ -704,7 +704,7 @@ export const register: Register = on => {
     const ran = await next(e)
     push($, { type: 'tool_done', id, ok: !(ran.deny !== undefined || ran.isError === true), outcome: outcome(e.tool, ran as never), text: isAgent ? clip(ran.text, 1500) : undefined, agentType: isAgent ? input.subagent_type : undefined })
     if (e.tool === 'Bash') void refreshGate($)
-    const overridden = head ? Object.keys(REVIEWERS).filter(type => overrides.get(type) === head.sha).map(type => REVIEWERS[type].name.toLowerCase()) : []
+    const overridden = head ? Object.keys(REVIEWERS).filter(type => { const r = overrides.get(type); return !!r && r === reviews.get(type) && r.end === head.sha }).map(type => REVIEWERS[type].name.toLowerCase()) : []
     if (!overridden.length || ran.deny !== undefined || !head) return ran
     const done = ran as typeof ran & { context?: readonly string[] }
     return { ...done, context: [...(done.context ?? []), `This push went through on the developer's override, made on the software factory page, of the blocking verdict of the ${overridden.join(' and the ')} on commit ${head.sha.slice(0, 7)}.`] } as typeof ran
