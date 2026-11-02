@@ -1,5 +1,6 @@
 import { api, events, exchange, forget, signedIn, upload } from './api.js'
 import { el } from './dom.js'
+import { complete } from './complete.js'
 import { initPrefs } from './prefs.js'
 import { VERDICTS, project } from './format.js'
 import './markdown.js'
@@ -17,7 +18,7 @@ const CARD_ORDER = Object.keys(CARD_TAGS)
 const ACTIVE = ['pending', 'running', 'waiting']
 
 const byId = id => document.getElementById(id)
-const state = { connected: false, note: '', busy: false, title: '', sessionId: '', cwd: '', usage: '', agents: [], verdicts: new Map(), overview: null }
+const state = { catalog: null, connected: false, note: '', busy: false, title: '', sessionId: '', cwd: '', usage: '', agents: [], verdicts: new Map(), overview: null }
 const cards = new Map()
 const tools = new Map()
 let reply = null
@@ -36,12 +37,14 @@ const checks = CHECKS.map(check => {
   return [check, node]
 })
 
+const scroller = byId('scroller')
+
 function nearBottom() {
-  return window.innerHeight + window.scrollY >= document.body.scrollHeight - 160
+  return scroller.clientHeight + scroller.scrollTop >= scroller.scrollHeight - 160
 }
 
 function follow(wasNear) {
-  if (wasNear) window.scrollTo(0, document.body.scrollHeight)
+  if (wasNear && route().view === 'live') scroller.scrollTop = scroller.scrollHeight
 }
 
 function entry(cls, who) {
@@ -58,9 +61,21 @@ function addPrompt(ev) {
   const who = ev.from === 'page' ? 'You, from this page' : ev.from === 'history' ? 'You, earlier' : 'You, in the terminal'
   const item = entry('prompt', who)
   if (ev.text) item.append(el('div', 'body', ev.text))
-  if (ev.images) item.append(el('span', 'who', ev.images === 1 ? '1 image' : `${ev.images} images`))
-  if (ev.lost) item.append(el('span', 'who bad', `${ev.lost === 1 ? '1 image' : `${ev.lost} images`} couldn't be passed on to Claude`))
+  if (ev.images) item.append(el('span', 'who count', ev.images === 1 ? '1 image' : `${ev.images} images`))
+  if (ev.lost) item.append(el('span', 'who count bad', `${ev.lost === 1 ? '1 image' : `${ev.lost} images`} couldn't be passed on to Claude`))
+  follow(wasNear || ev.from === 'page')
+}
+
+function addCommand(ev) {
+  const wasNear = nearBottom()
+  reply = null
+  const item = entry(`reply command${ev.failed ? ' failed' : ''}`, `/${ev.name}`)
+  item.append(el('div', 'body', ev.text || ''))
   follow(wasNear)
+}
+
+function entries(list) {
+  return Array.isArray(list) ? list.filter(e => e && typeof e.name === 'string' && typeof e.description === 'string').map(e => ({ name: e.name, description: e.description })) : []
 }
 
 function addText(ev) {
@@ -178,6 +193,12 @@ function apply(ev) {
     case 'intent':
       byId('intent').record = ev.record
       break
+    case 'catalog':
+      state.catalog = { commands: entries(ev.commands), agents: entries(ev.agents) }
+      break
+    case 'command':
+      addCommand(ev)
+      break
     case 'agents':
       state.agents = ev.agents || []
       paintAgents()
@@ -210,12 +231,12 @@ let shownKey = current
 
 function go(key) {
   if (key === tabKey()) return
-  if (openTabs.includes(shownKey)) scrolls.set(shownKey, window.scrollY)
+  if (openTabs.includes(shownKey)) scrolls.set(shownKey, scroller.scrollTop)
   current = key
   sessionStorage.setItem(VIEW, key)
   showView()
   shownKey = tabKey()
-  window.scrollTo(0, scrolls.get(shownKey) ?? (shownKey === 'live' ? document.body.scrollHeight : 0))
+  scroller.scrollTop = scrolls.get(shownKey) ?? (shownKey === 'live' ? scroller.scrollHeight : 0)
 }
 
 function openTab(key) {
@@ -326,8 +347,12 @@ function say(message) {
 }
 
 async function send(text, images = []) {
-  if (/^[/!]/.test(text)) {
-    say('Slash commands and shell lines can only be typed in the terminal.')
+  if (text.startsWith('!')) {
+    say('Shell lines can only be typed in the terminal.')
+    return false
+  }
+  if (text.startsWith('/') && images.length) {
+    say("A command can't carry images. Send the images in a message of their own.")
     return false
   }
   say('')
@@ -518,10 +543,17 @@ byId('overview').addEventListener('sf-counts', e => {
   item(working, 'busy', 'working')
 })
 
-const chrome = document.querySelector('.chrome')
-new ResizeObserver(() => document.documentElement.style.setProperty('--bar', `${chrome.offsetHeight}px`)).observe(chrome)
+new ResizeObserver(() => document.documentElement.style.setProperty('--view', `${scroller.clientHeight}px`)).observe(scroller)
 
 const text = byId('text')
+complete(text, byId('complete'), {
+  catalog: () => state.catalog,
+  files: async q => {
+    const res = await api('/api/files', { q })
+    const body = res.ok ? await res.json() : null
+    return Array.isArray(body?.files) ? body.files.filter(f => typeof f === 'string') : []
+  },
+})
 const grow = () => {
   text.style.height = 'auto'
   text.style.height = `${text.scrollHeight}px`
