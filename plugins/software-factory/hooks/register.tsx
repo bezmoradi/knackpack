@@ -52,16 +52,37 @@ function detail(tool: string, input: Record<string, unknown>): string {
 
 const WHERE: Record<string, string> = { session: 'during this session', localSettings: 'in this project', projectSettings: 'in this project, for everyone', userSettings: 'in every project', cliArg: 'during this session' }
 
+const RULE_VERB: Record<string, [string, string]> = { allow: ["don't ask again for", 'allow'], deny: ['always deny', 'deny'], ask: ['always ask before', 'ask'] }
+
 function describe(u: { type: string; destination?: string; rules?: { toolName: string; ruleContent?: string }[]; mode?: string; directories?: string[]; behavior?: string }): string {
   const where = WHERE[u.destination ?? ''] ?? ''
-  if (u.type === 'addRules' && u.behavior === 'allow' && u.rules?.length) {
-    const what = u.rules.map(r => (r.toolName === 'Bash' && r.ruleContent ? `${r.ruleContent.replace(/:\*$|\s\*$/, '')} commands` : r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)).join(', ')
-    return clip(`don't ask again for ${what} ${where}`.trim(), 300)
-  }
-  if (u.type === 'setMode' && u.mode === 'acceptEdits') return `allow all edits ${where}`.trim()
-  if (u.type === 'setMode' && u.mode) return `switch to ${u.mode} mode`
-  if (u.type === 'addDirectories' && u.directories?.length) return clip(`allow access to ${u.directories.join(', ')} ${where}`.trim(), 300)
-  return ''
+  const verb = RULE_VERB[u.behavior ?? '']
+  const what = (u.rules ?? []).map(r => (r.toolName === 'Bash' && r.ruleContent ? `${r.ruleContent.replace(/:\*$|\s\*$/, '')} commands` : r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName)).join(', ')
+  const dirs = (u.directories ?? []).join(', ')
+  let text = ''
+  if (u.type === 'addRules' && verb && what) text = `${verb[0]} ${what}`
+  else if (u.type === 'replaceRules' && verb && what) text = `replace the ${verb[1]} rules with ${what}`
+  else if (u.type === 'removeRules' && verb && what) text = `remove the ${verb[1]} rules for ${what}`
+  else if (u.type === 'setMode' && u.mode === 'acceptEdits') text = 'allow all edits'
+  else if (u.type === 'setMode' && u.mode) text = `switch to ${u.mode} mode`
+  else if (u.type === 'addDirectories' && dirs) text = `allow access to ${dirs}`
+  else if (u.type === 'removeDirectories' && dirs) text = `remove access to ${dirs}`
+  return text ? clip(`${text} ${where}`.trim(), 300) : ''
+}
+
+let registering: Promise<string> | null = null
+let sending: Promise<void> = Promise.resolve()
+
+function registerImageTool($: EngineInterface): Promise<string> {
+  if (imageTool) return Promise.resolve(imageTool)
+  registering ??= $.tool
+    .register({ name: 'pasted_image', description: 'Shows an image the user pasted or dropped on the software factory page. Call it with the id their message gives, once per image, when the message mentions one.', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'The image id from the message' } }, required: ['id'] }, isDeferred: false })
+    .then(r => (imageTool = r.tool))
+    .catch(() => '')
+    .finally(() => {
+      registering = null
+    })
+  return registering
 }
 
 function inside(path: string, dir: string): boolean {
@@ -217,10 +238,17 @@ function handle($: EngineInterface, line: string, resolve: (v: { helper: Helper;
     void backfill($)
   } else if (msg.t === 'message' && typeof msg.text === 'string' && msg.text.length <= 20000 && !/^\s*[/!]/.test(msg.text)) {
     const ids = Array.isArray(msg.images) ? (msg.images as { id?: unknown }[]).map(i => i?.id).filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id)).slice(0, 4) : []
-    if (!msg.text.trim() && !ids.length) return
-    push($, { type: 'prompt', text: clip(msg.text, 20000), from: 'page', images: ids.length })
-    const note = ids.length && imageTool ? `(I pasted ${ids.length === 1 ? 'an image' : `${ids.length} images`} on the software factory page. To see ${ids.length === 1 ? 'it' : 'them'}, call ${imageTool} with ${ids.map(id => `id "${id}"`).join(', then ')}.)` : ''
-    void $.prompt.submit({ text: [msg.text.trim(), note].filter(Boolean).join('\n\n'), asUser: true })
+    const text = msg.text
+    if (!text.trim() && !ids.length) return
+    sending = sending.then(async () => {
+      const tool = ids.length ? await registerImageTool($) : ''
+      const lost = ids.length && !tool ? ids.length : 0
+      const pictures = (n: number) => (n === 1 ? 'an image' : `${n} images`)
+      push($, { type: 'prompt', text: clip(text, 20000), from: 'page', images: ids.length - lost, lost })
+      if (!text.trim() && lost) return
+      const note = !ids.length ? '' : lost ? `(I also pasted ${pictures(lost)} on the software factory page, but ${lost === 1 ? 'it' : 'they'} couldn't be passed on to you.)` : `(I pasted ${pictures(ids.length)} on the software factory page. To see ${ids.length === 1 ? 'it' : 'them'}, call ${tool} with ${ids.map(id => `id "${id}"`).join(', then ')}.)`
+      void $.prompt.submit({ text: [text.trim(), note].filter(Boolean).join('\n\n'), asUser: true })
+    }).catch(() => {})
   } else if (msg.t === 'stop' && turnId) {
     void $.turn.abort({ turnId })
   } else if (msg.t === 'security') {
@@ -326,12 +354,7 @@ export const register: Register = on => {
       } else {
         ;({ helper: h, code } = await start($))
       }
-      if (!imageTool) {
-        imageTool = await $.tool
-          .register({ name: 'pasted_image', description: 'Shows an image the user pasted or dropped on the software factory page. Call it with the id their message gives, once per image, when the message mentions one.', inputSchema: { type: 'object', properties: { id: { type: 'string', description: 'The image id from the message' } }, required: ['id'] }, isDeferred: false })
-          .then(r => r.tool)
-          .catch(() => '')
-      }
+      await registerImageTool($)
       if (e.args.trim() === 'link') {
         const copied = await $.ui.copy({ text: `http://127.0.0.1:${h.port}/#c=${code}` }).then(r => r.isCopied).catch(() => false)
         return { text: copied ? 'A one-time link to this session is on your clipboard. Paste it into a browser within a minute.' : "Couldn't reach the clipboard. Run /factory to open the page instead." }
@@ -420,8 +443,9 @@ export const register: Register = on => {
     const input = (e.tool_input ?? {}) as Record<string, unknown>
     const summary = visible(summarize(tool, input))
     const full = tool === 'Bash' && typeof input.command === 'string' ? input.command : JSON.stringify(input, null, 2)
-    const updates = (e.permission_suggestions ?? []).filter(u => describe(u) !== '')
-    const always = updates.length ? `Yes, and ${updates.map(describe).join(' and ')}` : ''
+    const updates = e.permission_suggestions ?? []
+    const words = updates.map(describe)
+    const always = updates.length && words.every(Boolean) ? `Yes, and ${words.join(' and ')}` : ''
     let id: string | null = null
     let answer: unknown
     try {

@@ -180,7 +180,7 @@ function answer(id, value, fromTerminal) {
   addEvent({ type: 'resolved', id })
   if (!fromTerminal) {
     log('answered', { kind: card.type })
-    say({ t: 'security', kind: 'answered', card: card.type, tool: card.tool, choice: card.type === 'permission' && fromTerminal !== true ? value.choice : undefined })
+    say({ t: 'security', kind: 'answered', card: card.type, tool: card.tool, choice: card.type === 'permission' ? value.choice : undefined })
   }
   return 200
 }

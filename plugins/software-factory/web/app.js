@@ -56,6 +56,7 @@ function addPrompt(ev) {
   const item = entry('prompt', who)
   if (ev.text) item.append(el('div', 'body', ev.text))
   if (ev.images) item.append(el('span', 'who', ev.images === 1 ? '1 image' : `${ev.images} images`))
+  if (ev.lost) item.append(el('span', 'who bad', `${ev.lost === 1 ? '1 image' : `${ev.lost} images`} couldn't be passed on to Claude`))
   follow(wasNear)
 }
 
