@@ -45,6 +45,43 @@ function summarize(tool: string, input: Record<string, unknown>): string {
   return clip(pick('file_path', 'path', 'pattern', 'url', 'query', 'notebook_path') ?? '', 200)
 }
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+function size(bytes: number): string {
+  return bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)}KB` : `${(bytes / 1048576).toFixed(1)}MB`
+}
+
+function changes(hunks: unknown): string {
+  const lines = Array.isArray(hunks) ? hunks.flatMap(h => (Array.isArray((h as { lines?: unknown }).lines) ? ((h as { lines: unknown[] }).lines as string[]) : [])) : []
+  const added = lines.filter(l => typeof l === 'string' && l.startsWith('+')).length
+  const removed = lines.filter(l => typeof l === 'string' && l.startsWith('-')).length
+  return `Added ${plural(added, 'line')}, removed ${plural(removed, 'line')}`
+}
+
+function outcome(tool: string, ran: { deny?: string; isError?: boolean; text?: string; result?: unknown }): string {
+  const first = (t: unknown) => clip(String(t ?? '').trim().split('\n')[0], 200)
+  if (ran.deny !== undefined) return first(ran.deny) || 'Denied'
+  if (ran.isError) return first(ran.text) || 'Failed'
+  const r = (ran.result ?? {}) as Record<string, any>
+  try {
+    if (tool === 'Bash') {
+      if (r.backgroundTaskId) return 'Running in the background'
+      if (r.interrupted) return 'Interrupted'
+      const lines = String(r.stdout || r.stderr || '').trimEnd().split('\n').filter((l, i, a) => a.length > 1 || l)
+      if (!lines.length) return 'No output'
+      const shown = lines.slice(0, 3).map(l => clip(l, 200)).join('\n')
+      return lines.length > 3 ? `${shown}\n… +${plural(lines.length - 3, 'line')}` : shown
+    }
+    if (tool === 'Read') return r.type === 'text' && r.file ? `Read ${plural(r.file.numLines, 'line')}` : r.type === 'image' ? 'Read an image' : ''
+    if (tool === 'Edit') return changes(r.structuredPatch)
+    if (tool === 'Write') return r.type === 'create' ? `Wrote ${plural(String(r.content ?? '').split('\n').length, 'line')}` : changes(r.structuredPatch)
+    if (tool === 'WebFetch' && typeof r.bytes === 'number') return `Received ${size(r.bytes)} (${r.code} ${r.codeText})`
+  } catch {
+    return ''
+  }
+  return ''
+}
+
 function detail(tool: string, input: Record<string, unknown>): string {
   if (tool === 'Bash' && typeof input.command === 'string') return clip(input.command, 20000)
   return clip(JSON.stringify(input, null, 2), 20000)
@@ -398,8 +435,7 @@ export const register: Register = on => {
       turnId = undefined
       await update($, pending, () => null)
       if (helper) {
-        const usd = await $.session.usage().then(u => u.cost?.usd).catch(() => undefined)
-        push($, { type: 'idle', turnId: e.turnId, reason: e.reason, ms: e.durationMs, tokens: e.usage ? e.usage.input_tokens + e.usage.output_tokens : undefined, usd })
+        push($, { type: 'idle', turnId: e.turnId, reason: e.reason, ms: e.durationMs, tokens: e.usage ? e.usage.input_tokens + e.usage.output_tokens : undefined })
       }
     }
     return done
@@ -414,8 +450,8 @@ export const register: Register = on => {
       try {
         const r = await call($, `/image?id=${id}`)
         if (!r.ok) return { deny: 'No pasted image has that id. The software factory page may have closed.' }
-        const image = JSON.parse(r.text) as { type: string; base64: string }
-        return { result: [{ type: 'image', data: image.base64, mimeType: image.type }] as never }
+        const image = JSON.parse(r.text) as { type: string; path: string; base64: string }
+        return { result: [{ type: 'image', source: { type: 'base64', media_type: image.type, data: image.base64 } }, { type: 'text', text: `The image is also saved at ${image.path}. If it doesn't show above, open that file with Read.` }] as never }
       } catch {
         return { deny: "Couldn't read that image from the software factory page." }
       }
@@ -428,7 +464,7 @@ export const register: Register = on => {
     push($, { type: 'tool', id, tool: e.tool, summary: summarize(e.tool, input), agentId: e.agentId })
     if (e.tool === 'ExitPlanMode') push($, { type: 'plan', id, plan: clip(input.plan, 20000) })
     const ran = await next(e)
-    push($, { type: 'tool_done', id, ok: !(ran.deny !== undefined || ran.isError === true), text: isAgent ? clip(ran.text, 1500) : undefined, agentType: isAgent ? input.subagent_type : undefined })
+    push($, { type: 'tool_done', id, ok: !(ran.deny !== undefined || ran.isError === true), outcome: outcome(e.tool, ran as never), text: isAgent ? clip(ran.text, 1500) : undefined, agentType: isAgent ? input.subagent_type : undefined })
     return ran
   })
 

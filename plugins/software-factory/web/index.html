@@ -6,42 +6,45 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#002b36">
 <meta name="referrer" content="no-referrer">
-<title>Software factory</title>
+<title>knackpack Software Factory</title>
 <link rel="stylesheet" href="themes.css">
 <link rel="stylesheet" href="app.css">
 <script type="module" src="app.js"></script>
 </head>
 <body>
 <div class="gone" hidden><p id="gone" role="status"></p></div>
+<div class="chrome">
 <header class="bar">
   <span class="dot" id="dot" aria-hidden="true"></span>
-  <a class="brand" href="#">Software factory</a>
+  <a class="brand" href="./" data-view="overview"><span>knackpack</span> Software Factory</a>
   <strong id="state">Connecting…</strong>
   <span class="muted" id="title"></span>
   <span class="spacer"></span>
-  <span class="muted small" id="usage"></span>
   <button type="button" class="ghost" id="stop" hidden>Stop</button>
   <button type="button" class="ghost" id="disconnect" hidden>Disconnect</button>
   <button type="button" class="ghost" popovertarget="prefs" aria-label="Appearance" title="Appearance">Aa</button>
 </header>
+<sf-tabs id="tabs"></sf-tabs>
+</div>
 
 <div id="prefs" class="prefs" popover>
   <fieldset id="theme" class="themes"><legend>Theme</legend></fieldset>
-  <label class="size">Text size <span><input type="range" id="scale" min="0" step="1"><output id="scale-value" for="scale"></output></span></label>
+  <div class="size" role="group" aria-labelledby="scale-label">
+    <p><span id="scale-label">Text size</span><button type="button" class="link" id="scale-reset" hidden>Reset</button></p>
+    <span class="stepper"><button type="button" class="ghost" id="scale-down" aria-label="Smaller text">−</button><output id="scale-value" aria-live="polite"></output><button type="button" class="ghost" id="scale-up" aria-label="Larger text">+</button></span>
+  </div>
 </div>
 
 <sf-overview id="overview" class="view"></sf-overview>
 
 <div id="session-view" class="view" hidden>
-  <a class="back" href="#">← All sessions</a>
   <sf-session id="session"></sf-session>
 </div>
 
 <div class="layout" id="live-view" hidden>
   <main>
-    <a class="back" href="#">← All sessions</a>
-    <section id="needs" aria-live="polite"></section>
     <ol id="timeline" class="timeline"></ol>
+    <section id="needs" aria-live="polite"></section>
     <p id="empty" class="muted empty">Nothing yet. Type below, or keep working in the terminal: both show here.</p>
   </main>
 
@@ -62,7 +65,15 @@
   <span class="dots" id="working" role="img" aria-label="Claude is working" hidden><i></i><i></i><i></i></span>
   <div class="attachments" id="attachments" hidden></div>
   <textarea id="text" rows="1" placeholder="Type a message and press Enter" aria-label="Message Claude"></textarea>
-  <p class="muted small hint" id="hint">Enter sends, Shift+Enter adds a line.</p>
+  <p class="muted small hint" id="hint" role="status"></p>
 </form>
+
+<footer class="status">
+  <span class="counts" id="counts"></span>
+  <span id="usage"></span>
+  <span class="spacer"></span>
+  <a id="knackpack" href="https://github.com/bezmoradi/knackpack" target="_blank" rel="noopener noreferrer">knackpack</a>
+  <span>© 2026 Bez Moradi · MIT</span>
+</footer>
 </body>
 </html>

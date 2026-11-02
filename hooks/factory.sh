@@ -117,7 +117,8 @@ render() {
 	fi
 	# With no files, awk would read stdin instead.
 	[ "$#" -gt 0 ] || set -- /dev/null
-	LC_ALL=C awk -v tpl="$template" -v now="$rnow" '
+	version=$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([0-9A-Za-z.+-]*\)".*/\1/p' "$here/../.claude-plugin/plugin.json" 2>/dev/null | head -n 1)
+	LC_ALL=C awk -v tpl="$template" -v now="$rnow" -v version="$version" '
 	function js(s,    i, n, c, o) {
 		o = ""; n = length(s)
 		for (i = 1; i <= n; i++) {
@@ -216,7 +217,7 @@ render() {
 		m = 0
 		for (i = 1; i <= n; i++) if (last[i] > 0) { m++; ord[m] = i; key[i] = rank(st[i]) * 1e11 + (1e11 - last[i]) }
 		for (x = 2; x <= m; x++) { y = x; while (y > 1 && key[ord[y - 1]] > key[ord[y]]) { t = ord[y]; ord[y] = ord[y - 1]; ord[y - 1] = t; y-- } }
-		json = "{\"generated\":" now ",\"sessions\":["
+		json = "{\"generated\":" now ",\"version\":" js(version) ",\"sessions\":["
 		for (x = 1; x <= m; x++) {
 			i = ord[x]
 			s = "{\"id\":" js(id[i]) ",\"cwd\":" js(cwd[i]) ",\"state\":" js(st[i]) ",\"detail\":" js(det[i]) ",\"last\":" last[i] \

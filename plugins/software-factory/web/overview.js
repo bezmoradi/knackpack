@@ -3,12 +3,6 @@ import { ago, dotClass, project, verdictClass } from './format.js'
 
 const ENDED = ['ended']
 
-function stat(count, label, cls = '') {
-  const box = el('div', `stat ${cls}`)
-  box.append(el('b', '', String(count).padStart(2, '0')), el('span', '', label))
-  return box
-}
-
 class SfOverview extends HTMLElement {
   #data = { enabled: true, sessions: [], live: '' }
   #live = { id: '', cwd: '', busy: false, needs: 0 }
@@ -51,7 +45,8 @@ class SfOverview extends HTMLElement {
 
   #row(s) {
     const a = el('a')
-    a.href = s.live ? '#live' : `#s/${encodeURIComponent(s.id)}`
+    a.href = '/'
+    a.dataset.view = s.live ? 'live' : `s/${s.id}`
     a.title = s.cwd || ''
     const name = el('span', 'name', project(s.cwd))
     if (s.live) name.append(' ', el('span', 'tag live', 'this session'))
@@ -72,17 +67,16 @@ class SfOverview extends HTMLElement {
 
   #render() {
     if (!this.isConnected) return
-    const focused = this.contains(document.activeElement) ? document.activeElement.getAttribute('href') : null
+    const focused = this.contains(document.activeElement) ? document.activeElement.dataset.view : null
     const all = this.#sessions()
     const active = all.filter(s => !ENDED.includes(s.state))
     const ended = all.filter(s => ENDED.includes(s.state))
     const waiting = active.filter(s => s.state === 'waiting')
-    const summary = el('div', 'summary')
-    summary.append(stat(waiting.length, 'Need you', waiting.length ? 'need' : ''), stat(active.filter(s => s.state === 'working').length, 'Working'), stat(active.length, 'Open sessions'))
-    const parts = [summary]
+    const rest = active.filter(s => s.state !== 'waiting')
+    const parts = []
     if (!this.#data.enabled) parts.push(el('p', 'small muted', 'knackpack is not recording sessions, so only this one shows. Run /knackpack:software-factory on in any session to list them all here.'))
-    if (waiting.length) parts.push(el('h2', 'label', 'Needs you'), this.#list(waiting))
-    parts.push(el('h2', 'label', 'Sessions'), active.length ? this.#list(active.filter(s => s.state !== 'waiting')) : el('p', 'small muted', 'No open sessions.'))
+    if (waiting.length) parts.push(el('h2', 'label', `Needs you (${waiting.length})`), this.#list(waiting))
+    parts.push(el('h2', 'label', rest.length ? `Sessions (${rest.length})` : 'Sessions'), rest.length ? this.#list(rest) : el('p', 'small muted', 'No other open sessions.'))
     if (ended.length) {
       const d = el('details', 'ended')
       d.open = this.#endedOpen
@@ -91,7 +85,8 @@ class SfOverview extends HTMLElement {
       parts.push(d)
     }
     this.replaceChildren(...parts)
-    if (focused) [...this.querySelectorAll('a')].find(a => a.getAttribute('href') === focused)?.focus()
+    this.dispatchEvent(new CustomEvent('sf-counts', { bubbles: true, detail: { waiting: waiting.length, working: active.filter(s => s.state === 'working').length } }))
+    if (focused) [...this.querySelectorAll('a')].find(a => a.dataset.view === focused)?.focus()
   }
 }
 

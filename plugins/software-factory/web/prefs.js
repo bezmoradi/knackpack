@@ -36,20 +36,18 @@ function row(theme) {
   input.type = 'radio'
   input.name = 'theme'
   input.value = theme.value
-  const swatch = document.createElement('span')
-  swatch.className = 'swatch'
-  swatch.dataset.theme = theme.value
-  swatch.setAttribute('aria-hidden', 'true')
   const name = document.createElement('span')
   name.textContent = theme.label
-  label.append(input, swatch, name)
+  label.append(input, name)
   return label
 }
 
 export function initPrefs(save) {
   const box = document.getElementById('theme')
-  const scale = document.getElementById('scale')
+  const down = document.getElementById('scale-down')
+  const up = document.getElementById('scale-up')
   const shown = document.getElementById('scale-value')
+  const reset = document.getElementById('scale-reset')
   const list = themes()
   for (const [heading, dark] of [['Dark', true], ['Light', false]]) {
     const group = list.filter(t => t.dark === dark)
@@ -60,14 +58,15 @@ export function initPrefs(save) {
     box.append(title, ...group.map(row))
   }
   const sizes = scales()
-  scale.max = String(sizes.length - 1)
   const paint = () => {
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta) meta.content = getComputedStyle(root).getPropertyValue('--paper').trim()
     for (const input of box.querySelectorAll('input')) input.checked = input.value === root.dataset.theme
-    scale.value = String(Math.max(0, sizes.indexOf(root.dataset.scale)))
+    const at = sizes.indexOf(root.dataset.scale)
     shown.textContent = `${root.dataset.scale}%`
-    scale.setAttribute('aria-valuetext', `${root.dataset.scale}%`)
+    down.setAttribute('aria-disabled', String(at <= 0))
+    up.setAttribute('aria-disabled', String(at === -1 || at >= sizes.length - 1))
+    reset.hidden = root.dataset.scale === '100'
   }
   paint()
   box.addEventListener('change', e => {
@@ -75,9 +74,19 @@ export function initPrefs(save) {
     paint()
     save({ theme: e.target.value })
   })
-  scale.addEventListener('input', () => {
-    root.dataset.scale = sizes[Number(scale.value)]
+  const step = by => {
+    const next = sizes[sizes.indexOf(root.dataset.scale) + by]
+    if (!next) return
+    root.dataset.scale = next
     paint()
+    save({ scale: Number(next) })
+  }
+  down.addEventListener('click', () => step(-1))
+  up.addEventListener('click', () => step(1))
+  reset.addEventListener('click', () => {
+    root.dataset.scale = '100'
+    paint()
+    up.focus()
+    save({ scale: 100 })
   })
-  scale.addEventListener('change', () => save({ scale: Number(root.dataset.scale) }))
 }
