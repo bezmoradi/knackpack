@@ -1256,7 +1256,8 @@ bad=$(grep -oE -e 'use_commit_signing|ssh_signing_key|mcp__github_file_ops|mcp__
 # its notes here are idioms the scripts use on purpose. lychee fails a link
 # whose host can't be reached or that answers 4xx other than 429. A rate
 # limit, server error or timeout passes, since a later run would, and a
-# required check mustn't fail at random. With GITHUB_TOKEN set, zizmor runs
+# required check mustn't fail at random. http://sf/ is the software-factory
+# mod's address for its helper's Unix socket, never a host on the network. With GITHUB_TOKEN set, zizmor runs
 # its online audits too and lychee gets GitHub's higher rate limit. gitleaks
 # prints what it finds redacted.
 git -c core.quotePath=false ls-files --cached --others --exclude-standard -- . ':(exclude)evals' ':(exclude,glob)**/package-lock.json' |
@@ -1274,7 +1275,7 @@ lint() { # <tool>
 	zizmor) zizmor --persona pedantic --strict-collection --no-progress --color never .github ;;
 	codespell) each codespell <"$tmp/files" ;;
 	markdownlint-cli2) grep '\.md$' "$tmp/files" | sed 's/^/:/' | each markdownlint-cli2 --config .github/linters/markdownlint-cli2.jsonc ;;
-	lychee) each lychee --no-progress --include-verbatim --include-fragments --exclude-loopback --max-retries 3 --retry-wait-time 2 --timeout 20 \
+	lychee) each lychee --no-progress --include-verbatim --include-fragments --exclude-loopback --exclude '^http://sf/' --max-retries 3 --retry-wait-time 2 --timeout 20 \
 		--accept '100..=103,200..=299,429,500..=599' --accept-timeouts <"$tmp/files" ;;
 	gitleaks) mkdir "$tmp/scan" && tar -cf - -T "$tmp/files" | tar -xf - -C "$tmp/scan" &&
 		(cd "$tmp/scan" && gitleaks dir --no-banner --no-color --redact --verbose --log-level warn .) ;;
