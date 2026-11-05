@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: ts-upload-state-bag
+context:
+  scaffold_script: fixture.sh

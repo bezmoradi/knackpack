@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+`src/ui/List.ts` declares `ListProps.onSelect(item: ListItem): void` with method shorthand, and `select()` calls `onSelect` with whatever row is focused or tapped, section headings included (the file says headings are focusable and selectable). The uncommitted `src/screens/productPicker.ts` builds `items: ListItem[]` with a heading row per section followed by the section's `ProductItem`s, and passes `onSelect: (item: ProductItem) => cart.add(item.sku)`. Selecting a heading calls `cart.add(undefined)`, so the cart gains an `undefined` line (verified: `[["HD-FLW",1],[null,1]]` in JSON). tsc accepts the narrower parameter because parameters of method-shorthand members are compared bivariantly even with `strictFunctionTypes`; declaring `onSelect: (item: ListItem) => void` makes tsc report TS2322 at the picker.
+PASS if the review reports that headings (or any non-product `ListItem`) reach the handler that assumes a `ProductItem`, so an undefined sku goes into the cart, attributes tsc's silence to the method-shorthand (bivariant) declaration of `onSelect`, and grades it Medium or higher.
+FAIL if it doesn't notice that non-product items reach the handler, says `strictFunctionTypes` already prevents this, explains the acceptance by something other than method bivariance (for example, calls it a plain unsafe cast with no mention of the declaration style), or grades the finding Low.

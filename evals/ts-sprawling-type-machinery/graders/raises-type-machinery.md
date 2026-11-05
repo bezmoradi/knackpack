@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The uncommitted change adds an add-vendor form with three fields: company name, contact email and payment terms in days. To read it, it adds `src/forms/types.ts` (`FieldDef<TValue, TRequired>`, `ValueOf`, `RequiredKeys`, `OptionalKeys`, `InferValues`, `FieldErrors`, `FormResult`), `src/forms/fields.ts` (an abstract `BaseField` with `TextField` and `NumberField` subclasses and fluent `required()`, `max()`, `matching()`, `integer()` and `between()` methods) and `src/forms/form-builder.ts` (a fluent `FormBuilder` whose type grows with each `.field()` call, and a `FormParser`), and `src/vendor-form.ts` uses them once, then derives `VendorFormErrors` with an `infer` over the parser's type. Nothing else uses the builder. The code type-checks and returns the right values and messages, so the cost is in reading, changing and debugging it: a plain function that validates the three fields into the existing `NewVendor` type with a small errors object would do the same job.
+PASS if the review raises the form builder, field class hierarchy and mapped/conditional types (or a clear subset of them) as more abstraction than one three-field form needs, and proposes a plainer shape, such as an interface or the existing `NewVendor` with a single validation function.
+FAIL if the review doesn't raise the amount of type machinery at all, praises it as good type safety without questioning whether it's needed, or mentions it only as a neutral description of the change.

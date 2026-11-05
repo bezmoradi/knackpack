@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The project is JavaScript checked by tsc (`allowJs`, `checkJs`, `strict`, and `// @ts-check` in every file). The committed `src/http/getJson.js` is documented as "Resolves to null when the CRM answers 404" and typed `@returns {Promise<any>}`. The uncommitted `src/customers/findCustomer.js` declares `@returns {Promise<Customer>}` and returns `getJson(...)`; tsc accepts it because the value is `any`. The new `src/renewals/resend.js` loops over the ids support pastes in and reads `customer.email`, `customer.name` and the rest. A deleted or mistyped id makes the CRM answer 404, so `findCustomer` resolves to null and `resendReminders` throws `TypeError: Cannot read properties of null (reading 'email')`, which stops the batch and leaves the remaining customers without their reminder. With `@returns {Promise<Customer | null>}`, tsc reports TS18047 "'customer' is possibly 'null'" at each use in `resend.js`.
+PASS if the review reports that `findCustomer` can resolve to null (from `getJson` on a 404) although its JSDoc promises `Customer`, so `resendReminders` dereferences null and throws (or aborts the batch), and grades it Medium or higher.
+FAIL if it doesn't connect the 404 null to `findCustomer`'s declared return type and the crash in `resend.js`, says the JSDoc is accurate, asks only to convert the files to TypeScript, reports only the `any` in `getJson` as a style issue without the null reaching callers, or grades the finding Low.

@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The uncommitted `src/reminders/overdueReminders.ts` calls `groupBy(overdue, "customer")`. The shared helper in `src/lib/groupBy.ts` is `groupBy<T, K extends keyof T>(items: T[], key: K): Record<string, T[]>` and uses `String(item[key])` as the bucket. `customer` is a `Customer` object, so every invoice's key is `"[object Object]"`: all overdue invoices fall into one bucket, `buildOverdueReminders` builds a single email addressed to the first invoice's customer that lists every customer's overdue invoices and their combined total, and the other customers get no reminder. tsc passes because the constraint admits any key of `Invoice`, whatever its value's type.
+PASS if the review reports that grouping by the `customer` object collapses all invoices into one bucket (through `String()` giving "[object Object]" or equivalent), states the consequence (one customer gets everyone's invoices, a disclosure of other customers' data, or the others get no reminder), and grades it Medium or higher. Naming the helper's loose `K extends keyof T` contract and proposing `customer.id` via a key function or a constraint on the value type strengthens the answer but isn't required if the failure and consequence are right.
+FAIL if it misses that the grouping collapses, claims objects are grouped by identity or by reference, mentions only a style issue with the helper, or grades the finding Low.
