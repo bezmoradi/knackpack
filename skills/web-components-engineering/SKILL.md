@@ -13,7 +13,7 @@ Build elements the way the project already builds them, change as little as the 
 - **The public contract is API.** Tag names, attributes, properties, methods, events and their `detail`, slots, CSS parts, custom properties and custom states are what consumers rely on. Add, don't rename; when a rename is required, find every consumer first (`grep` the tag, class, event and slot names), and for a published package treat it as a breaking change.
 - **Prefer the platform.** Native elements inside the shadow root, platform events, `ElementInternals` and constructable stylesheets before custom machinery. Adopt a library only when its value is demonstrable for this project.
 - **Support is decided by the project's targets and consumers.** Check every platform feature against the browser targets and every integration against the consuming framework's actual version, with current data (MDN's compatibility tables, webstatus.dev, the framework's documentation).
-- **Never install packages or run `npx`** (with no terminal attached it downloads and runs missing packages without asking), and never run a tool's fix or write mode over files you didn't change. Use the tools already in `node_modules`, by path.
+- **Install no package the user didn't ask for, and never run `npx`** (with no terminal attached it downloads and runs missing packages without asking), and never run a tool's fix or write mode over files you didn't change. Use the tools already in `node_modules`, by path.
 - **Say what you didn't verify.** A component not exercised in a real browser is unverified; name the checks that remain rather than calling it done.
 
 ## 1. Learn the project

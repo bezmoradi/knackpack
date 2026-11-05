@@ -1,5 +1,5 @@
 #!/bin/bash
-# A dashboard whose declared targets include Firefox ESR 128 and Safari 17,
+# A dashboard whose declared targets include Firefox 128 and Safari 17,
 # plus an uncommitted account menu placed only by CSS anchor positioning.
 set -euo pipefail
 git init -q

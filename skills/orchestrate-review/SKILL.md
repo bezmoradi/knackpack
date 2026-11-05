@@ -6,7 +6,7 @@ argument-hint: "[target: change, branch, pull request or code base]"
 
 # Orchestrate review
 
-Run knackpack's reviewers together on one target, check their most serious findings once each, and turn their reports into one actionable list of issues. You coordinate; you don't review or fix the code yourself.
+Run knackpack's reviewers together on one target, check their most serious findings once each, and merge their reports into one list. You coordinate; you don't review or fix the code yourself.
 
 ## Rules for the whole run
 
@@ -31,7 +31,7 @@ Its last line is a git tree of every file that isn't ignored, built as reviewers
 
 ## 2. Choose the reviewers
 
-Start every reviewer that applies to the target, even when a change touches only one area, unless the user excludes one by name:
+Start every reviewer that applies, even when a change touches only one area, unless the user excludes one by name:
 
 - always the adversarial, architecture, security, slop and design pattern reviewers;
 - the Go reviewer when the target has Go code (`go.mod` or `*.go` files);
@@ -44,7 +44,7 @@ Start every reviewer that applies to the target, even when a change touches only
 - the OpenTelemetry reviewer when it has an `opentelemetry` dependency, `OTEL_` variables or a Collector configuration (top-level `receivers:` and `exporters:`);
 - the UI reviewer when it has front-end code (HTML, CSS, JSX or TSX components, Vue or Svelte files, or HTML or CSS templates such as `.tmpl`, `.jinja` or `.erb`);
 - the CSS reviewer when it has stylesheets (`*.css`, `*.s[ac]ss`, `*.less`), style blocks or CSS-in-JS;
-- the Web Components reviewer when it defines custom elements (`customElements.define`) or Lit, FAST or Stencil components.
+- the Web Components reviewer when it defines or uses custom elements (`customElements.define`, Lit, FAST, Stencil, or a hyphenated tag in markup, JSX or selectors).
 
 Judge that from every file the target covers. For the current change, list every change against the merge base with its target branch (`git diff --no-ext-diff --no-textconv --name-only <merge-base>`) and the untracked files (`git ls-files --others --exclude-standard`); a plain `git diff --name-only` shows only unstaged edits. For a pull request, use its `files` from the forge's CLI (`gh pr view <n> --json files`); for a code base, `git ls-files`. The adjudicator isn't one of these: you start it later, once per merged finding.
 
@@ -66,7 +66,7 @@ Start them all in one message, each with `subagent_type: knackpack:<name>` and n
 
 ## 4. Merge the findings
 
-When every report has arrived, read each one in full with your file-reading tool, in parts if it's long, since shell output gets cut. If a reviewer replied with its report instead of a path, save the reply word for word as `<name>.md` beside your report, say so in the report, and use that file. Then build one list:
+When every report is in, read each one in full with your file-reading tool, in parts if it's long, since shell output gets cut. If a reviewer replied with its report instead of a path, save the reply word for word as `<name>.md` beside your report, say so in the report, and use that file. Then build one list:
 
 1. **Collect every row** of each report's `## Findings table` (`sed -n '/^## Findings table$/,/^## /p' <report>`), plus its open risks and questions, kept apart from findings, and the issues it lists as pre-existing or outside the target, which go under Outside the target. Prefix each ID with its reviewer so IDs stay distinct: `ADV-F1`, `ARCH-F1`, `SEC-F1`, `SLOP-F1`, `DP-F1`, `GO-F1`, `PY-F1`, `UI-F1`, `DOCKER-F1`, `K8S-F1`, `TF-F1`, `DB-F1`, `REACT-F1`, `OTEL-F1`, `CSS-F1`, `WC-F1`.
 2. **Group duplicates.** Two findings are one issue when they describe the same defect: one mechanism at one place, or one root cause reported from different places. Sort by location (path and overlapping lines) and kind of defect, then read both findings to confirm; two different defects on one line stay separate. Give each merged issue an ID, `M1`, `M2` and so on, and keep every source ID. Then check that every step 1 ID appears once, in a merged issue, Outside the target or the open risks; a missing one is a dropped finding.
@@ -77,7 +77,7 @@ Never ask one reviewer to confirm another's finding: it costs their independence
 
 ## 5. Adjudicate once per merged issue
 
-For every merged issue that is Critical or High, or that blocks, start `knackpack:adjudicator` once, however many reviewers reported it; an issue whose block is conditional (step 4) is adjudicated only if it's Critical or High or the user asks. Start several at once if you like, after telling the user how many, since each often takes over 10 minutes and 100,000 tokens. Give each:
+For every merged issue that is Critical or High, or that blocks, start `knackpack:adjudicator` once, however many reviewers reported it; an issue whose block is conditional (step 4) is adjudicated only if it's Critical or High or the user asks. First tell the user in one line how many, since each often takes over 10 minutes and 100,000 tokens; several can run at once. Give each:
 
 - the claim, stated once from the merged issue: the trigger, the mechanism and the consequence;
 - the snapshot and base the source reports name, and the relevant paths: for uncommitted work, the tree a reviewer built, since an adjudicator given only a revision snapshots the files as they are when it starts; if sources name different trees, the one the claim is stated from;

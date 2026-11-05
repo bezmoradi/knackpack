@@ -13,7 +13,7 @@ Write CSS the way the project already writes it, change as little as the require
 - **Smallest maintainable change.** Edit the stylesheet that owns the component. Don't restructure files, reorder imports, rename classes, reformat untouched rules or "modernize" working CSS on the side; each touches readers you haven't checked. If the right fix needs a wider change, such as a new token or a layer, say so and ask.
 - **Class names, custom properties and layer names other code reads are a public interface.** JavaScript, tests, templates, other packages and a library's consumers may rely on them. Add, don't rename; when a rename is required, find every reader first.
 - **Support is decided by the project's targets, not by newness.** CSS has no single version; each feature has its own support. Check every feature you use against the targets (step 1) with current data, since browsers now release every two weeks.
-- **Never install packages or run `npx`** (with no terminal attached it downloads and runs missing packages without asking), and never run a tool's fix or write mode (`stylelint --fix`, `prettier --write`) over files you didn't change. Use the tools already in `node_modules`, by path.
+- **Install no package the user didn't ask for, and never run `npx`** (with no terminal attached it downloads and runs missing packages without asking), and never run a tool's fix or write mode (`stylelint --fix`, `prettier --write`) over files you didn't change. Use the tools already in `node_modules`, by path.
 - **Say what you didn't verify.** A CSS change that wasn't seen in a browser is unverified; say which checks remain, rather than calling it done.
 
 ## 1. Learn the project's CSS
@@ -30,7 +30,7 @@ Read before writing, and keep the answers in mind for every step:
 
 ## 2. Write the change
 
-**Reuse before adding.** Use an existing token for every color, space, radius, shadow, font size and z-index that has one; prefer the semantic token over the primitive. Add a token only when the role is new, named by role, not value, in the token source. Extend a component with a modifier or a custom property it exposes rather than reaching into it from a page (`.checkout .card__title`).
+**Reuse before adding.** Use an existing token for every color, space, radius, shadow, font size and z-index that has one; prefer the semantic token over the primitive. Add a token only when the role is new, named by role, not value, in the token source. Extend a component with a modifier or a custom property it exposes rather than reaching into it from a page (`.reports-page .media__title`).
 
 **Pick the layout mechanism by the problem:**
 
