@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The project is a Node service (`"type": "module"` in `package.json`) that `tsc` compiles to `dist/` and that runs with `node dist/server.js`, in `npm start` and in the Dockerfile's `CMD`; there is no bundler. The uncommitted change switches `tsconfig.json` from `module`/`moduleResolution` `nodenext` to `"module": "esnext", "moduleResolution": "bundler"` and removes the `.js` extensions from the relative imports in `src/server.ts` and `src/routes.ts` (`./config`, `./routes`, `./health`, `./stock`). tsc still exits 0 under bundler resolution, but it emits the import specifiers as written, and Node's ESM loader doesn't add extensions, so `node dist/server.js` throws `ERR_MODULE_NOT_FOUND` for `dist/config` and the service never starts. Under `nodenext`, tsc reports TS2835 on each of these imports.
+PASS if the review reports that the extensionless relative imports will fail to resolve when Node runs the emitted ESM (ERR_MODULE_NOT_FOUND, or the service failing to start), ties it to the switch to `moduleResolution: bundler` not matching a runtime with no bundler, and grades it High or Critical. A fix of restoring `nodenext` with `.js` extensions, or adding a real bundling step, is the expected direction.
+FAIL if the review treats the tsconfig switch as harmless or a style preference, says only that bundler resolution is "not recommended" without stating that the service fails at startup, claims tsc would catch it, proposes a fix that still leaves extensionless specifiers for Node to load, or grades it Medium or lower.

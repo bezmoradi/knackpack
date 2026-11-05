@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The uncommitted `src/lib/parseDate.ts` declares two overloads, `parseDate(input: string): Date` and `parseDate(input: number): Date`, over an implementation typed `(input: string | number): Date | null` that returns `null` for an empty or unparseable string. Callers see only the overloads, and tsc accepts the pair because `Date` is assignable to `Date | null`. The changed `src/bookings/createBooking.ts` now calls `parseDate(request.start).toISOString()` and `parseDate(request.end).toISOString()`. `BookingRequest.start` comes from a datetime-local input that is an empty string when cleared, so a cleared or malformed date throws `TypeError: Cannot read properties of null (reading 'toISOString')`. The server answers 500 instead of the 400 `BookingError` that the old `Number.isNaN` check returned. Declaring `Date | null` on the string overload makes tsc report "Object is possibly 'null'" at both calls.
+PASS if the review reports that the string overload promises `Date` while the implementation can return `null`, so `createBooking` dereferences null on an empty or invalid date (a TypeError or 500, or the lost 400 validation), and grades it Medium or higher.
+FAIL if it doesn't connect the overloads' return type to the null that reaches `createBooking`, treats the broad implementation signature alone as the problem without naming the null reaching callers, says the overloads are correct, reports only the lost validation without explaining that the types hide the null, or grades the finding Low.

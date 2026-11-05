@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: ts-row-any-concatenates
+context:
+  scaffold_script: fixture.sh
