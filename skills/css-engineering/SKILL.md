@@ -1,6 +1,7 @@
 ---
 name: css-engineering
 description: "Guide writing or changing CSS so the change fits the project: find its browser targets, build pipeline, stylesheet ownership, naming convention and design tokens first, then make the smallest maintainable change, with the right layout mechanism, responsive and right-to-left behavior, WCAG 2.2 AA accessibility, a fallback for any feature a target lacks, and a check of the result. Use whenever you write or edit stylesheets, style blocks, CSS Modules, Tailwind classes or CSS-in-JS, including layout fixes, theming, dark mode, responsive work and focus styles, even when the user doesn't say CSS. It never restructures a stylesheet, adds a methodology or framework, or renames existing classes unless asked. Not for reviewing CSS already written (the knackpack:css-code-reviewer agent, started only when the user asks for a review), the look and flow of a running app (the UI reviewer), React's own semantics (the React reviewer), or custom elements' behavior (the web-components-engineering skill)."
+argument-hint: "[change]"
 ---
 
 # CSS engineering

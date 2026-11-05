@@ -1,6 +1,7 @@
 ---
 name: web-components-engineering
 description: "Guide writing or changing Web Components so they fit the project and work for every consumer: learn its browser targets, consuming frameworks and versions, component library and conventions first, then design a stable public contract (tag, attributes, properties, events, slots, parts) and implement it with idempotent lifecycle and cleanup, shadow or light DOM as fits, accessibility across shadow boundaries, native form association, server-rendered roots reused, and a real-browser check. Use whenever you create or edit a custom element, a shadow root, a Lit, FAST or Stencil component, a form-associated control, or a component library's registration, types or docs, even when the user doesn't say Web Components. It adds no library, base class or TypeScript migration unless asked. Not for reviewing components already written (the knackpack:web-components-code-reviewer agent, started only on request), CSS layout and cascade (the css-engineering skill), or React's own semantics (the React reviewer)."
+argument-hint: "[change]"
 ---
 
 # Web Components engineering
