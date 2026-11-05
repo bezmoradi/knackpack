@@ -21,25 +21,21 @@ frontmatter() { awk '/^---[[:space:]]*$/ { if (++n == 2) exit; next } n == 1' "$
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/knackpack-check.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
-# Validation of each plugin in the marketplace, with no warning but the missing icon.
-for dir in . plugins/*/; do
-	[ -f "$dir/.claude-plugin/plugin.json" ] || continue
-	if ! command -v claude >/dev/null 2>&1; then
-		fail "claude plugin validate: the claude CLI isn't installed"
-		break
-	elif ! claude plugin validate "$dir" >"$tmp/validate" 2>&1; then
-		fail "claude plugin validate $dir failed:"
+# Validation of the plugin and its marketplace, with no warning but the missing icon.
+if ! command -v claude >/dev/null 2>&1; then
+	fail "claude plugin validate: the claude CLI isn't installed"
+elif ! claude plugin validate . >"$tmp/validate" 2>&1; then
+	fail "claude plugin validate . failed:"
+	cat "$tmp/validate"
+else
+	other=$(grep -o '([A-Z][A-Z_]*)' "$tmp/validate" | grep -v '^(ICON_MISSING)$' | sort -u | tr '\n' ' ')
+	if [ -n "$other" ] || ! grep -qx '✔ Validation passed' "$tmp/validate"; then
+		fail "claude plugin validate . warned:"
 		cat "$tmp/validate"
 	else
-		other=$(grep -o '([A-Z][A-Z_]*)' "$tmp/validate" | grep -v '^(ICON_MISSING)$' | sort -u | tr '\n' ' ')
-		if [ -n "$other" ] || ! grep -qx '✔ Validation passed' "$tmp/validate"; then
-			fail "claude plugin validate $dir warned:"
-			cat "$tmp/validate"
-		else
-			pass "claude plugin validate $dir"
-		fi
+		pass "claude plugin validate ."
 	fi
-done
+fi
 
 # Nothing at the root that would ship to every user unasked.
 for f in .mcp.json bin settings.json; do
@@ -1029,145 +1025,6 @@ done
 grep -q 'context\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/context.sh"; context_ok=0; }
 [ "$context_ok" = 1 ] && pass "context hook under$shells"
 
-# The software factory hook, under the same shells: silent, exit 0, nothing
-# recorded until it's turned on, under `claude -p` or with KNACKPACK_FACTORY=off;
-# no prompt, tool input or other agents' messages stored; dialog answers paired
-# with their questions; a knackpack reviewer's report and verdict kept; a failed
-# agent call marked; the intent record read, with each entry's quote; the
-# verdict line found in a whole report; long text cut at a word and marked;
-# recorded text escaped in the page's data; a tool event recorded only to clear
-# a permission prompt, or once a minute to show a long turn is busy; and invalid
-# session IDs refused. The page's states come from its embedded data.
-factory_ok=1
-fdir=$tmp/factory-state/knackpack/factory
-frun() { # <shell> <event JSON> <env assignments...>
-	s=$1 j=$2 t=
-	shift 2
-	# The hooks pass `tool` or `detail`, as hooks.json does.
-	case $j in *'"AskUserQuestion"'* | *'"SubagentHandback"'* | *PostToolUseFailure*) t=detail ;; *PostToolUse*) t=tool ;; esac
-	printf '%s' "$j" | env -u KNACKPACK_FACTORY -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED XDG_STATE_HOME="$tmp/factory-state" "$@" "$s" hooks/factory.sh record ${t:+"$t"} >"$tmp/out" 2>"$tmp/err"
-	code=$?
-	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] && [ ! -s "$tmp/out" ] || { fail "factory hook under $s: exit $code, output: $(head -c 200 "$tmp/out" "$tmp/err")"; factory_ok=0; }
-}
-page_data() { sed -n 's/.*<script id="data" type="application\/json">\(.*\)<\/script>.*/\1/p' "$fdir/software-factory.html"; }
-page_state() { page_data | grep -o '"state":"[a-z ]*","detail"' | sed 's/","detail"//; s/.*"//' | tr '\n' ','; }
-fa='"session_id":"aaaa1111-0000-0000-0000-000000000000","cwd":"/work/shop"'
-fb='"session_id":"bbbb2222-0000-0000-0000-000000000000","cwd":"/work/web"'
-tsv_a=aaaa1111-0000-0000-0000-000000000000.tsv
-flong=$(awk 'BEGIN { for (i = 0; i < 80; i++) printf "word " }')
-# A verdict past the 300 bytes other text keeps, and one past its own 2,000.
-fverd=$(awk 'BEGIN { for (i = 0; i < 50; i++) printf "the total holds "; printf "END-OF-VERDICT" }')
-fhuge=$(awk 'BEGIN { for (i = 0; i < 200; i++) printf "the total holds " }')
-# 240 Japanese characters, with no space to cut at.
-fcjk=$(awk 'BEGIN { for (i = 0; i < 120; i++) printf "\346\227\245\346\234\254" }')
-for s in $shells; do
-	"$s" -n hooks/factory.sh 2>"$tmp/err" || { fail "factory hook syntax under $s: $(cat "$tmp/err")"; factory_ok=0; }
-	rm -rf "$tmp/factory-state"
-	frun "$s" "{$fa,\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	[ ! -e "$fdir/sessions" ] || { fail "factory hook under $s recorded before it was turned on"; factory_ok=0; }
-	XDG_STATE_HOME="$tmp/factory-state" "$s" hooks/factory.sh on </dev/null >"$tmp/out" 2>"$tmp/err"
-	[ -f "$fdir/enabled" ] && [ -f "$fdir/software-factory.html" ] && [ ! -s "$tmp/err" ] || { fail "factory on under $s didn't create its marker and page"; factory_ok=0; }
-	mkdir -p "$tmp/factory-state/knackpack/intent/shop-1"
-	printf '%s\n' '# Intent record: checkout fix' '' '- Status: active · Updated: 2026-01-01' '' '## Agreed' '- REQ-01: Keep the cart total in cents. Said: "cents"' '' '## Open questions' '- Q-01: Round half up? Blocks: totals.' \
-		>"$tmp/factory-state/knackpack/intent/shop-1/aaaa1111-0000-0000-0000-000000000000.md"
-	# A later record that's done: listed first, as the newer file, whatever
-	# its name, but not the current one.
-	printf '%s\n' '# Intent record: later work' '' '- Status: done · Updated: 2026-01-02' '' '## Agreed' '- REQ-01: Ship it. Said: "ship"' \
-		>"$tmp/factory-state/knackpack/intent/shop-1/aaaa1111-0000-0000-0000-000000000000.2.md"
-	touch -t 202001010000 "$tmp/factory-state/knackpack/intent/shop-1/aaaa1111-0000-0000-0000-000000000000.md"
-	for e in "{$fa,\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}" "{$fa,\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"PROMPT-TEXT\"}" \
-		"{$fa,\"hook_event_name\":\"TaskCreated\",\"task_id\":\"1\",\"task_subject\":\"Fix \\\"it\\\" <script>x</script>\"}" "{$fa,\"hook_event_name\":\"TaskCompleted\",\"task_id\":\"1\"}" \
-		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"TOOL-INPUT\"}}" \
-		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[]},\"tool_response\":{\"answers\":{\"Which store?\":\"Postgres\",\"Cache <too>?\":\"No\"}}}" \
-		"{$fa,\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"g1\",\"agent_type\":\"knackpack:go-code-reviewer\"}" \
-		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"g1\",\"agent_type\":\"knackpack:go-code-reviewer\",\"last_assistant_message\":\"/tmp/r/go-code-reviewer.md\\nChanges required: 1 High.\"}" \
-		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"j1\",\"agent_type\":\"knackpack:adjudicator\",\"last_assistant_message\":\"# Adjudication\\n\\n## Verdict\\n\\nRefuted: the total never drops below zero.\\n\\nREASONING-TEXT\"}" \
-		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_response\":{\"answers\":{\"$flong\":\"Yes\"}}}" \
-		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_response\":{\"answers\":{\"Keep it?\":\"Keep (Recommended)\",\"Which parts?\":\"Cart (Recommended), Tax\"}}}" \
-		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"v1\",\"agent_type\":\"knackpack:adjudicator\",\"last_assistant_message\":\"Verdict: $fverd\"}" \
-		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"v2\",\"agent_type\":\"knackpack:adjudicator\",\"last_assistant_message\":\"Verdict: $fhuge\"}" \
-		"{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_response\":{\"answers\":{\"$fcjk\":\"CJK-ANSWER\"}}}" \
-		"{$fa,\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"e1\",\"agent_type\":\"Explore\"}" \
-		"{$fa,\"hook_event_name\":\"SubagentStop\",\"agent_id\":\"e1\",\"agent_type\":\"Explore\",\"last_assistant_message\":\"AGENT-TEXT\"}" \
-		"{$fa,\"hook_event_name\":\"SubagentStart\",\"agent_id\":\"s1\",\"agent_type\":\"knackpack:security-reviewer\"}" \
-		"{$fa,\"hook_event_name\":\"PostToolUseFailure\",\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"knackpack:security-reviewer\",\"prompt\":\"AGENT-PROMPT\"},\"error\":\"interrupted\"}" \
-		"{$fb,\"hook_event_name\":\"UserPromptSubmit\"}" "{$fb,\"hook_event_name\":\"Notification\",\"notification_type\":\"permission_prompt\"}" \
-		'{"session_id":"../../x","hook_event_name":"Stop"}' 'not json'; do
-		frun "$s" "$e" CLAUDE_CODE_SESSION_ATTENDED=1
-	done
-	[ "$(page_state)" = "waiting,working," ] || { fail "factory page under $s shows \"$(page_state)\", not a waiting then a working session"; factory_ok=0; }
-	! grep -q '	tool	' "$fdir/sessions/$tsv_a" || { fail "factory hook under $s recorded a tool event that cleared no permission prompt"; factory_ok=0; }
-	# Times are seconds since the epoch, as the page reads them; mawk's
-	# srand() would give micro- or nanoseconds.
-	awk -F '\t' -v now="$(date +%s)" 'NR == 1 { d = now - $1; exit !(d >= 0 && d < 120) }' "$fdir/sessions/$tsv_a" ||
-		{ fail "factory hook under $s recorded a time that isn't the current time in seconds: $(head -c 20 "$fdir/sessions/$tsv_a")"; factory_ok=0; }
-	# Bytes are counted with wc, since an awk in a UTF-8 locale counts characters.
-	q=$(LC_ALL=C awk -F '\t' '$5 == "CJK-ANSWER" { print $4 }' "$fdir/sessions/$tsv_a")
-	case $q in *...) [ "$(printf '%s' "$q" | wc -c | tr -d ' ')" -gt 200 ] ;; *) false ;; esac ||
-		{ fail "factory hook under $s didn't keep and mark the start of a long question written without spaces: $(printf '%s' "$q" | wc -c | tr -d ' ') bytes, ending $(printf '%s' "$q" | tail -c 12 | od -An -c | tr -s ' ')"; factory_ok=0; }
-	# A session quiet for a minute or more gets one sign of life from a tool
-	# call, even while another session waits on a permission prompt, and the
-	# next call within the minute adds nothing.
-	printf '1000\tprompt\t\n' >>"$fdir/sessions/$tsv_a"
-	frun "$s" "{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	frun "$s" "{$fa,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Bash\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	[ "$(grep -c '	tool	' "$fdir/sessions/$tsv_a")" = 1 ] || { fail "factory hook under $s didn't record exactly one sign of life from a busy session's tool calls"; factory_ok=0; }
-	frun "$s" "{$fb,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Edit\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	[ "$(page_state)" = "working,working," ] || { fail "factory page under $s didn't clear the permission prompt after the tool ran"; factory_ok=0; }
-	! grep -q 'PROMPT-TEXT\|TOOL-INPUT\|AGENT-TEXT\|AGENT-PROMPT\|REASONING-TEXT' "$fdir/sessions/"*.tsv || { fail "factory hook under $s stored a prompt, tool input or an agent's message"; factory_ok=0; }
-	# A verdict keeps up to 2,000 bytes, cut at a word and marked past that.
-	v=$(awk -F '\t' '$4 == "v2" { print $7 }' "$fdir/sessions/$tsv_a")
-	case $v in *[a-z]...) [ "$(printf '%s' "$v" | wc -c | tr -d ' ')" -le 2000 ] && [ "$(printf '%s' "$v" | wc -c | tr -d ' ')" -gt 1900 ] ;; *) false ;; esac ||
-		{ fail "factory hook under $s didn't cut a verdict over 2,000 bytes at a word and mark it: $(printf '%s' "$v" | wc -c | tr -d ' ') bytes"; factory_ok=0; }
-	d=$(page_data)
-	# Records come newest first by modification time, each with its file's
-	# suffix and status, and the current one is the newest not done.
-	case $d in *'"key":".2","title":"later work","status":"done","current":false'*'"key":"","title":"checkout fix","status":"active","current":true'*) ;;
-	*) fail "factory page data under $s doesn't list intent records newest first with their status and the current one marked"; factory_ok=0 ;; esac
-	for want in '"q":"Which store?","a":"Postgres"' '"q":"Cache \u003ctoo\u003e?","a":"No"' '"report":"/tmp/r/go-code-reviewer.md"' '"verdict":"Changes required: 1 High."' \
-		'"type":"knackpack:security-reviewer","state":"failed"' '"id":"REQ-01","text":"Keep the cart total in cents.","more":"Said: \"cents\""' '"id":"Q-01","text":"Round half up?","more":"Blocks: totals."' \
-			'"verdict":"Refuted: the total never drops below zero."' 'word word...","a":"Yes"' 'END-OF-VERDICT"' \
-		'"q":"Keep it?","a":"Keep"' '"q":"Which parts?","a":"Cart, Tax"' \
-		'"subject":"Fix \"it\" \u003cscript\u003ex\u003c/script\u003e","done":true'; do
-		case $d in *"$want"*) ;; *) fail "factory page data under $s lacks $want"; factory_ok=0 ;; esac
-	done
-	case $d in *'<'*) fail "factory page data under $s holds a raw <, which could end its script element"; factory_ok=0 ;; esac
-	# A question shows while its dialog is open, with its options and not
-	# their descriptions, even after the permission prompt the dialog raises;
-	# its answer ends the wait, and so does the turn ending after Esc.
-	for e in "{$fb,\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Pick a store?\",\"header\":\"Store\",\"multiSelect\":false,\"options\":[{\"label\":\"Postgres (Recommended)\",\"description\":\"says \\\"label\\\": DESC-TEXT\"},{\"label\":\"SQLite\",\"description\":\"DESC-TEXT\"}]}]}}" \
-		"{$fb,\"hook_event_name\":\"Notification\",\"notification_type\":\"permission_prompt\"}"; do
-		frun "$s" "$e" CLAUDE_CODE_SESSION_ATTENDED=1
-	done
-	d=$(page_data)
-	case $d in *'"state":"waiting","detail":"waiting for your answer"'*'"pending":[{"q":"Pick a store?","options":"Postgres (Recommended) / SQLite"'*) ;;
-	*) fail "factory page data under $s doesn't show an open dialog's question as waiting for an answer"; factory_ok=0 ;; esac
-	! grep -q 'DESC-TEXT' "$fdir/sessions/"*.tsv || { fail "factory hook under $s stored an option's description"; factory_ok=0; }
-	# A background agent's tool call while the dialog is open leaves it waiting.
-	frun "$s" "{$fb,\"agent_id\":\"bg1\",\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"Read\",\"tool_response\":{}}" CLAUDE_CODE_SESSION_ATTENDED=1
-	case $(page_data) in *'"state":"waiting","detail":"waiting for your answer"'*'"pending":[{"q":"Pick a store?"'*) ;;
-	*) fail "factory page data under $s drops an open dialog's question when a background agent uses a tool"; factory_ok=0 ;; esac
-	frun "$s" "{$fb,\"hook_event_name\":\"PostToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_response\":{\"answers\":{\"Pick a store?\":\"SQLite\"}}}" CLAUDE_CODE_SESSION_ATTENDED=1
-	d=$(page_data)
-	case $d in *'"pending":[{'* | *'waiting for your answer'*) fail "factory page data under $s still shows a question waiting after its answer"; factory_ok=0 ;; esac
-	frun "$s" "{$fb,\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"AskUserQuestion\",\"tool_input\":{\"questions\":[{\"question\":\"Again?\",\"options\":[{\"label\":\"Yes\"}]}]}}" CLAUDE_CODE_SESSION_ATTENDED=1
-	frun "$s" "{$fb,\"hook_event_name\":\"Stop\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	case $(page_data) in *'"pending":[{'*) fail "factory page data under $s still shows a dismissed dialog's question after the turn ended"; factory_ok=0 ;; esac
-	[ "$(find "$fdir/sessions" -type f | wc -l | tr -d ' ')" = 2 ] || { fail "factory hook under $s accepted an invalid session ID"; factory_ok=0; }
-	lines=$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')
-	for v in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_FACTORY=off'; do
-		# shellcheck disable=SC2086 # $v holds one or two assignments
-		frun "$s" "{$fa,\"hook_event_name\":\"Stop\"}" $v
-	done
-	[ "$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')" = "$lines" ] || { fail "factory hook under $s recorded a headless or turned-off session"; factory_ok=0; }
-	XDG_STATE_HOME="$tmp/factory-state" "$s" hooks/factory.sh off </dev/null >/dev/null 2>&1
-	frun "$s" "{$fa,\"hook_event_name\":\"Stop\"}" CLAUDE_CODE_SESSION_ATTENDED=1
-	[ ! -f "$fdir/enabled" ] && [ "$(wc -l <"$fdir/sessions/$tsv_a" | tr -d ' ')" = "$lines" ] || { fail "factory off under $s didn't stop recording"; factory_ok=0; }
-done
-rm -rf "$tmp/factory-state"
-grep -q 'hooks/factory\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/factory.sh"; factory_ok=0; }
-grep -q '^<!-- knackpack:data -->$' hooks/factory.html || { fail "hooks/factory.html lacks the line factory.sh replaces with the page's data"; factory_ok=0; }
-[ "$factory_ok" = 1 ] && pass "software factory hook under$shells"
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
 
@@ -1256,8 +1113,7 @@ bad=$(grep -oE -e 'use_commit_signing|ssh_signing_key|mcp__github_file_ops|mcp__
 # its notes here are idioms the scripts use on purpose. lychee fails a link
 # whose host can't be reached or that answers 4xx other than 429. A rate
 # limit, server error or timeout passes, since a later run would, and a
-# required check mustn't fail at random. http://sf/ is the software-factory
-# mod's address for its helper's Unix socket, never a host on the network. With GITHUB_TOKEN set, zizmor runs
+# required check mustn't fail at random. With GITHUB_TOKEN set, zizmor runs
 # its online audits too and lychee gets GitHub's higher rate limit. gitleaks
 # prints what it finds redacted.
 git -c core.quotePath=false ls-files --cached --others --exclude-standard -- . ':(exclude)evals' ':(exclude,glob)**/package-lock.json' |
@@ -1275,7 +1131,7 @@ lint() { # <tool>
 	zizmor) zizmor --persona pedantic --strict-collection --no-progress --color never .github ;;
 	codespell) each codespell <"$tmp/files" ;;
 	markdownlint-cli2) grep '\.md$' "$tmp/files" | sed 's/^/:/' | each markdownlint-cli2 --config .github/linters/markdownlint-cli2.jsonc ;;
-	lychee) each lychee --no-progress --include-verbatim --include-fragments --exclude-loopback --exclude '^http://sf/' --max-retries 3 --retry-wait-time 2 --timeout 20 \
+	lychee) each lychee --no-progress --include-verbatim --include-fragments --exclude-loopback --max-retries 3 --retry-wait-time 2 --timeout 20 \
 		--accept '100..=103,200..=299,429,500..=599' --accept-timeouts <"$tmp/files" ;;
 	gitleaks) mkdir "$tmp/scan" && tar -cf - -T "$tmp/files" | tar -xf - -C "$tmp/scan" &&
 		(cd "$tmp/scan" && gitleaks dir --no-banner --no-color --redact --verbose --log-level warn .) ;;
@@ -1291,8 +1147,7 @@ fi
 # A changed plugin needs a new version, or installed copies never update, and
 # a version below origin/main's means a merge or rebase went wrong. Files under
 # .github/ change nothing the plugin does, so a change to them alone, such as
-# Dependabot's, needs no new version. Each plugin under plugins/ has its own
-# version, so a change there needs that plugin's bump, not knackpack's.
+# Dependabot's, needs no new version.
 higher() { # <a> <b>: a is a higher x.y.z than b
 	printf '%s\n%s\n' "$1" "$2" | awk -F. '
 		NR == 1 { for (i = 1; i <= 3; i++) a[i] = $i + 0; next }
@@ -1302,29 +1157,12 @@ cur=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' .claude-
 pub=$(git show origin/main:.claude-plugin/plugin.json 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 if [ -z "$pub" ]; then
 	fail "can't read the version on origin/main"
-elif [ "$cur" = "$pub" ] && { ! git diff --quiet origin/main -- . ':(exclude).github' ':(exclude)plugins' || [ -n "$(git ls-files --others --exclude-standard -- . ':(exclude).github' ':(exclude)plugins')" ]; }; then
+elif [ "$cur" = "$pub" ] && { ! git diff --quiet origin/main -- . ':(exclude).github' || [ -n "$(git ls-files --others --exclude-standard -- . ':(exclude).github')" ]; }; then
 	fail "the plugin changed since origin/main but its version is still $cur"
 elif [ "$cur" != "$pub" ] && ! higher "$cur" "$pub"; then
 	fail "version $cur is lower than origin/main's $pub"
 else
 	pass "version $cur (origin/main has $pub)"
 fi
-for dir in plugins/*/; do
-	m=${dir}.claude-plugin/plugin.json
-	[ -f "$m" ] || continue
-	cur=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$m")
-	pub=$(git show "origin/main:$m" 2>/dev/null | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-	if [ -z "$cur" ]; then
-		fail "$m has no version"
-	elif [ -z "$pub" ]; then
-		pass "version $cur of new plugin $dir"
-	elif [ "$cur" = "$pub" ] && { ! git diff --quiet origin/main -- "$dir" || [ -n "$(git ls-files --others --exclude-standard -- "$dir")" ]; }; then
-		fail "$dir changed since origin/main but its version is still $cur"
-	elif [ "$cur" != "$pub" ] && ! higher "$cur" "$pub"; then
-		fail "$dir version $cur is lower than origin/main's $pub"
-	else
-		pass "version $cur of $dir (origin/main has $pub)"
-	fi
-done
 
 exit "$failed"
