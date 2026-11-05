@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: wc-copy-button-skips-super
+context:
+  scaffold_script: fixture.sh

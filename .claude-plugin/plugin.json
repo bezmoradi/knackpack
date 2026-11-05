@@ -1,7 +1,7 @@
 {
   "name": "knackpack",
   "description": "A pack of Claude Code knacks: skills and agents",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "author": {
     "name": "Bez Moradi",
     "url": "https://github.com/bezmoradi"
@@ -33,6 +33,10 @@
     "database-migrations",
     "redis",
     "opentelemetry",
-    "issue-tracking"
+    "issue-tracking",
+    "css",
+    "accessibility",
+    "web-components",
+    "custom-elements"
   ]
 }

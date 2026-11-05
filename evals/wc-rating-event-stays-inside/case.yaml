@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: wc-rating-event-stays-inside
+context:
+  scaffold_script: fixture.sh
