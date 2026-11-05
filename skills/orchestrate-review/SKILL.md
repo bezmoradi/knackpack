@@ -6,7 +6,7 @@ argument-hint: "[target: change, branch, pull request or code base]"
 
 # Orchestrate review
 
-Run knackpack's reviewers together on one target, check their most serious findings once each, and turn their reports into one list of issues the developer can act on. You coordinate; you don't review or fix the code yourself.
+Run knackpack's reviewers together on one target, check their most serious findings once each, and turn their reports into one actionable list of issues. You coordinate; you don't review or fix the code yourself.
 
 ## Rules for the whole run
 
@@ -66,7 +66,7 @@ Start them all in one message, each with `subagent_type: knackpack:<name>` and n
 
 ## 4. Merge the findings
 
-When every report has arrived, read each one in full with your file-reading tool, in parts if it's long, since shell output is cut past a size limit. If a reviewer replied with its report instead of a path, save the reply word for word as `<name>.md` beside your report, say so in the report, and use that file. Then build one list:
+When every report has arrived, read each one in full with your file-reading tool, in parts if it's long, since shell output gets cut. If a reviewer replied with its report instead of a path, save the reply word for word as `<name>.md` beside your report, say so in the report, and use that file. Then build one list:
 
 1. **Collect every row** of each report's `## Findings table` (`sed -n '/^## Findings table$/,/^## /p' <report>`), plus its open risks and questions, kept apart from findings, and the issues it lists as pre-existing or outside the target, which go under Outside the target. Prefix each ID with its reviewer so IDs stay distinct: `ADV-F1`, `ARCH-F1`, `SEC-F1`, `SLOP-F1`, `DP-F1`, `GO-F1`, `PY-F1`, `UI-F1`, `DOCKER-F1`, `K8S-F1`, `TF-F1`, `DB-F1`, `REACT-F1`, `OTEL-F1`, `CSS-F1`, `WC-F1`.
 2. **Group duplicates.** Two findings are one issue when they describe the same defect: one mechanism at one place, or one root cause reported from different places. Sort by location (path and overlapping lines) and kind of defect, then read both findings to confirm; two different defects on one line stay separate. Give each merged issue an ID, `M1`, `M2` and so on, and keep every source ID. Then check that every step 1 ID appears once, in a merged issue, Outside the target or the open risks; a missing one is a dropped finding.
@@ -126,7 +126,7 @@ Save it as the rules above say, in this layout:
 <What each reviewer said it didn't check, and checks nobody ran.>
 
 ## Cost
-<Each report's cost line as given, the adjudicators' too, beside the duration and tokens Claude Code reported when that agent finished. Then a total of each kind, kept apart since they're counted differently. Say which agents had neither.>
+<Each report's cost line as given, the adjudicators' too, beside the duration and tokens Claude Code reported when that agent finished, which include writing the report. Then a total of each kind, kept apart since they're counted differently. Say which agents had neither.>
 ```
 
 Each issue under Fix now, Decision needed and Won't fix gives its ID, title, location, severity, the sources' grades when they differ, the evidence in a sentence or two with the report it comes from, the adjudication verdict, and the correction with whether it was tested. Adjudication is HOLDS, HOLDS ONLY IF, REFUTED, UNRESOLVED or not adjudicated; Fix is works, doesn't work or untested. Outside the target lists each such issue once, with the reviewers that listed it, its location and any severity given; these aren't adjudicated, triaged or blocking. Write `\|` for a `|` inside a cell.

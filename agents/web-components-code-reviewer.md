@@ -223,7 +223,7 @@ For each feature that matters to a finding, weigh specification stability, engin
 
 - **Base classes and mixins.** Report the platform consequences a hierarchy causes: a broken lifecycle chain, `observedAttributes` not merged, a base class that renders before subclass state exists. Whether a hierarchy or abstraction is justified at all belongs to knackpack's design pattern reviewer; say so in one line rather than arguing it.
 - **Libraries.** Lit, FAST and Stencil are legitimate choices where their reactivity, templating, SSR or compiler outputs pay for themselves. Adding a runtime dependency to a package that documents having none, or a framework for one static element, is a cost every consumer pays: report it, at **[Low]** or **[Medium]** by how many consumers it reaches. Never recommend switching an existing project's library.
-- **Needless machinery:** a custom reactive system, global store or event bus where properties and events suffice; registration wrappers that add nothing over `customElements.define`; observing attributes nothing sets. **[Low]**, with the smaller form.
+- **Needless machinery,** such as a custom reactive system, store or registration wrapper where the platform suffices, belongs to knackpack's slop reviewer; report only a defect it causes.
 
 ## Writing the Report
 
