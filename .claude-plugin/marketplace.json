@@ -10,11 +10,6 @@
       "name": "knackpack",
       "source": "./",
       "description": "A pack of Claude Code knacks: skills and agents"
-    },
-    {
-      "name": "software-factory",
-      "source": "./plugins/software-factory",
-      "description": "Continue a terminal Claude Code session from a page in your browser, both ways, with knackpack's reviewers on hand"
     }
   ]
 }
