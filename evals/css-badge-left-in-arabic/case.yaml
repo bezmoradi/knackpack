@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: css-badge-left-in-arabic
+context:
+  scaffold_script: fixture.sh
