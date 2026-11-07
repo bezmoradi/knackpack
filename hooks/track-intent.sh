@@ -81,14 +81,16 @@ else
 	off | 0 | false | no) exit 0 ;;
 	on | 1 | true | yes) ;;
 	*)
-		# Claude Code 2.1.310 sets both for hooks, 1 and cli in an attended
-		# session, 0 and sdk-cli under `claude -p`. Neither is documented,
-		# so a missing value counts as attended.
-		if [ -n "${CLAUDE_CODE_SESSION_ATTENDED:-}" ]; then
-			[ "$CLAUDE_CODE_SESSION_ATTENDED" = 0 ] && exit 0
-		else
-			case ${CLAUDE_CODE_ENTRYPOINT:-} in sdk-*) exit 0 ;; esac
-		fi
+		# Claude Code 2.1.319 sets both for hooks: cli and 1 in an attended
+		# session, cli and 0 in a background session started with
+		# `claude --bg`, which a person may still be chatting with, and
+		# sdk-cli and 0 under `claude -p`. So the attended flag can skip a
+		# session only when its entry point is the Agent SDK's or missing.
+		# Neither is documented, so missing values count as attended.
+		case ${CLAUDE_CODE_ENTRYPOINT:-} in
+		sdk-*) [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 1 ] || exit 0 ;;
+		'') [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 0 ] && exit 0 ;;
+		esac
 		;;
 	esac
 	input=$(cat)

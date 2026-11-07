@@ -34,15 +34,14 @@ case $setting in
 off | 0 | false | no) exit 0 ;;
 on | 1 | true | yes) ;;
 *)
-	# The same test as track-intent.sh: Claude Code 2.1.310 sets both for
-	# hooks, 1 and cli in an attended session, 0 and sdk-cli under
-	# `claude -p`. Neither is documented, so a missing value counts as
-	# attended.
-	if [ -n "${CLAUDE_CODE_SESSION_ATTENDED:-}" ]; then
-		[ "$CLAUDE_CODE_SESSION_ATTENDED" = 0 ] && exit 0
-	else
-		case ${CLAUDE_CODE_ENTRYPOINT:-} in sdk-*) exit 0 ;; esac
-	fi
+	# The same test as track-intent.sh: a background session started with
+	# `claude --bg` (cli and 0) runs the hook, `claude -p` (sdk-cli and 0)
+	# doesn't, and the attended flag decides only when the entry point is
+	# the Agent SDK's or missing.
+	case ${CLAUDE_CODE_ENTRYPOINT:-} in
+	sdk-*) [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 1 ] || exit 0 ;;
+	'') [ "${CLAUDE_CODE_SESSION_ATTENDED:-}" = 0 ] && exit 0 ;;
+	esac
 	;;
 esac
 
