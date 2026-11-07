@@ -659,7 +659,8 @@ for s in $shells; do
 		hook_ok=0
 	fi
 	# Off, or in a session nobody attends, it prints nothing and writes nothing.
-	for v in CLAUDE_CODE_SESSION_ATTENDED=0 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_INTENT=off' CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
+	for v in CLAUDE_CODE_SESSION_ATTENDED=0 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_INTENT=off' CLAUDE_CODE_ENTRYPOINT=sdk-cli \
+		'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0'; do
 		rm -rf "$tmp/quiet"
 		for m in rules state prompt tool stop; do
 			# shellcheck disable=SC2086 # $v holds one or two assignments
@@ -671,6 +672,17 @@ for s in $shells; do
 			hook_ok=0
 		fi
 		rm -f "$tmp/quiet.out"
+	done
+	# A background session started with `claude --bg` (cli and 0) is marked
+	# unattended but may have a person in it, and an Agent SDK session marked
+	# attended (sdk-cli and 1) has one: both get the rules.
+	for v in 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=1'; do
+		rm -rf "$tmp/awake"
+		# shellcheck disable=SC2086 # $v holds two assignments
+		printf '%s' "$event" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT $v \
+			XDG_STATE_HOME="$tmp/awake" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" rules >"$tmp/awake.out" 2>&1
+		grep -q '^# Track intent' "$tmp/awake.out" || { fail "hook under $s with $v printed no rules"; hook_ok=0; }
+		rm -rf "$tmp/awake" "$tmp/awake.out"
 	done
 	# Open proposals: a status follows "by <who>. ", or a full stop, "?" or "!"
 	# with or without a closing quote, and a reason may follow it. Accepted and
@@ -963,13 +975,15 @@ crun() { # <shell> <env assignments...>
 }
 for s in $shells; do
 	"$s" -n hooks/challenge.sh 2>"$tmp/err" || { fail "challenge hook syntax under $s: $(cat "$tmp/err")"; challenge_ok=0; }
-	for v in CLAUDE_CODE_SESSION_ATTENDED=1 'CLAUDE_CODE_SESSION_ATTENDED=0 KNACKPACK_CHALLENGE=On' 'CLAUDE_CODE_SESSION_ATTENDED=0 EVAL_KNACKPACK_CHALLENGE=on'; do
+	for v in CLAUDE_CODE_SESSION_ATTENDED=1 'CLAUDE_CODE_SESSION_ATTENDED=0 KNACKPACK_CHALLENGE=On' 'CLAUDE_CODE_SESSION_ATTENDED=0 EVAL_KNACKPACK_CHALLENGE=on' \
+		'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=1'; do
 		# shellcheck disable=SC2086 # $v holds one or two assignments
 		crun "$s" $v
 		grep -q '^# Challenge, don.t please' "$tmp/out" || { fail "challenge hook under $s with $v printed no rules"; challenge_ok=0; }
 	done
-	for v in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli; do
-		crun "$s" "$v"
+	for v in CLAUDE_CODE_SESSION_ATTENDED=0 CLAUDE_CODE_ENTRYPOINT=sdk-cli 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0'; do
+		# shellcheck disable=SC2086 # $v holds one or two assignments
+		crun "$s" $v
 		[ ! -s "$tmp/out" ] || { fail "challenge hook under $s with $v printed something"; challenge_ok=0; }
 	done
 	for v in 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_CHALLENGE=off' 'CLAUDE_CODE_SESSION_ATTENDED=0 KNACKPACK_CHALLENGE=off'; do
@@ -1008,7 +1022,8 @@ for s in $shells; do
 	"$s" -n hooks/context.sh 2>"$tmp/err" || { fail "context hook syntax under $s: $(cat "$tmp/err")"; context_ok=0; }
 	for c in 'low hi CLAUDE_CODE_SESSION_ATTENDED=1' 'compacted hi CLAUDE_CODE_SESSION_ATTENDED=1' 'side hi CLAUDE_CODE_SESSION_ATTENDED=1' \
 		'stop /knackpack:checkpoint CLAUDE_CODE_SESSION_ATTENDED=1' 'stop hi CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_CONTEXT=off' \
-		'stop hi CLAUDE_CODE_SESSION_ATTENDED=0' 'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli'; do
+		'stop hi CLAUDE_CODE_SESSION_ATTENDED=0' 'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli' \
+		'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0'; do
 		# shellcheck disable=SC2086 # $c holds the arguments
 		xrun "$s" $c
 		[ ! -s "$tmp/out" ] || { fail "context hook under $s printed something for: $c"; context_ok=0; }
@@ -1020,6 +1035,11 @@ for s in $shells; do
 			jq -e --arg n "$n" '(.systemMessage | length > 0) and .hookSpecificOutput.hookEventName == "UserPromptSubmit" and (.hookSpecificOutput.additionalContext | contains($n))' "$tmp/out" >/dev/null 2>&1 ||
 				{ fail "context hook under $s at the $n threshold didn't print its JSON warning"; context_ok=0; }
 		fi
+	done
+	for v in 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=1'; do
+		# shellcheck disable=SC2086 # $v holds two assignments
+		xrun "$s" warn hi $v
+		grep -q '400,000' "$tmp/out" || { fail "context hook under $s with $v printed no warning at 400,000 tokens"; context_ok=0; }
 	done
 done
 grep -q 'context\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/context.sh"; context_ok=0; }
