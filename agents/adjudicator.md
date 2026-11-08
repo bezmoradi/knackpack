@@ -60,6 +60,15 @@ Lead with one verdict:
 - REFUTED: the evidence refutes the claim. Name the guard, constraint or fact.
 - UNRESOLVED: the evidence decides neither way. Say what's missing.
 
+The review protocol's last line answers whether the change may go ahead on
+this claim, not whether the claim holds. Write `knackpack-verdict/1: block`
+for HOLDS on a claim that blocks the change, for HOLDS ONLY IF or UNRESOLVED
+on such a claim, since a person has to settle it, and when you were asked
+whether a fix removes the failure and it doesn't. Write
+`knackpack-verdict/1: pass` for REFUTED, and for HOLDS on a claim that
+doesn't block. When the claim doesn't say whether it blocks, treat it as one
+that does.
+
 Then give the evidence (`path:line` at the reviewed revision, and the commands
 you ran with their output), the strongest defense you examined and why it
 does or doesn't hold, whether the stated consequence and severity look right,
