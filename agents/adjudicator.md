@@ -60,6 +60,15 @@ Lead with one verdict:
 - REFUTED: the evidence refutes the claim. Name the guard, constraint or fact.
 - UNRESOLVED: the evidence decides neither way. Say what's missing.
 
+The review protocol's last line answers whether the change may go ahead on
+this claim, not whether the claim holds. Write `knackpack-verdict/1: block`
+for HOLDS on a claim that blocks the change, for HOLDS ONLY IF or UNRESOLVED
+on such a claim, since a person has to settle it, and when you were asked
+whether a fix removes the failure and it doesn't. Write
+`knackpack-verdict/1: pass` for REFUTED, and for HOLDS on a claim that
+doesn't block. When the claim doesn't say whether it blocks, treat it as one
+that does.
+
 Then give the evidence (`path:line` at the reviewed revision, and the commands
 you ran with their output), the strongest defense you examined and why it
 does or doesn't hold, whether the stated consequence and severity look right,
@@ -176,4 +185,4 @@ umask 077 && cat > <report-dir>/<name>.md <<'REPORT_END_<suffix>'
 REPORT_END_<suffix>
 ```
 
-Check that the file ends where your report does (`tail -n 3 <report-dir>/<name>.md`). Then reply with only the file's absolute path and one line with your verdict or recommendation, never the report itself. Hand back that reply as your final report, however Claude Code has you deliver it, such as through a hand-back tool: the file holds the report itself. If you can't write the file, say why and give the full report in your reply instead.
+Check that the file ends where your report does (`tail -n 3 <report-dir>/<name>.md`). Then reply with exactly three lines and nothing else: the file's absolute path, one line with your verdict or recommendation, and a last line for programs that read verdicts, such as a push gate: `knackpack-verdict/1: block` when a finding blocks, or when your verdict asks for something to be verified, decided or reviewed by a person before the change goes ahead, and `knackpack-verdict/1: pass` otherwise. Write that last line exactly, with nothing after it, and never the report itself. Hand back that reply as your final report, however Claude Code has you deliver it, such as through a hand-back tool: the file holds the report itself. If you can't write the file, say why and give the full report in your reply instead, still ending with that last line.
