@@ -28,7 +28,7 @@ such as "implement," "test," and "deploy."
 
 Never write into the repository unless the user asks. To save the plan, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 
-Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if a `PLAN.md` for another task is already there, listing at its top the absolute paths of the brief, intent record and research it builds on. Give the user its absolute path; to have it reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to review the plan at <absolute path>`.
+Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if a `PLAN.md` for another task is already there, listing at its top the absolute paths of the brief, intent record and research it builds on. Give the user its absolute path; to have it reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to review the plan at <absolute path>`, and to implement it: `/knackpack:execute-plan <absolute path>`.
 
 ## 1. Establish the planning contract
 
@@ -52,20 +52,12 @@ Respect the requested mode. When the request doesn't say, plan only, and say
 so. In planning-only mode, investigate read-only and produce the plan.
 Do not modify implementation code or external systems.
 
-If execution is also authorized, finish the necessary planning and proceed
-without inventing an additional approval requirement. Then keep the plan
-honest:
-
-- Treat it as revisable, and update package status from observed evidence;
-  if your environment has a task list, mirror the work packages there.
-- Record meaningful deviations, and reassess downstream packages when
-  contracts change.
-- Validate against the actual implemented revision, and report completed,
-  incomplete, and blocked work separately.
-- Mark a package complete only when its stated verification and acceptance
-  conditions pass, not merely because code was written.
-- Drop obsolete steps after changing the approach, and don't hide scope
-  growth inside a progress update.
+A request for a plan never authorizes building it. If execution is also
+authorized, finish the necessary planning and save the plan, then start
+knackpack's `execute-plan` skill with the plan's absolute path, without
+inventing an additional approval requirement. It orchestrates: subagents
+make every implementation change, however small, and it checks their diffs
+before accepting them, so don't implement packages yourself.
 
 Existing organizational or repository approvals still apply.
 Name the concrete requirement if it prevents dependent work.
@@ -214,6 +206,8 @@ Each package should have:
 - Purpose: the requirement or risk it addresses.
 - Scope: the concrete behavior or contract being changed.
 - Locations: verified modules or explicitly proposed new locations.
+- Ownership: the files or modules it may change, so packages that run at
+  the same time never share one.
 - Dependencies: prerequisite packages or external decisions.
 - Work: the substantive implementation actions.
 - Validation: how correctness will be established.
@@ -256,13 +250,10 @@ overlapping edits, and a defined integration point with its validation.
 Do not assume tasks are independent merely because they modify different files.
 
 Do not assume more agents will make the work faster.
-If delegation is authorized, divide work by coherent boundaries and specify
-how outputs will be reconciled. Agents editing in parallel need separate
-working copies, such as git worktrees. In Claude Code, a worktree-isolated
-subagent starts from the repository's default branch unless the
-`worktree.baseRef` setting is `"head"`, and even then it sees only committed,
-tracked files. Commit the contract it builds on first, or include it in each
-delegation prompt.
+Group packages for implementation subagents by coherent boundaries, never
+one per file: say which packages one implementer should own together, which
+can run in parallel, which share a file and must run one after another, and
+where their results are integrated and verified.
 
 ## 9. Integrate security into the work
 
@@ -455,8 +446,8 @@ Verified affected components, existing mechanisms, and baseline revision.
 Key decisions, important alternatives, and material tradeoffs.
 
 ### Work packages
-Ordered packages with dependencies, concrete actions, validation, and
-completion criteria.
+Ordered packages with dependencies, ownership, concrete actions, validation,
+and completion criteria, and which can run in parallel.
 
 ### Requirement coverage
 Mapping from requirements to implementation and verification.
