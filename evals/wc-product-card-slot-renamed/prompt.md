@@ -1,6 +1,6 @@
 ---
-description: "A shop's product-card element renames its named slot from heading to title in an uncommitted change, while the three pages that use it still pass slot="heading". Content whose slot name matches no slot isn't assigned anywhere, so every product name disappears from the cards. The reviewer reports the broken composition contract."
-expected_outcome: "The review reports that the pages still use slot="heading" while the component now only has a slot named title, so the product names are no longer rendered (and that the slot name is part of the component's public contract), and grades it Medium or higher; with the plugin, the reviewer ran."
+description: "A shop's product-card element renames its named slot from heading to title in an uncommitted change, while the three pages that use it still pass slot=\"heading\". Content whose slot name matches no slot isn't assigned anywhere, so every product name disappears from the cards. The reviewer reports the broken composition contract."
+expected_outcome: "The review reports that the pages still use slot=\"heading\" while the component now only has a slot named title, so the product names are no longer rendered (and that the slot name is part of the component's public contract), and grades it Medium or higher; with the plugin, the reviewer ran."
 tags: [wc-holdout, slow]
 runs: 1
 max_turns: 20

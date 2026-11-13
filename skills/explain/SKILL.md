@@ -10,7 +10,7 @@ Summarize the work you just completed in this conversation (the most recent impl
 
 ## Output contract (default: no arguments)
 
-- **Exactly two paragraphs.** Not one, not three. No headers, no bullet points, no numbered lists, no code blocks, no tables.
+- **Exactly two paragraphs of plain prose**, without headers, lists, code blocks or tables: the reader should get one connected account they can read straight through in a minute, and the `more` argument exists for anything longer.
 - **Paragraph 1 — the what and why:** what problem existed or what was requested, and what was built or changed to address it, at the conceptual level. Name the services/files only when knowing them changes the reader's understanding.
 - **Paragraph 2 — how it works and what it means:** how the pieces fit together end to end, any trade-offs or decisions that were made along the way, and anything the reader would need to know to make a decision about the work (risks, follow-ups, alternatives that were rejected and why, and what was and wasn't tested).
 - **Plain English throughout.** Expand or briefly define any jargon, acronym, or project-specific codename on first use. Write as if to a capable junior dev: no condescension, but no assumed context either.

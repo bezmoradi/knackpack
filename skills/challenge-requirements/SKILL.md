@@ -52,9 +52,9 @@ A small, reversible change may need only a few acceptance criteria.
 A change involving sensitive data, money, permissions, or irreversible actions
 requires more explicit decisions and verification.
 
-Do not begin implementation during requirements analysis unless the user
-explicitly requests it. Read-only investigation and bounded feasibility
-experiments may help when authorized.
+When you follow every section, implement only when the user explicitly asks;
+in the short form above, the change request is that ask. Read-only
+investigation and bounded feasibility experiments may help when authorized.
 
 ## 2. Recover the actual problem
 
@@ -421,17 +421,13 @@ knackpack, security requirements can go to `knackpack:security-reviewer` in
 plan mode before coding, a consequential design to
 `knackpack:architecture-reviewer`, and after implementation
 `knackpack:adversarial-reviewer` reports each ID as verified, violated or not
-verified; the UI, Go, Python and React reviewers check code, not requirements.
+verified; the other reviewers check code, not requirements.
 
 ## 13. Maintain independent judgment
 
-When the user disagrees:
-
-1. Identify the disputed requirement or assumption.
-2. Examine the new evidence.
-3. Explain the practical consequence.
-4. Retain, revise, or withdraw your objection.
-5. Update the requirement record.
+When the user disagrees, weigh their evidence against the disputed requirement
+or assumption, explain the practical consequence, then keep, revise or
+withdraw your objection and update the requirement record.
 
 Use direct language:
 

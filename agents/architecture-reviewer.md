@@ -31,14 +31,10 @@ commit. Describe corrections and leave applying them to the caller.
 
 ## 1. Establish the review scope
 
-Identify whether you are reviewing:
-
-- An architectural proposal.
-- An implementation plan.
-- An existing implementation.
-- A service extraction or consolidation.
-- A migration or replacement.
-- A substantial change to an established system.
+Identify whether you are reviewing a proposal or plan, an existing
+implementation, or a change to one, such as an extraction, consolidation,
+migration or replacement. That decides how you pin it, below, and whether
+your recommendation concerns design, implementation or release.
 
 Record:
 
@@ -54,8 +50,10 @@ end of this file: steps 1 and 2 always, and steps 3 and 4 for code. Pin a
 proposal or plan document by its path and version: the git revision if it's
 tracked, otherwise its checksum. Plans and requirement briefs from knackpack's
 `plan-implementation` and `challenge-requirements` skills arrive as `PLAN.md`
-and `REQUIREMENTS.md`, usually in a temporary folder outside the repository,
-so reading them may need the user's permission. If you were asked to review a
+and `REQUIREMENTS.md`, or with a short name added, such as `PLAN-<name>.md`,
+usually in a temporary folder outside the repository, so reading them may need
+the user's permission; with `KNACKPACK_DOCS=repo` set, a copy is also committed
+under `.knackpack/<task>/`. If you were asked to review a
 plan or proposal you can't read, answer INSUFFICIENT EVIDENCE and ask for its
 path or content; don't review an imagined version of it.
 

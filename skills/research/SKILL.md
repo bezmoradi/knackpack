@@ -1,6 +1,6 @@
 ---
 name: research
-description: "Research an engineering question well enough to support a decision: check a claim against primary sources, compare technologies or approaches, test whether an approach will work or scale, or find why something performs badly, using the repository, current documentation and small, reproducible experiments. Ends with a recommendation that names its evidence, tradeoffs and remaining uncertainty, which may be to keep what exists. Use it whenever the user asks whether to adopt, replace, upgrade or remove a dependency, technology or design, which option to choose, whether a switch is safe, or whether an approach will work or scale, even if they never say research, and whenever they ask to research, compare, evaluate or prototype. Not for quick lookups that one source answers, or for carrying out a change already decided."
+description: "Research an engineering question well enough to support a decision: check a claim against primary sources, compare technologies or approaches, test whether an approach will work or scale, or find why something performs badly, using the repository, current documentation and small, reproducible experiments. Ends with a recommendation that names its evidence, tradeoffs and remaining uncertainty, which may be to keep what exists. Use it whenever the user asks whether to adopt, replace, upgrade or remove a dependency, technology or design, which option to choose, whether a switch is safe, or whether an approach will work or scale, even if they never say research, and whenever they ask to research, compare, evaluate or prototype. Not for quick lookups that one source answers, which get a direct answer, or for carrying out a change already decided, which goes straight to planning or implementation."
 argument-hint: "[question or decision]"
 ---
 
@@ -13,6 +13,10 @@ Size the work to the decision:
 - **A fact**, such as a limit, a default or one version's behavior: answer with the source and the version it applies to.
 - **A focused question**, such as whether a library supports something in this project's setup: a short answer, the evidence behind it, and what's still unverified.
 - **A consequential decision**, such as adopting, replacing or migrating something, or choosing between designs: everything below, ending in a decision brief.
+
+## Where to save
+
+Save the brief as `RESEARCH.md`, or as `RESEARCH-<short-name>.md` if one for another question is already there, with each experiment in its own folder beside it. If the user asks for the brief in a file of their own, such as a document in the repository, write it only there and give that path, so there's one copy to edit; the experiments stay in the folder below. If the repository's guidance or docs name one document as the source of truth for requirements or decisions, say so, and offer to add the brief there as a section instead of keeping a separate file; a scratch brief kept for handing to other agents is a snapshot, so say that it is. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks.
 
 ## 1. Frame the decision
 
@@ -75,7 +79,7 @@ These describe the kind of evidence, not a probability, so don't attach confiden
 
 Experiment when the documentation doesn't settle the behavior, this project's setup could change the outcome, performance decides the question, a failure needs reproducing, or explanations can't be separated by inspection. Before running anything, write down the question and the decision it informs, the baseline, the environment and inputs, the one variable you change, what you'll measure, and what counts as success, failure or inconclusive. Choose the smallest experiment that can tell the possible answers apart; don't build an application to answer a narrow question.
 
-- Work in a folder beside the brief (see Save and hand off), never in the working tree, and keep prototype code out of the product.
+- Work in a folder beside the brief (see Where to save), never in the working tree, and keep prototype code out of the product.
 - Use synthetic data and bounded resources. Never use production credentials, test destructively against shared or live systems, or create paid cloud resources without the user's go-ahead.
 - Treat downloaded packages and repositories as untrusted: check the exact package name and publisher, pin versions, install locally with install scripts off where the package manager allows it (such as `npm install --ignore-scripts`), and read any script before running it.
 - Record versions, configuration, commands, inputs, environment, results, errors, deviations from the plan, and any shortcut or missing control, so another engineer can reproduce the result and judge it.
@@ -123,9 +127,7 @@ Put each citation next to the claim it supports, using real URLs, file paths and
 
 ## Save and hand off
 
-Give the brief in the conversation, and save it as `RESEARCH.md`, or as `RESEARCH-<short-name>.md` if one for another question is already there, with each experiment in its own folder beside it. If the user asks for the brief in a file of their own, such as a document in the repository, write it only there and give that path, so there's one copy to edit; the experiments stay in the folder below. If the repository's guidance or docs name one document as the source of truth for requirements or decisions, say so, and offer to add the brief there as a section instead of keeping a separate file; a scratch brief kept for handing to other agents is a snapshot, so say that it is. Use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Never write into the repository unless the user asks.
-
-Then give the user the brief's absolute path, and tell them the folder belongs to this session and the operating system may clean it up, so they should copy anything they want to keep.
+Give the user the brief in the conversation and its absolute path, and tell them the folder belongs to this session and the operating system may clean it up, so they should copy anything they want to keep.
 
 A recommendation is a proposal, not an agreed requirement and not permission to build, buy or release. If knackpack's intent tracking is on, record it as not agreed until the developer accepts it. Suggest the next step instead of starting it:
 

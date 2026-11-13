@@ -1,6 +1,6 @@
 ---
 name: checkpoint
-description: Save the current task's state to CHECKPOINT.md before the user compacts the conversation, so the next context picks up exactly where this one stopped instead of relying on the automatic summary. Use when the user is about to compact, worries the conversation has grown too long, or asks to save where things stand. It writes one temporary file and doesn't touch the memory system.
+description: Save the current task's state to CHECKPOINT.md before the user compacts the conversation, so the next context picks up exactly where this one stopped instead of relying on the automatic summary. Use when the user is about to compact, worries the conversation has grown too long, or asks to save where things stand. It writes one temporary file and doesn't touch the memory system. Not for a writeup to hand to another agent or reviewer (the handoff skill), or for remembering anything beyond this task.
 ---
 
 # Save task state before compaction
@@ -78,7 +78,7 @@ In your reply, give:
 
 - the absolute path to `CHECKPOINT.md`;
 - what to do next, in this order: run `/compact`, unless they typed it while you were writing, since Claude Code holds a command typed during a reply and runs it when the reply ends; then just send their next message. Say there's nothing to paste: the compacted conversation won't know the file exists unless something points to it, and knackpack's hooks do, since the session-start hook points to the file when it's in the `claude-<session>` folder or, from Claude Code 2.1.257, in the session's scratchpad, and the compaction focus asks the summary to name it;
-- the fallback, for when the first thing Claude does after compacting isn't reading the file, such as when intent tracking is off: paste **"Read `<path>/CHECKPOINT.md` in full, then continue the task."**;
+- the fallback, for when the first thing Claude does after compacting isn't reading the file, such as when knackpack's hooks are off: paste **"Read `<path>/CHECKPOINT.md` in full, then continue the task."**;
 - your suggestion of something worth remembering, if you noticed one.
 
 Don't carry on with the task itself in this step; the user resumes it after compacting.

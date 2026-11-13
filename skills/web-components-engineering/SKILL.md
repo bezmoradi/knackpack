@@ -54,7 +54,7 @@ Decide each default, what an invalid value does, which attributes reflect, which
 
 **Attributes and properties:** list observed attributes in lowercase in `static observedAttributes`. Getters read the attribute (or private state for rich values); setters write it; `attributeChangedCallback` only performs side effects, so nothing loops. Booleans use presence: `toggleAttribute(name, Boolean(value))`, never `setAttribute(name, value)`, which writes `"false"`. Never overwrite a consumer's `role`, `tabindex`, `aria-*`, `class` or `style`; set defaults only when absent, or through `ElementInternals`.
 
-**Events:** dispatch component events from the host (`this.dispatchEvent(new CustomEvent('item-select', { bubbles: true, detail }))`); an event dispatched from inside the shadow root without `composed: true` never reaches the page. `change` and `submit` aren't composed, so re-dispatch your own `change` when an inner input changes; `click`, `input` and `keydown` already escape, so don't re-dispatch those. Send copies in `detail`, never internal objects. Don't fire events in response to the consumer setting a property.
+**Events:** dispatch component events from the host (`this.dispatchEvent(new CustomEvent('item-select', { bubbles: true, detail }))`); an event dispatched from inside the shadow root without `composed: true` never reaches the page. `change` and `submit` aren't composed, so re-dispatch your own `change` when an inner input changes; `click`, `input` and `keydown` already escape, so don't re-dispatch those. Send copies in `detail`, never internal objects, since a listener that changes `detail` would otherwise change the element's state without its setters. Don't fire events in response to the consumer setting a property: native elements fire only for user actions, and a framework that sets the property when it hears the event would loop.
 
 **Inheritance:** an override of a lifecycle callback calls `super`'s; a subclass's `observedAttributes` includes the parent's.
 
@@ -65,7 +65,7 @@ Decide each default, what an invalid value does, which attributes reflect, which
 - Choose shadow DOM for encapsulated rendering and styles; choose light DOM when the element enhances server-rendered markup, needs global styles, or needs ID references and native form submission across its content. Follow a documented project choice.
 - Use open roots by default. A closed root isn't a security boundary: same-page scripts can still reach the element's data, so never use one to protect secrets.
 - Share styles with one constructed `CSSStyleSheet` per class in `adoptedStyleSheets` (or the library's equivalent), not a `<style>` per instance.
-- Expose styling deliberately: custom properties for theme values, `part` for elements consumers may restyle, `exportparts` through nested components, custom states (`internals.states`, `:state()`) for state styling. Document each. Avoid `:host-context()`, which only Chrome supports.
+- Expose styling deliberately: custom properties for theme values, `part` for elements consumers may restyle, `exportparts` through nested components, custom states (`internals.states`, `:state()`) for state styling. Document each. Avoid `:host-context()`: the CSS Working Group removed it from the specification, and only Chromium ships it.
 - Only the host's direct children are slotted, and content whose `slot` matches no slot isn't rendered; provide fallback content, and use `slotchange` to react to assignment changes.
 - With a focusable control inside, use `delegatesFocus: true` instead of `tabindex` on the host, which creates two tab stops.
 
@@ -74,7 +74,7 @@ Decide each default, what an invalid value does, which attributes reflect, which
 Meet WCAG 2.2 at the project's level, AA by default:
 
 - Put native elements inside the shadow root (`<button>`, `<input>`, `<a href>`); a `<div>` with a role needs keyboard handling, focusability and a name, and usually misses one.
-- ID references (`aria-labelledby`, `aria-describedby`, `aria-controls`, `<label for>`) don't cross shadow boundaries. Put the label inside the shadow root, slot it, accept the text through an attribute, make the element form-associated so `<label>` names it, or use element reflection (`ariaLabelledByElements`) for references outward. Reference Target works only in Chrome as of late 2026.
+- ID references (`aria-labelledby`, `aria-describedby`, `aria-controls`, `<label for>`) don't cross shadow boundaries. Put the label inside the shadow root, slot it, accept the text through an attribute, make the element form-associated so `<label>` names it, or use element reflection (`ariaLabelledByElements`) for references outward. Reference Target shipped first in Chrome and Edge 152 and isn't Baseline, so check it against the targets before relying on it.
 - Give the host default semantics through `ElementInternals` (`internals.role`, `internals.ariaChecked`, ...), which consumer attributes can override.
 - Every pointer action has a keyboard path; focus is visible and moves deliberately; use `<dialog>` with `showModal()` for modals rather than a hand-built focus trap.
 - Keep live regions in the DOM, empty, before their text changes.
