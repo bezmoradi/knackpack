@@ -28,7 +28,7 @@ such as "implement," "test," and "deploy."
 
 Never write into the repository unless the user asks. To save the plan, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 
-Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if a `PLAN.md` for another task is already there, listing at its top the absolute paths of the brief, intent record and research it builds on. Give the user its absolute path; to have it reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to review the plan at <absolute path>`, and to implement it: `/knackpack:execute-plan <absolute path>`.
+Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if a `PLAN.md` for another task is already there, listing at its top the absolute paths of the brief, intent record and research it builds on. Give the user its absolute path; to have it reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to review the plan at <absolute path>`, and to implement it: `/knackpack:execute-plan <absolute path>`. With `KNACKPACK_DOCS=repo` set, also commit the plan as knackpack's session-start rules say, and give the committed copy's path in those lines.
 
 ## 1. Establish the planning contract
 

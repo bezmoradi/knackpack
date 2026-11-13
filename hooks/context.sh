@@ -17,11 +17,16 @@
 # request carries. The transcript's format isn't documented, and Claude Code
 # writes it asynchronously, so the figure can trail by one response; when the
 # last response predates a compaction, or nothing parses, it prints nothing.
+# Claude Code's hook docs define the same sum as `context_tokens`, but give it
+# only to SessionStart for a resumed session and to PreModelSwitch and
+# PostModelSwitch, so no documented count arrives with each message.
 #
 # It reads the event on stdin and the transcript it names, writes nothing, uses
 # no network, and exits 0 on every failure so a problem here never blocks a
 # session. KNACKPACK_CONTEXT=off turns it off; KNACKPACK_CONTEXT=on also runs
 # it in sessions nobody attends, such as `claude -p`, which it skips by default.
+# `claude plugin eval` passes a case only variables named EVAL_*, so
+# EVAL_KNACKPACK_CONTEXT stands in for it there, letting an eval run the hook.
 
 umask 077
 trap 'exit 0' EXIT
@@ -29,7 +34,7 @@ trap 'exit 0' EXIT
 warn_at=400000
 stop_at=500000
 
-setting=$(printf '%s' "${KNACKPACK_CONTEXT:-}" | tr '[:upper:]' '[:lower:]')
+setting=$(printf '%s' "${KNACKPACK_CONTEXT:-${EVAL_KNACKPACK_CONTEXT:-}}" | tr '[:upper:]' '[:lower:]')
 case $setting in
 off | 0 | false | no) exit 0 ;;
 on | 1 | true | yes) ;;

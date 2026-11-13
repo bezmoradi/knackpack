@@ -18,7 +18,7 @@ Run knackpack's reviewers together on one target, check their most serious findi
 
 ## 1. Pin the target
 
-Use the target the user named. Without one, the target is the current change: everything on the branch that its target branch doesn't have, plus uncommitted and untracked work. If that's empty, start no one: ask what to review: the last commit, the changes since a tag, or the whole code base, which costs the most. A repository with no commits, or a request about the whole code base, means every file. For a pull request, read its `headRefOid` with the forge's CLI and give every reviewer that exact revision.
+Use the target the user named. Without one, the target is the current change: everything on the branch that its target branch doesn't have, plus uncommitted and untracked work. If that's empty, start no one: ask what to review: the last commit, the changes since a tag, or the whole code base. A repository with no commits, or a request about the whole code base, means every file. For a pull request, read its `headRefOid` with the forge's CLI and give every reviewer that exact revision.
 
 Reviewers snapshot the working tree when they start, so an edit during the run can show them different states; unless the target is a fixed revision, check for that by content. Reading changed files runs the filters and fsmonitor hook set in git config, which can run code, so first list them: `git config --get-regexp '^(filter\..*\.(clean|smudge|process)|core\.fsmonitor)$'`. Git LFS's own filter, a `filter.lfs.` line whose value starts with `git-lfs `, doesn't count. If it prints anything else, compare only what `git rev-parse HEAD` prints before and after, and say in the report that edits to uncommitted files weren't checked for. Otherwise, before starting anyone, run `mktemp -d "${TMPDIR:-/tmp}/orchestrate-review.XXXXXX"`, write the path it prints, literally, in place of `<dir>`, and run:
 
@@ -33,7 +33,7 @@ Its last line is a tree of every file that isn't ignored, built as reviewers bui
 
 Start every reviewer that applies, even when a change touches only one area, unless the user excludes one by name:
 
-- always the adversarial, architecture, security, slop and design pattern reviewers;
+- always the adversarial, architecture and security reviewers, and the slop and design pattern reviewers when the target has code, not only docs, stylesheets, configuration or lockfiles;
 - the Go reviewer when the target has Go code (`go.mod` or `*.go` files);
 - the Python reviewer when it has Python (`pyproject.toml`, `setup.py`, `requirements*.txt` or `*.py` files);
 - the Docker reviewer when it has a `Dockerfile`, `Containerfile`, `*.Dockerfile`, `docker-bake.hcl` or Compose file (`compose*.y*ml`, `docker-compose*.y*ml`);
@@ -47,7 +47,7 @@ Start every reviewer that applies, even when a change touches only one area, unl
 - the TypeScript reviewer when it has `*.ts`, `*.tsx`, `*.mts`, `*.cts` or `tsconfig*.json` files, JavaScript under `checkJs` or `// @ts-check` or in a package that ships `.d.ts` files, or a `package.json` whose `types` or `exports` change;
 - the Web Components reviewer when it defines or uses custom elements (`customElements.define`, Lit, FAST, Stencil, or a hyphenated tag in markup, JSX or selectors).
 
-Judge that from every file the target covers. For the current change, list every change against the merge base with its target branch (`git diff --no-ext-diff --no-textconv --name-only <merge-base>`) and the untracked files (`git ls-files --others --exclude-standard`); a plain `git diff --name-only` shows only unstaged edits. For a pull request, use its `files` from the forge's CLI (`gh pr view <n> --json files`); for a code base, `git ls-files`. The adjudicator isn't one of these: you start it later, once per merged finding.
+Judge that from every file the target covers. For the current change, list every change against the merge base with its target branch (`git diff --no-ext-diff --no-textconv --name-only <merge-base>`) and the untracked files (`git ls-files --others --exclude-standard`); a plain `git diff --name-only` shows only unstaged edits. For a pull request, use its `files` from the forge's CLI (`gh pr view <n> --json files`); for a code base, `git ls-files`.
 
 Before you start them, tell the user in one line which reviewers you're starting, which you skipped and why, and that the run can take over half an hour and many tokens. Say when the UI, CSS and Web Components reviewers can check only code: no running preview, or no Playwright tools (`mcp__playwright__*` or `mcp__plugin_playwright_playwright__*`).
 

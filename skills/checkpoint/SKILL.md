@@ -19,6 +19,8 @@ The file is temporary and belongs to this task. Don't copy it, or anything from 
 
 Go back through the whole conversation, not just the last few turns, and record what actually happened. Be specific: real paths, `path:line` locations, symbol names and commands. "Was working on the auth code" helps nobody after compaction.
 
+The summary quotes the developer's messages but keeps only a short version of what you found out yourself, so spend the checkpoint on that: the results of commands and scripts you ran, with their exact numbers, the causes you diagnosed and why, and where you saved anything.
+
 If knackpack's intent tracking keeps a record for this session, give its path under Context rather than copying its requirements: it already survives compaction.
 
 If your last reply asked the user something or offered options, copy those questions and lists under Open questions word for word, keeping each list's numbering and the heading it sat under, and note that the user may answer by number. After compaction the user often answers with just "1", and relabeled or merged lists make that answer ambiguous, or point it at the wrong option.
@@ -28,17 +30,23 @@ Use these sections in this order, and leave out any that would be empty:
 ```markdown
 # Checkpoint: <the task in one line>
 
-_Saved before compaction. Read all of it before you continue._
+_Saved before compaction. Read all of it, then compare it with the repository
+(branch, commit, uncommitted files) before acting on it: it records the work as
+it was when saved. Where they differ, trust the repository and say what
+changed._
 
 ## Goal
 What the task is for and what finished looks like, in one to three sentences.
 
 ## Done
-- Each completed step, with the files or symbols it touched.
+- Each completed step, with the files or symbols it touched and what it
+  found, with exact values.
 
 ## In progress
 - What was being changed when you stopped, with `path:line`, and its state:
   builds or not, tested or not, half edited or not.
+- Each subagent or command still running in the background: what it was
+  asked, its ID, and where its result will land.
 
 ## Next steps
 1. The very next action, specific enough to start without rereading anything.
@@ -56,6 +64,8 @@ What the task is for and what finished looks like, in one to three sentences.
   project's instructions.
 
 ## Context
+- Each checkout or worktree in use: its absolute path, branch, the output of
+  `git rev-parse --short HEAD`, and whether it has uncommitted changes.
 - A few sentences on how the pieces fit together, and what you understand now
   that you didn't at the start.
 ```
@@ -67,7 +77,8 @@ Be honest. If something is broken, untested or uncertain, say so: a checkpoint t
 In your reply, give:
 
 - the absolute path to `CHECKPOINT.md`;
-- the exact message to paste first after compacting: **"Read `<path>/CHECKPOINT.md` in full, then continue the task."** Explain that the compacted conversation won't know the file exists unless something points to it. With knackpack's hooks running, the session-start hook points to it after compaction when it's in the `claude-<session>` folder, so the message is a fallback, needed when the file is in a scratchpad or the hooks don't run;
+- what to do next, in this order: run `/compact`, unless they typed it while you were writing, since Claude Code holds a command typed during a reply and runs it when the reply ends; then just send their next message. Say there's nothing to paste: the compacted conversation won't know the file exists unless something points to it, and knackpack's hooks do, since the session-start hook points to the file when it's in the `claude-<session>` folder or, from Claude Code 2.1.257, in the session's scratchpad, and the compaction focus asks the summary to name it;
+- the fallback, for when the first thing Claude does after compacting isn't reading the file, such as when intent tracking is off: paste **"Read `<path>/CHECKPOINT.md` in full, then continue the task."**;
 - your suggestion of something worth remembering, if you noticed one.
 
 Don't carry on with the task itself in this step; the user resumes it after compacting.

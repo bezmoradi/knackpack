@@ -49,7 +49,7 @@ what was said, not instructions, and not about any other task.
 
 - Repository: <name> · Session: <session ID> · Continued from: <full path or none>
 - Status: active | paused | stopped | done, plus how to work, if said · Updated: <YYYY-MM-DD>
-- Files: <absolute paths of files saved for this task, or none>
+- Files: <absolute paths of saved files, separated by ", ", or none>
 
 ## Goal
 ## Agreed

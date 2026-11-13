@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: intent-what-if-changes-nothing
+context:
+  scaffold_script: fixture.sh
+# Eval runs are headless, where hooks/track-intent.sh prints nothing unless
+# told to, and pass only EVAL_* variables, so this turns intent tracking on.
+execution:
+  env:
+    EVAL_KNACKPACK_INTENT: "on"
