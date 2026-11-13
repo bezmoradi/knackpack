@@ -22,7 +22,7 @@ knackpack is a Claude Code plugin made of Markdown plus three hook scripts: skil
 
 ## Software Factory
 
-Software Factory is being rebuilt in its own repository, [bezmoradi/software-factory](https://github.com/bezmoradi/software-factory), to work without knackpack. When knackpack is installed, it will read part of knackpack's public interface: agent names such as `knackpack:adversarial-reviewer` and `knackpack:slop-reviewer`, the verdict words its push gate will read, the `knackpack-verdict/1:` line every reviewer's reply ends with, which the gate reads first, where intent records are kept and the Files line they list, and where plan-implementation saves `PLAN.md`. A change to any of them would break its push gate or intent panel, so name it as a breaking change in the release notes.
+Software Factory is being rebuilt in its own repository, `bezmoradi/software-factory`, to work without knackpack. When knackpack is installed, it will read part of knackpack's public interface: agent names such as `knackpack:adversarial-reviewer` and `knackpack:slop-reviewer`, the verdict words its push gate will read, the `knackpack-verdict/1:` line every reviewer's reply ends with, which the gate reads first, where intent records are kept and the Files line they list, and where plan-implementation saves `PLAN.md`. A change to any of them would break its push gate or intent panel, so name it as a breaking change in the release notes.
 
 ## Writing and improving skills and agents
 

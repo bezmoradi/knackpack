@@ -111,7 +111,7 @@ The limits are fixed token counts, not a share of the context window, because ne
 
 ### Software Factory
 
-Software Factory, the browser page for your Claude Code sessions, moved out of knackpack in 0.21.0 and is being rebuilt in its own repository, [bezmoradi/software-factory](https://github.com/bezmoradi/software-factory), where it will install without knackpack. What the move means if you used it is under [Update](#update).
+Software Factory, the browser page for your Claude Code sessions, moved out of knackpack in 0.21.0 and is being rebuilt in its own repository, `bezmoradi/software-factory`, where it will install without knackpack. What the move means if you used it is under [Update](#update).
 
 ## Prerequisites
 
@@ -569,7 +569,7 @@ The new version loads in your next session, or right away if you run `/reload-pl
 
 ### Breaking change in 0.21.0
 
-Software Factory left knackpack. The `software-factory` skill and its command, the hooks that recorded every session for its page, and the `software-factory` plugin in this marketplace are gone, and the new Software Factory in [bezmoradi/software-factory](https://github.com/bezmoradi/software-factory) hasn't been released yet. If you used them:
+Software Factory left knackpack. The `software-factory` skill and its command, the hooks that recorded every session for its page, and the `software-factory` plugin in this marketplace are gone, and the new Software Factory in `bezmoradi/software-factory` hasn't been released yet. If you used them:
 
 1. If you installed the old plugin, which `claude plugin list` now shows as failed to load with `Plugin software-factory not found in marketplace knackpack`, first run `claude plugin install knackpack@knackpack`. Installing the old plugin installed knackpack as its dependency, and this command records knackpack as installed by you, so the next step doesn't leave it for `claude plugin prune` to remove. If you installed knackpack yourself, the command only reports that it's already installed.
 2. Uninstall the old plugin: `claude plugin uninstall software-factory@knackpack`.
