@@ -20,9 +20,9 @@ knackpack is a Claude Code plugin made of Markdown plus three hook scripts: skil
 - **Test your edits, not the installed copy.** A session working on knackpack loads the installed plugin, so the knackpack agents and skills it can start are the released version, not your edits. Test a change in a session started with `claude --plugin-dir .`, or headless with `claude -p --plugin-dir .`.
 - **Run live tests on a real project in a throwaway clone.** Clone it into a scratch folder and remove the clone's remote: a project's own settings can pre-approve `git commit` and `git push` for every session started in it. In a headless run, set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`, or Claude Code stops a reviewer still working in the background 10 minutes after the last turn and drops its report, and cap the spend with `--max-budget-usd`. Bring back only what generalizes, without the project's names, paths or code.
 
-## Software Factory
+## Tools that read knackpack's interface
 
-Software Factory is being rebuilt in its own repository, `bezmoradi/software-factory`, to work without knackpack. When knackpack is installed, it will read part of knackpack's public interface: agent names such as `knackpack:adversarial-reviewer` and `knackpack:slop-reviewer`, the verdict words its push gate will read, the `knackpack-verdict/1:` line every reviewer's reply ends with, which the gate reads first, where intent records are kept and the Files line they list, and where plan-implementation saves `PLAN.md`. A change to any of them would break its push gate or intent panel, so name it as a breaking change in the release notes.
+An outside tool will read part of knackpack's public interface when knackpack is installed: agent names such as `knackpack:adversarial-reviewer` and `knackpack:slop-reviewer`, the verdict words its push gate will read, the `knackpack-verdict/1:` line every reviewer's reply ends with, which the gate reads first, where intent records are kept and the Files line they list, and where plan-implementation saves `PLAN.md`. A change to any of them would break its push gate or intent panel, so name it as a breaking change in the release notes.
 
 ## Writing and improving skills and agents
 

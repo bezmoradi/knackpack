@@ -109,10 +109,6 @@ A third script, `hooks/context.sh`, runs with each message you send and estimate
 
 The limits are fixed token counts, not a share of the context window, because neither the hook nor the transcript is told the window's size. On a 200,000-token window they never fire; Claude Code's own auto-compaction covers it, and setting `CLAUDE_CODE_AUTO_COMPACT_WINDOW` makes Claude Code compact at a size you choose. Like the other hooks, it runs in background sessions started with `claude --bg` but skips headless `claude -p` runs and Agent SDK apps unless you set `KNACKPACK_CONTEXT=on`, and `KNACKPACK_CONTEXT=off` turns it off.
 
-### Software Factory
-
-Software Factory, the browser page for your Claude Code sessions, moved out of knackpack in 0.21.0 and is being rebuilt in its own repository, `bezmoradi/software-factory`, where it will install without knackpack. What the move means if you used it is under [Update](#update).
-
 ## Prerequisites
 
 - **[Claude Code](https://code.claude.com)** 2.1.292 or later, installed and signed in (tested with 2.1.310). Earlier versions miss fixes the pack relies on: 2.1.271 added the setting that lets reviewers start without your instruction files loaded, 2.1.289 made `claude plugin validate` check a plugin that sits next to a marketplace manifest, as this one does, and 2.1.292 stopped a compaction summary from letting Claude run the slash-command-only skills on its own.
@@ -566,17 +562,6 @@ $ claude plugin update knackpack@knackpack
 ```
 
 The new version loads in your next session, or right away if you run `/reload-plugins`.
-
-### Breaking change in 0.21.0
-
-Software Factory left knackpack. The `software-factory` skill and its command, the hooks that recorded every session for its page, and the `software-factory` plugin in this marketplace are gone, and the new Software Factory in `bezmoradi/software-factory` hasn't been released yet. If you used them:
-
-1. If you installed the old plugin, which `claude plugin list` now shows as failed to load with `Plugin software-factory not found in marketplace knackpack`, first run `claude plugin install knackpack@knackpack`. Installing the old plugin installed knackpack as its dependency, and this command records knackpack as installed by you, so the next step doesn't leave it for `claude plugin prune` to remove. If you installed knackpack yourself, the command only reports that it's already installed.
-2. Uninstall the old plugin: `claude plugin uninstall software-factory@knackpack`.
-3. Delete what the recorder and the old page kept, if you no longer want them: `~/.local/state/knackpack/factory`, the recorded sessions, and `~/.local/state/software-factory`, the page's theme and text size (both under `$XDG_STATE_HOME` if you set it). Nothing reads them any more.
-4. Remove `KNACKPACK_FACTORY` from your settings or shell, if you set it; nothing reads it now.
-
-Intent tracking, the challenge rules and the context warning are unchanged.
 
 ## Local Development
 
