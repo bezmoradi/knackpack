@@ -38,8 +38,15 @@ record the user, a later session and other tools read. The exception is a
 plan committed under `.knackpack/`, as with `KNACKPACK_DOCS=repo`: a person's
 approval may be tied to its exact text, so never edit or commit it. When it
 needs revising, stop and ask the user to revise it with
-`/knackpack:plan-implementation`, which Claude can't start on its own. Keep its statuses in a copy named `PLAN-status.md`, choosing another name rather than overwriting a file already there, since that folder may hold the plan itself as `PLAN.md`, saved in the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Write nothing else
-into the repository beyond what the packages change.
+`/knackpack:plan-implementation`, which Claude can't start on its own.
+
+Keep such a plan's package statuses instead in a file named `PLAN-status.md`, saved in the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
+The file isn't named `PLAN.md`
+because plan-implementation keeps its own copy of the plan in that folder
+under that name; if `PLAN-status.md` is already there for another task,
+choose another name rather than overwrite it.
+
+Write nothing into the repository beyond what the packages change.
 
 ## 1. Confirm the authorization and the plan
 
