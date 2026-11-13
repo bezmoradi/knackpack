@@ -34,7 +34,11 @@ These rules hold for the whole run:
   say which one each time.
 
 Update the plan file's package status in place as work moves: it's the
-record the user, a later session and other tools read. Write nothing else
+record the user, a later session and other tools read. The exception is a
+plan committed under `.knackpack/`, as with `KNACKPACK_DOCS=repo`: a person's
+approval may be tied to its exact text, so never edit or commit it. When it
+needs revising, stop and ask the user to revise it with
+`/knackpack:plan-implementation`, which Claude can't start on its own. Keep its statuses in a copy named `PLAN-status.md`, choosing another name rather than overwriting a file already there, since that folder may hold the plan itself as `PLAN.md`, saved in the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. Write nothing else
 into the repository beyond what the packages change.
 
 ## 1. Confirm the authorization and the plan
@@ -190,8 +194,12 @@ such as `knackpack:adversarial-reviewer` for risky changes,
 `knackpack:security-reviewer` for security-sensitive ones and the stack's own
 code reviewer. If the risk calls for a review the plan didn't name, ask the
 user before starting it, and continue other work meanwhile. Give each
-reviewer the change and the requirements, not the implementer's account or
-your conclusions, so its judgment stays independent.
+reviewer the change, saying where it is: the worktree's path and the
+package's commits, or the files the package changed in the integrated tree,
+since a reviewer otherwise reviews whatever is uncommitted or unpushed where
+it starts. Give it the requirements as the paths of the brief, the plan and
+the intent record, not the implementer's account or your conclusions, so its
+judgment stays independent.
 
 Resolve every Critical or High finding before accepting the work: send the
 fix to an implementer, or record the user's decision to accept the risk.
@@ -229,6 +237,28 @@ integration conflict, for you to resolve under section 8 or to send back.
 Verify after each integration, not only at the end, so a break points at one
 result.
 
+When the user has asked you to commit, commit each package once it's
+accepted, a worktree's result once it's integrated and verified, before the
+next is integrated, so each can be reviewed and reverted on its own. Commit
+only the files its diff changed, by path: `git add -- <new files>` for the
+files it created, since a commit by path takes only files git already
+tracks, then `git commit -m <message> -- <paths>`, which leaves the user's
+other staged work out. Leave out any file that had changes at the baseline,
+since a commit by path takes the whole file, the user's lines included, and
+say which you left out. Commit hooks run after you choose the files, and can
+reject the commit or stage more:
+
+- If a hook rejects it, unstage the new files (`git reset -q -- <new files>`)
+  and treat what the hook reported as a failed check.
+- Otherwise check what the commit holds
+  (`git show --name-only --format= HEAD`). If it holds anything else, take it
+  back with `git reset --soft HEAD~1` and then `git reset -q -- <paths>`,
+  which leaves the user's work as it was, commit nothing more, since the hook
+  would do the same again, and tell the user what the commit held.
+
+Follow the repository's message style, never amend, skip hooks or push, and
+note each commit beside its package's status.
+
 When every assigned package is in:
 
 - Run the plan's full verification on the integrated tree.
@@ -257,10 +287,13 @@ End with:
 
 - Completed, incomplete and blocked packages, kept apart, each with the check
   that decides it.
-- The files changed, and the integrated revision you verified.
+- The files changed, the integrated revision you verified, and any commits
+  you made, with each file you left out of them and why.
 - The checks you ran yourself, with their results; label anything only an
   implementer reported, and anything still to run in a later environment.
 - The reviews run, their unresolved findings, and any risk the user accepted.
+- For each review, the snapshot its report names, and the accepted changes
+  made after it, such as fixes for its findings, which it didn't see.
 - Each direct edit you made under section 8, with its reason.
 - Worktrees left on disk, by path; remove them only when the user says so.
 - What wasn't done and needs the user's go-ahead, such as committing,

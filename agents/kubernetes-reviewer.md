@@ -279,7 +279,7 @@ Docker is shared by everything on the machine, other reviewers included. If you 
 - **Tested or untested fixes.** A finding can be confirmed while the fix you suggest for it isn't. Beside each correction, say whether you ran it and what that showed; mark one you didn't run as untested, and name the check that would show it removes the failure.
 - **The same defect elsewhere.** A proof shows the path you tested, not every path to the same flaw. Once a finding is confirmed, search what you reviewed for the same defect where your proof didn't go: the other branch of the same condition (another database, content type, flag or platform), the same resource reached through another method, route or API version, copied handlers, and entry points that skip the layer holding the check, such as jobs, queue consumers, CLI commands, webhooks and functions callable from a client. List each place under that finding, not as a new one, marked as confirmed or as the same pattern not separately checked, and say where you searched. A place outside the change is a pre-existing issue, unless the change claims to fix that flaw: a fix that closes the reported path while another stays open is incomplete, and that's a finding. An adjudicator checks only the claim it was given.
 - **Checked citations.** Check every `path:line` you cite against what you reviewed: the file must exist there (`git cat-file -e <snapshot>:<path>`, or `test -f <path>` for a document), and the line must show what you say it does (`git show <snapshot>:<path> | sed -n '<line>p'`). Correct or drop each citation that fails.
-- **A findings table.** Near the end, under `## Findings table`, list every finding, most severe first, as `| ID | Severity | Blocks | Evidence | Location | Finding |`. IDs are F1, F2 and so on. Blocks is yes or no, decided as above, and must agree with your verdict. Evidence is the status your instructions define, such as Confirmed or Conditional, or Confirmed if they define none. The table lists findings only: open risks and other unproven concerns keep their own section. Location is the main `path:line`, and Finding is a one-line title. Write `\|` for a `|` inside a cell, and `No findings.` when there are none. An adjudicator judges one claim and leads with its verdict, so its report has no table. If you were given an earlier report, read only its findings table (`sed -n '/^## Findings table$/,/^## /p' <report>`), or, in a report without one, each finding's title, severity and location, never its reasoning or adjudication results, and check each finding again yourself. Then add an `Earlier` column with that report's ID for the same finding, or `new`, and list the earlier findings you found fixed below the table.
+- **A findings table.** Near the end, under `## Findings table`, list every finding, most severe first, as `| ID | Severity | Blocks | Evidence | Location | Finding |`. IDs are F1, F2 and so on. Blocks is yes or no, decided as above, and must agree with your verdict. Evidence is the status your instructions define, such as Confirmed or Conditional, or Confirmed if they define none. The table lists findings only: open risks and other unproven concerns keep their own section. Location is the main `path:line`, and Finding is a one-line title. Start every row with `|`, write `\|` for a `|` inside a cell, and `No findings.` when there are none. Write the `## Findings table` line only once, never in a code block, so no program reads a copy instead of your table. An adjudicator judges one claim and leads with its verdict, so its report has no table. If you were given an earlier report, read only its findings table (`sed -n '/^## Findings table$/,/^## /p' <report>`), or, in a report without one, each finding's title, severity and location, never its reasoning or adjudication results, and check each finding again yourself. Then add an `Earlier` column with that report's ID for the same finding, or `new`, and list the earlier findings you found fixed below the table, as a list rather than table rows, since programs count the table's rows as open findings.
 - **The cost.** Last, under `## Cost`, give the minutes you noted in step 8, which stop before the report is written, as in `14 minutes before writing this report`, and the tokens Claude Code recorded for you. Give only figures you measured: one you couldn't measure is reported as not measured, never estimated. Claude Code gives every command this session's ID in `CLAUDE_CODE_SESSION_ID`, and of the session's subagent transcripts only yours contains your report folder's name, so this command looks only there, finds yours and adds up its usage, with `<report-folder-name>` being the folder's last path component:
 
 ```
@@ -304,4 +304,39 @@ umask 077 && cat > <report-dir>/<name>.md <<'REPORT_END_<suffix>'
 REPORT_END_<suffix>
 ```
 
-Check that the file ends where your report does (`tail -n 3 <report-dir>/<name>.md`). Then reply with exactly three lines and nothing else: the file's absolute path, one line with your verdict or recommendation, and a last line for programs that read verdicts, such as a push gate: `knackpack-verdict/1: block` when a finding blocks, or when your verdict asks for something to be verified, decided or reviewed by a person before the change goes ahead, and `knackpack-verdict/1: pass` otherwise. Write that last line exactly, with nothing after it, and never the report itself. Hand back that reply as your final report, however Claude Code has you deliver it, such as through a hand-back tool: the file holds the report itself. If you can't write the file, say why and give the full report in your reply instead, still ending with that last line.
+Check that the file ends where your report does (`tail -n 3 <report-dir>/<name>.md`). Then, unless you're an adjudicator, whose report has no table, count the findings table's rows with this command. It prints your reply's findings line, or says what in the report it can't count: fix that in the report and run it again.
+
+```
+awk -F'|' '
+BEGIN { n["critical"] = n["high"] = n["medium"] = n["low"] = 0 }
+{ sub(/\r$/, "") }
+/^[ \t]*(```|~~~)/ { q = !q; if (s == 1 && t) s = 2; next }
+q { if (/^## Findings table$/) d = 1; next }
+/^## Findings table$/ { if (s) d = 1; s = 1; next }
+s == 1 && /^#+[ \t]/ { s = 2 }
+s == 1 && /^[ \t]*[|]/ {
+	t = 1
+	if (!h) { h = 1; for (i = 2; i <= NF; i++) { c = tolower($i); gsub(/[ \t*`_]/, "", c); if (c == "id") ic = i; if (c == "severity") sv = i; if (c == "blocks") bl = i }; next }
+	if (/^[ \t|:-]*$/) next
+	nr++
+	if (!ic || !sv || !bl) { nc = 1; next }
+	id = $ic; v = tolower($sv); b = tolower($bl); gsub(/[ \t*`_]/, "", id); gsub(/[ \t*`_]/, "", v); gsub(/[ \t*`_]/, "", b)
+	if (id !~ /^F[0-9]+$/ || !(v in n) || (b != "yes" && b != "no")) { bad = bad " " (id == "" ? "(no ID)" : id); next }
+	n[v]++; if (b == "yes") nb++
+	next
+}
+s == 1 && t { if (/[|]/ && !/^[ \t]*([-*+][ \t]|>|[0-9]+[.)][ \t])/) lp = 1; s = 2 }
+s == 1 && /^[ \t*_]*No findings\.?[ \t*_]*$/ { z = 1 }
+END {
+	if (!s) { print "No line reading exactly ## Findings table outside a code block: add it, then run this again."; exit 1 }
+	if (d) { print "More than one line reads ## Findings table, counting those in code blocks: keep only the heading, then run this again."; exit 1 }
+	if (!t && !z) { print "Between ## Findings table and the next heading there is neither a table nor the line No findings.: add one, then run this again."; exit 1 }
+	if (z && nr) { print "The section says No findings. and also has table rows: keep one, then run this again."; exit 1 }
+	if (lp) { print "A line right after the table has a | but does not start with one: start every row with | and leave a blank line after the table, then run this again."; exit 1 }
+	if (nc) { print "The table has no ID, Severity or Blocks column: fix its header row, then run this again."; exit 1 }
+	if (bad != "") { print "Rows whose ID is not F1, F2 and so on, whose Severity is not Critical, High, Medium or Low, or whose Blocks is not yes or no:" bad ". Fix them, then run this again."; exit 1 }
+	printf "knackpack-findings/1: critical=%d high=%d medium=%d low=%d blocking=%d\n", n["critical"], n["high"], n["medium"], n["low"], nb
+}' <report-dir>/<name>.md
+```
+
+Then reply with exactly four lines and nothing else: the file's absolute path; one line with your verdict or recommendation; the findings line the command printed, such as `knackpack-findings/1: critical=0 high=1 medium=2 low=0 blocking=1`; and a last line for programs that read verdicts, such as a push gate: `knackpack-verdict/1: block` when a finding blocks, or when your verdict asks for something to be verified, decided or reviewed by a person before the change goes ahead, and `knackpack-verdict/1: pass` otherwise, so `blocking` above 0 never comes with `pass`. The findings line gives those programs the number of the table's rows of each severity and of those that block, so they never have to parse a report whose layout can change; it counts only the rows of the table under `## Findings table`, so earlier findings you found fixed and open risks aren't in it. An adjudicator leaves out the findings line and replies with the other three. Write the findings line and the last line exactly, with nothing after the last, and never the report itself. Hand back that reply as your final report, however Claude Code has you deliver it, such as through a hand-back tool: the file holds the report itself. If you can't write the file, say why and give the full report in your reply instead, still ending with the findings line and then the last line. Whenever you can't run the command, count that table's rows yourself the same way: by Severity, and how many have Blocks yes.

@@ -74,6 +74,14 @@ for f in agents/*.md; do
 			fail "$name starts the adjudicator even when its brief says the caller adjudicates"
 			brief_ok=0
 		}
+	elif [ "$name" != adjudicator ]; then
+		# A reviewer that can't start the adjudicator has its description ask
+		# the main session to offer that check, since Claude reads the
+		# description when the reviewer reports.
+		grep -qF "This reviewer doesn't adjudicate its own findings, so once it reports, offer the user an independent check" "$tmp/fm" || {
+			fail "$name can't start the adjudicator, so its description must ask Claude to offer the user the adjudicator's check of each Critical or High finding"
+			agents_ok=0
+		}
 	fi
 	grep -qx 'omitClaudeMd: true' "$tmp/fm" || { fail "$name lacks omitClaudeMd: true"; agents_ok=0; }
 	body "$f" | sed '/^## Review protocol$/,$d' | grep -qF "\`$name.md\`" || {
@@ -120,6 +128,72 @@ grep -qF 'When your brief says the caller adjudicates' scripts/review-protocol.m
 	brief_ok=0
 }
 [ "$brief_ok" = 1 ] && pass "reviewers leave adjudication to orchestrate-review when its brief says so"
+
+# Programs that read verdicts, such as a push gate, read the last two lines of
+# a reviewer's reply, so the protocol must keep defining both (CLAUDE.md lists
+# them as public interface): the findings line, which its count command
+# prints, and the verdict line.
+if grep -qF 'printf "knackpack-findings/1: critical=%d high=%d medium=%d low=%d blocking=%d\n"' scripts/review-protocol.md &&
+	grep -qF '`knackpack-verdict/1: block`' scripts/review-protocol.md &&
+	grep -qF '`knackpack-verdict/1: pass`' scripts/review-protocol.md; then
+	pass "the review protocol defines the reply's findings and verdict lines"
+else
+	fail "scripts/review-protocol.md no longer defines the knackpack-findings/1: line or the knackpack-verdict/1: line; programs that read verdicts depend on both, so restore them, or name the format change as breaking in the release notes and update this check"
+fi
+
+# The findings line is public interface, so run the review protocol's own count
+# command on reports it must count, and on reports it must refuse rather than
+# print a wrong line for: an Earlier column first, a copy of the heading in a
+# code block, findings as a list, and a table of fixed findings below
+# `No findings.`
+prog=$(awk '/^awk -F.[|]. .$/ { p = 1; next } p && /^}. <report-dir>/ { print "}"; exit } p' scripts/review-protocol.md)
+count_ok=1
+count_case() {
+	printf '%s\n' "$3" >"$tmp/count.md"
+	got=$(awk -F'|' "$prog" "$tmp/count.md" 2>&1)
+	case $1 in
+	refuse) case $got in knackpack-findings/1:*) fail "the review protocol's count command counted $2 instead of refusing it: $got"; count_ok=0 ;; esac ;;
+	*) [ "$got" = "knackpack-findings/1: $1" ] || { fail "the review protocol's count command printed '$got' for $2"; count_ok=0; } ;;
+	esac
+}
+row='| ID | Severity | Blocks | Evidence | Location | Finding |
+|---|---|---|---|---|---|'
+count_case 'critical=0 high=1 medium=0 low=1 blocking=1' 'an Earlier column first' '## Findings table
+
+| Earlier | ID | Severity | Blocks | Evidence | Location | Finding |
+|---|---|---|---|---|---|---|
+| new | F1 | High | yes | Confirmed | a.go:1 | x |
+| F2 | F2 | Low | no | Confirmed | b.go:2 | y |
+
+## Cost'
+count_case refuse 'a copy of the heading in a code block' '```
+## Findings table
+'"$row"'
+| F9 | Low | no | Confirmed | z.go:9 | sample |
+```
+
+## Findings table
+
+'"$row"'
+| F1 | High | yes | Confirmed | a.go:1 | x |'
+count_case refuse 'findings as a list' '## Findings table
+
+- F1 (High, blocks): x
+
+## Cost'
+count_case 'critical=0 high=0 medium=0 low=0 blocking=0' 'No findings. with a table of fixed findings under its own heading' '## Findings table
+
+No findings.
+
+### Fixed earlier findings
+
+'"$row"'
+| F2 | High | yes | Confirmed | a.go:1 | fixed |'
+if [ -z "$prog" ]; then
+	fail "scripts/check.sh can't find the count command in scripts/review-protocol.md; update the extraction to match its first and last lines"
+elif [ "$count_ok" = 1 ]; then
+	pass "the review protocol's count command counts or refuses each sample report"
+fi
 
 # Agents cite the review protocol's steps by number, as in "the copy from step
 # 7 of the review protocol", so its nine steps keep their numbers and opening
@@ -399,7 +473,7 @@ contract_ok=1
 IFS= read -r save_folder <<'EOF'
 the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 EOF
-for name in challenge-requirements checkpoint create-issues handoff orchestrate-review plan-implementation research; do
+for name in challenge-requirements checkpoint create-issues execute-plan handoff orchestrate-review plan-implementation research; do
 	grep -qF -- "$save_folder" "skills/$name/SKILL.md" ||
 		{ fail "skills/$name/SKILL.md doesn't name its save folder in the words check.sh holds, which the hook relies on"; contract_ok=0; }
 done
@@ -566,6 +640,40 @@ for s in $shells; do
 	grep -q 'may have been sent while you were working' "$tmp/out" || { fail "hook under $s doesn't say a reminder within a turn can predate the latest record edits"; hook_ok=0; }
 	run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 	grep -q 'edited files but not the record' "$tmp/out" || { fail "hook under $s misses a finished turn that edited files but not the record"; hook_ok=0; }
+	# A message sent while the last turn was ending runs the prompt hook before
+	# that turn's Stop, and Claude Code then runs it as a turn of its own with
+	# no prompt event. That turn's checks read only its own notes: the last
+	# turn's record update doesn't let its claimed update pass, and its own
+	# record update does.
+	run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" && run "$s" prompt "$event" &&
+		run "$s" stop "$done_event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"}}" && run "$s" stop "$event" || hook_ok=0
+	grep -q "the record wasn't updated" "$tmp/out" || { fail "hook under $s lets a turn started by a queued message pass on the last turn's record update"; hook_ok=0; }
+	run "$s" prompt "$event" && run "$s" prompt "$event" && run "$s" stop "$done_event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" && run "$s" stop "$event" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s forgets the record update of a turn started by a queued message"; hook_ok=0; }
+	# Another Stop hook, or this hook's own feedback on an update claimed but
+	# not made, can send Claude back to work. The next Stop then has
+	# "stop_hook_active":true, and what Claude does in between belongs to the
+	# same turn, so the turn's record update still counts for it.
+	cont_event="{\"session_id\":\"$sid\",\"stop_hook_active\":true,\"last_assistant_message\":\"Done.\"}"
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" &&
+		run "$s" stop "$done_event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"}}" &&
+		run "$s" stop "$cont_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s flags a turn whose Stop-hook continuation edited files after the turn updated the record"; hook_ok=0; }
+	# The same holds when that continuation is interrupted, which runs no Stop:
+	# the next prompt starts a new turn.
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$rec\"}}" &&
+		run "$s" stop "$done_event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"}}" &&
+		run "$s" prompt "$event" && run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s flags a turn after an interrupted Stop-hook continuation of a turn that updated the record"; hook_ok=0; }
+	# A queued message's turn starts from what the last turn left unsettled:
+	# its edits without a record update are still flagged when that turn edits
+	# nothing, and a change it makes with a shell command still counts.
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"$long/project/a.md\"}}" &&
+		run "$s" prompt "$event" && run "$s" stop "$done_event" && run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" || { fail "hook under $s drops a turn's unrecorded edits when a queued message's turn follows it"; hook_ok=0; }
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" prompt "$event" && run "$s" stop "$done_event" &&
+		printf '%s\n' d >>"$long/project/tracked.txt" && run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" || { fail "hook under $s misses a project file a queued message's turn changed with a shell command"; hook_ok=0; }
 	# A project file changed with a shell command, which no file-edit event
 	# reports, counts too, and so does a second change to a file already
 	# changed. A turn that changes nothing doesn't, nor does a scratch file in
@@ -659,12 +767,14 @@ for s in $shells; do
 		hook_ok=0
 	fi
 	# Off, or in a session nobody attends, it prints nothing and writes nothing.
+	# KNACKPACK_INTENT=off wins over the EVAL_KNACKPACK_INTENT=on that evals set.
 	for v in CLAUDE_CODE_SESSION_ATTENDED=0 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_INTENT=off' CLAUDE_CODE_ENTRYPOINT=sdk-cli \
-		'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0'; do
+		'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0' \
+		'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0 EVAL_KNACKPACK_INTENT=on KNACKPACK_INTENT=off'; do
 		rm -rf "$tmp/quiet"
 		for m in rules state prompt tool stop; do
-			# shellcheck disable=SC2086 # $v holds one or two assignments
-			printf '%s' "$event" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT $v \
+			# shellcheck disable=SC2086 # $v holds the assignments
+			printf '%s' "$event" | env -u KNACKPACK_INTENT -u EVAL_KNACKPACK_INTENT -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT $v \
 				XDG_STATE_HOME="$tmp/quiet" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" "$m" >>"$tmp/quiet.out" 2>&1
 		done
 		if [ -s "$tmp/quiet.out" ] || [ -e "$tmp/quiet" ]; then
@@ -675,11 +785,13 @@ for s in $shells; do
 	done
 	# A background session started with `claude --bg` (cli and 0) is marked
 	# unattended but may have a person in it, and an Agent SDK session marked
-	# attended (sdk-cli and 1) has one: both get the rules.
-	for v in 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=1'; do
+	# attended (sdk-cli and 1) has one: both get the rules, and so does an
+	# eval's headless run with EVAL_KNACKPACK_INTENT=on.
+	for v in 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=1' \
+		'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0 EVAL_KNACKPACK_INTENT=on'; do
 		rm -rf "$tmp/awake"
-		# shellcheck disable=SC2086 # $v holds two assignments
-		printf '%s' "$event" | env -u KNACKPACK_INTENT -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT $v \
+		# shellcheck disable=SC2086 # $v holds the assignments
+		printf '%s' "$event" | env -u KNACKPACK_INTENT -u EVAL_KNACKPACK_INTENT -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT $v \
 			XDG_STATE_HOME="$tmp/awake" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" rules >"$tmp/awake.out" 2>&1
 		grep -q '^# Track intent' "$tmp/awake.out" || { fail "hook under $s with $v printed no rules"; hook_ok=0; }
 		rm -rf "$tmp/awake" "$tmp/awake.out"
@@ -898,7 +1010,22 @@ for s in $shells; do
 			fi
 		done
 	done
-	rm -rf "$real/tmpdir"
+	# Claude Code 2.1.257 and later name the session's scratchpad, where the
+	# checkpoint skill saves when the system prompt names one: a checkpoint
+	# there comes first, even with a space in its path; one that is a symbolic
+	# link, or a scratchpad_dir that isn't absolute, gives no pointer to it.
+	pad="$real/pad dir"
+	mkdir -p "$pad" && : >"$pad/CHECKPOINT.md"
+	ln -s "$ckpt" "$real/linked-CHECKPOINT.md" 2>/dev/null
+	for c in "$pad|$pad/CHECKPOINT.md" "pad dir|$ckpt" "$real/linkpad|$ckpt"; do
+		dir=${c%%|*} want=${c#*|}
+		[ "$dir" = "$real/linkpad" ] && mkdir -p "$dir" && ln -sf "$ckpt" "$dir/CHECKPOINT.md"
+		printf '%s' "$event" | sed "s|\"startup\"|\"compact\",\"scratchpad_dir\":\"$dir\"|" | env -u KNACKPACK_INTENT -u EVAL_KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
+			TMPDIR="$real/tmpdir" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >"$tmp/out" 2>/dev/null
+		grep -qF "This session has a checkpoint: \`$want\`." "$tmp/out" ||
+			{ fail "hook state under $s on compact with scratchpad_dir=$dir doesn't point to $want: $(grep -o 'checkpoint: `[^`]*`' "$tmp/out")"; hook_ok=0; }
+	done
+	rm -rf "$real/tmpdir" "$pad" "$real/linkpad" "$real/linked-CHECKPOINT.md"
 	# A turn file that can't be written must not stop the hook.
 	rm -rf "$long/state/knackpack/intent/.turns"
 	: >"$long/state/knackpack/intent/.turns"
@@ -969,7 +1096,7 @@ challenge_ok=1
 crun() { # <shell> <env assignments...>
 	s=$1
 	shift
-	printf '{}' | env -u KNACKPACK_CHALLENGE -u EVAL_KNACKPACK_CHALLENGE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/challenge.sh >"$tmp/out" 2>"$tmp/err"
+	printf '{}' | env -u KNACKPACK_CHALLENGE -u EVAL_KNACKPACK_CHALLENGE -u KNACKPACK_DOCS -u CLAUDE_PLUGIN_ROOT -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/challenge.sh >"$tmp/out" 2>"$tmp/err"
 	code=$?
 	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "challenge hook under $s with $*: exit $code, stderr: $(head -c 200 "$tmp/err")"; challenge_ok=0; }
 }
@@ -993,16 +1120,125 @@ for s in $shells; do
 			{ fail "challenge hook under $s with $v printed more or less than the line that keeps the skill from starting"; challenge_ok=0; }
 	done
 done
-crun sh CLAUDE_CODE_SESSION_ATTENDED=1
+crun sh CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_DOCS=repo
 size=$(wc -c <"$tmp/out" | tr -d ' ')
 [ "$size" -le 9900 ] || { fail "challenge hook prints $size bytes; Claude Code cuts hook output past 10,000 characters"; challenge_ok=0; }
 grep -q 'challenge\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/challenge.sh"; challenge_ok=0; }
-[ "$challenge_ok" = 1 ] && pass "challenge hook under$shells ($size bytes)"
+[ "$challenge_ok" = 1 ] && pass "challenge hook under$shells ($size bytes with the committed-documents rules)"
+
+# KNACKPACK_DOCS=repo: the challenge hook prints the rules for committing the
+# brief and the plan, headless too and with the challenge rules off, naming
+# the real scripts/commit-docs.sh, and nothing about committing without it.
+# The script, in a throwaway repository with work of its own staged and
+# unstaged, refuses without the variable and refuses a document that names
+# the home folder, given outside the temporary folder so that no other check
+# catches it, then commits exactly the document and .knackpack/feature.json,
+# leaves the other work as it was, and reports an unchanged document as
+# already committed. With a pre-commit hook that fails, and with one that
+# stages the other work, it commits nothing and leaves HEAD, the index, the
+# other work and feature.json as they were. An untracked
+# .claude/settings.local.json naming KNACKPACK_DOCS is the person's own, so it
+# commits; the same file once git tracks it, or a committed
+# .claude/settings.json naming it, is the repository's, so it commits nothing
+# and leaves everything as it was, as does a tracked settings file elsewhere
+# that spells the name with a JSON escape, for which the challenge hook prints
+# a note instead of the rules. --check passes outside a git repository.
+docs_ok=1
+here=$(pwd)
+for s in $shells; do
+	for v in 'CLAUDE_CODE_ENTRYPOINT=sdk-cli KNACKPACK_DOCS=repo' 'CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_CHALLENGE=off KNACKPACK_DOCS=repo' \
+		"CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_DOCS=repo CLAUDE_PLUGIN_ROOT=$here"; do
+		# shellcheck disable=SC2086 # $v holds several assignments
+		crun "$s" $v
+		script=$(sed -n 's/.*`sh "\([^"]*\/scripts\/commit-docs\.sh\)".*/\1/p' "$tmp/out" | head -n 1)
+		grep -q '^# Committed documents$' "$tmp/out" && [ -n "$script" ] && [ -f "$script" ] ||
+			{ fail "challenge hook under $s with $v didn't print the committed-documents rules with the script's real path"; docs_ok=0; }
+	done
+	crun "$s" CLAUDE_CODE_SESSION_ATTENDED=1
+	! grep -q 'commit-docs\.sh' "$tmp/out" || { fail "challenge hook under $s printed the committed-documents rules without KNACKPACK_DOCS=repo"; docs_ok=0; }
+	"$s" -n scripts/commit-docs.sh 2>"$tmp/err" || { fail "scripts/commit-docs.sh syntax under $s: $(cat "$tmp/err")"; docs_ok=0; continue; }
+	r=$tmp/docs-$s
+	doc=$r/.knackpack/orders-list/REQUIREMENTS.md
+	mkdir -p "$r/.knackpack/orders-list" && git -C "$r" init -q && git -C "$r" config user.name check && git -C "$r" config user.email check@example.com &&
+		printf 'a\n' >"$r/a.txt" && printf 'b\n' >"$r/b.txt" && git -C "$r" add a.txt b.txt && git -C "$r" commit -q -m base &&
+		printf 'staged\n' >>"$r/a.txt" && git -C "$r" add a.txt && printf 'unstaged\n' >>"$r/b.txt" && printf '# Brief\n\nSee /home/knackpack-check/notes.md.\n' >"$doc" ||
+		{ fail "couldn't make a repository to try scripts/commit-docs.sh in"; docs_ok=0; continue; }
+	base=$(git -C "$r" rev-parse HEAD)
+	out=$(cd "$r" && env -u KNACKPACK_DOCS "$s" "$here/scripts/commit-docs.sh" "$doc")
+	case $out in "not committed: KNACKPACK_DOCS"*) ;; *) fail "commit-docs.sh under $s without KNACKPACK_DOCS=repo printed: $out"; docs_ok=0 ;; esac
+	out=$(cd "$r" && HOME=/home/knackpack-check KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
+	case $out in *"names paths from this machine"*) ;; *) fail "commit-docs.sh under $s committed a document naming the home folder: $out"; docs_ok=0 ;; esac
+	[ "$(git -C "$r" rev-parse HEAD)" = "$base" ] || { fail "commit-docs.sh under $s committed when it shouldn't have"; docs_ok=0; }
+	printf '# Brief\n\nREQ-01: list orders.\n' >"$doc"
+	out=$(cd "$r/.knackpack" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" orders-list/REQUIREMENTS.md)
+	files=$(git -C "$r" show --name-only --format= HEAD | tr '\n' ' ')
+	case $out in committed*) ;; *) fail "commit-docs.sh under $s didn't commit: $out"; docs_ok=0 ;; esac
+	[ "$files" = '.knackpack/feature.json .knackpack/orders-list/REQUIREMENTS.md ' ] &&
+		[ "$(git -C "$r" diff --cached --name-only)" = a.txt ] && [ "$(git -C "$r" diff --name-only)" = b.txt ] &&
+		jq -e '.feature_directory == ".knackpack/orders-list"' "$r/.knackpack/feature.json" >/dev/null 2>&1 ||
+		{ fail "commit-docs.sh under $s committed $files or disturbed the other work, or wrote a wrong feature.json"; docs_ok=0; }
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
+	case $out in "already committed"*) ;; *) fail "commit-docs.sh under $s didn't report an unchanged document as already committed: $out"; docs_ok=0 ;; esac
+	mkdir -p "$r/.knackpack/orders-export" && printf '# Plan\n\nPLAN-01: export orders.\n' >"$r/.knackpack/orders-export/PLAN.md" &&
+		cp "$r/.knackpack/feature.json" "$tmp/feature.json" || { fail "couldn't write a plan to try a failed commit with"; docs_ok=0; continue; }
+	for h in 'exit 1' 'git add -u'; do
+		printf '#!/bin/sh\n%s\n' "$h" >"$r/.git/hooks/pre-commit" && chmod +x "$r/.git/hooks/pre-commit"
+		head=$(git -C "$r" rev-parse HEAD) && before=$(git -C "$r" status --porcelain)
+		out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-export/PLAN.md")
+		case $out in "not committed"*) ;; *) fail "commit-docs.sh under $s with a pre-commit hook running '$h' printed: $out"; docs_ok=0 ;; esac
+		[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] && cmp -s "$r/.knackpack/feature.json" "$tmp/feature.json" ||
+			{ fail "commit-docs.sh under $s with a pre-commit hook running '$h' left a commit, or changed the index, the other work or feature.json"; docs_ok=0; }
+	done
+	rm -f "$r/.git/hooks/pre-commit"
+	mkdir -p "$r/.claude" && printf '{"env":{"KNACKPACK_DOCS":"repo"}}\n' >"$r/.claude/settings.local.json" ||
+		{ fail "couldn't write settings to try scripts/commit-docs.sh with"; docs_ok=0; continue; }
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-export/PLAN.md")
+	case $out in committed*) ;; *) fail "commit-docs.sh under $s refused with only an untracked .claude/settings.local.json naming KNACKPACK_DOCS: $out"; docs_ok=0 ;; esac
+	printf 'PLAN-02: page the export.\n' >>"$r/.knackpack/orders-export/PLAN.md" && cp "$r/.knackpack/feature.json" "$tmp/feature.json" ||
+		{ fail "couldn't change the plan to try scripts/commit-docs.sh with the repository's settings"; docs_ok=0; continue; }
+	for f in settings.local.json settings.json; do
+		if [ "$f" = settings.json ]; then
+			cp "$r/.claude/settings.local.json" "$r/.claude/settings.json" && git -C "$r" add -- .claude/settings.json &&
+				git -C "$r" commit -q -m settings -- .claude/settings.json
+		else
+			git -C "$r" add -- .claude/settings.local.json
+		fi || { fail "couldn't commit settings to try scripts/commit-docs.sh with"; docs_ok=0; continue; }
+		head=$(git -C "$r" rev-parse HEAD) && before=$(git -C "$r" status --porcelain)
+		out=$(cd "$r/.knackpack" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" orders-export/PLAN.md)
+		case $out in "not committed: .claude/$f names KNACKPACK_DOCS"*) ;; *) fail "commit-docs.sh under $s with .claude/$f in git naming KNACKPACK_DOCS printed: $out"; docs_ok=0 ;; esac
+		[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] && cmp -s "$r/.knackpack/feature.json" "$tmp/feature.json" ||
+			{ fail "commit-docs.sh under $s with .claude/$f in git naming KNACKPACK_DOCS left a commit, or changed the index, the other work or feature.json"; docs_ok=0; }
+		[ "$f" = settings.json ] || git -C "$r" reset -q -- .claude/settings.local.json
+	done
+	# A key spelled with a JSON escape, in a settings file git tracks in a
+	# folder the script doesn't walk through, refuses too, and the challenge
+	# hook then prints a note instead of the rules, so Claude writes no copy.
+	git -C "$r" rm -q -- .claude/settings.json && rm -f "$r/.claude/settings.local.json" && mkdir -p "$r/sub/.claude" &&
+		printf '{"env":{"KNACKPACK_\\u0044OCS":"repo"}}\n' >"$r/sub/.claude/settings.json" &&
+		git -C "$r" add -- sub/.claude/settings.json && git -C "$r" commit -q -m "escaped settings" ||
+		{ fail "couldn't commit escaped settings to try scripts/commit-docs.sh with"; docs_ok=0; continue; }
+	head=$(git -C "$r" rev-parse HEAD) && before=$(git -C "$r" status --porcelain)
+	out=$(cd "$r/.knackpack" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" orders-export/PLAN.md)
+	case $out in "not committed: sub/.claude/settings.json names KNACKPACK_DOCS"*) ;; *) fail "commit-docs.sh under $s with a tracked sub/.claude/settings.json spelling KNACKPACK_DOCS with an escape printed: $out"; docs_ok=0 ;; esac
+	[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] && cmp -s "$r/.knackpack/feature.json" "$tmp/feature.json" ||
+		{ fail "commit-docs.sh under $s with escaped settings left a commit, or changed the index, the other work or feature.json"; docs_ok=0; }
+	crun "$s" CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_DOCS=repo "CLAUDE_PLUGIN_ROOT=$here" "CLAUDE_PROJECT_DIR=$r"
+	grep -q '^# Committed documents are off$' "$tmp/out" && ! grep -q 'commit-docs\.sh' "$tmp/out" ||
+		{ fail "challenge hook under $s printed the committed-documents rules for a repository whose settings name KNACKPACK_DOCS"; docs_ok=0; }
+	out=$(cd "$r/.knackpack" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" --check)
+	[ -n "$out" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] || { fail "commit-docs.sh --check under $s passed escaped settings or changed the repository"; docs_ok=0; }
+	out=$(cd "$tmp" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" --check) && [ -z "$out" ] ||
+		{ fail "commit-docs.sh --check under $s refused outside a git repository: $out"; docs_ok=0; }
+done
+[ "$docs_ok" = 1 ] && pass "KNACKPACK_DOCS=repo: the challenge hook's rules and scripts/commit-docs.sh under$shells"
 
 # The context hook, under the same shells: silent on stderr, exit 0, nothing
 # below 400,000 tokens, after a compaction, for a subagent's usage, for the
-# checkpoint command, when turned off or under `claude -p`, and valid JSON with
-# a warning at 400,000 and the request to stop at 500,000.
+# checkpoint command and /compact, for a transcript that is a symbolic link,
+# when turned off (KNACKPACK_CONTEXT=off winning over the EVAL_KNACKPACK_CONTEXT
+# that evals set) or under `claude -p`, and valid JSON with a warning at 400,000
+# and the request to stop at 500,000, also under `claude -p` when an eval sets
+# EVAL_KNACKPACK_CONTEXT=on.
 context_ok=1
 usage() { printf '{"isSidechain":%s,"type":"assistant","message":{"usage":{"input_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":%s,"output_tokens":1000}}}\n' "$1" "$2"; }
 usage false 100000 >"$tmp/ctx-low.jsonl"
@@ -1010,20 +1246,23 @@ usage false 420000 >"$tmp/ctx-warn.jsonl"
 usage false 520000 >"$tmp/ctx-stop.jsonl"
 { usage false 520000 && printf '{"isSidechain":false,"type":"system","subtype":"compact_boundary"}\n'; } >"$tmp/ctx-compacted.jsonl"
 { usage false 100000 && usage true 900000; } >"$tmp/ctx-side.jsonl"
+ln -s "$tmp/ctx-stop.jsonl" "$tmp/ctx-link.jsonl"
 xrun() { # <shell> <transcript> <prompt> <env assignments...>
 	s=$1 t=$2 p=$3
 	shift 3
 	printf '{"session_id":"x","transcript_path":"%s","prompt":"%s"}' "$tmp/ctx-$t.jsonl" "$p" |
-		env -u KNACKPACK_CONTEXT -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/context.sh >"$tmp/out" 2>"$tmp/err"
+		env -u KNACKPACK_CONTEXT -u EVAL_KNACKPACK_CONTEXT -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/context.sh >"$tmp/out" 2>"$tmp/err"
 	code=$?
 	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "context hook under $s ($t, $p, $*): exit $code, stderr: $(head -c 200 "$tmp/err")"; context_ok=0; }
 }
 for s in $shells; do
 	"$s" -n hooks/context.sh 2>"$tmp/err" || { fail "context hook syntax under $s: $(cat "$tmp/err")"; context_ok=0; }
 	for c in 'low hi CLAUDE_CODE_SESSION_ATTENDED=1' 'compacted hi CLAUDE_CODE_SESSION_ATTENDED=1' 'side hi CLAUDE_CODE_SESSION_ATTENDED=1' \
-		'stop /knackpack:checkpoint CLAUDE_CODE_SESSION_ATTENDED=1' 'stop hi CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_CONTEXT=off' \
+		'stop /knackpack:checkpoint CLAUDE_CODE_SESSION_ATTENDED=1' 'stop /compact CLAUDE_CODE_SESSION_ATTENDED=1' \
+		'link hi CLAUDE_CODE_SESSION_ATTENDED=1' 'stop hi CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_CONTEXT=off' \
 		'stop hi CLAUDE_CODE_SESSION_ATTENDED=0' 'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli' \
-		'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0'; do
+		'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0' \
+		'stop hi CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0 EVAL_KNACKPACK_CONTEXT=on KNACKPACK_CONTEXT=off'; do
 		# shellcheck disable=SC2086 # $c holds the arguments
 		xrun "$s" $c
 		[ ! -s "$tmp/out" ] || { fail "context hook under $s printed something for: $c"; context_ok=0; }
@@ -1036,14 +1275,53 @@ for s in $shells; do
 				{ fail "context hook under $s at the $n threshold didn't print its JSON warning"; context_ok=0; }
 		fi
 	done
-	for v in 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=1'; do
-		# shellcheck disable=SC2086 # $v holds two assignments
+	for v in 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=1' \
+		'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0 EVAL_KNACKPACK_CONTEXT=on'; do
+		# shellcheck disable=SC2086 # $v holds the assignments
 		xrun "$s" warn hi $v
 		grep -q '400,000' "$tmp/out" || { fail "context hook under $s with $v printed no warning at 400,000 tokens"; context_ok=0; }
 	done
 done
 grep -q 'context\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/context.sh"; context_ok=0; }
 [ "$context_ok" = 1 ] && pass "context hook under$shells"
+
+# The compaction hook, under the same shells: exit 0 with nothing on stderr,
+# its instructions for the summary in every session, headless ones included,
+# as plain text, which Claude Code doesn't read as JSON, and within the 10,000
+# characters it keeps; nothing with KNACKPACK_COMPACT=off or, for evals,
+# EVAL_KNACKPACK_COMPACT=off; and hooks.json running it before compaction.
+compact_ok=1
+prun() { # <shell> <env assignments...>
+	s=$1
+	shift
+	printf '{"session_id":"x","hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}' |
+		env -u KNACKPACK_COMPACT -u EVAL_KNACKPACK_COMPACT -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/compact.sh >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "compaction hook under $s with $*: exit $code, stderr: $(head -c 200 "$tmp/err")"; compact_ok=0; }
+}
+for s in $shells; do
+	"$s" -n hooks/compact.sh 2>"$tmp/err" || { fail "compaction hook syntax under $s: $(cat "$tmp/err")"; compact_ok=0; }
+	for v in CLAUDE_CODE_SESSION_ATTENDED=1 'CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0' \
+		'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' KNACKPACK_COMPACT=on; do
+		# shellcheck disable=SC2086 # $v holds one or two assignments
+		prun "$s" $v
+		grep -q 'what you found out yourself' "$tmp/out" && [ "$(head -c 1 "$tmp/out")" != '{' ] ||
+			{ fail "compaction hook under $s with $v printed no instructions as plain text"; compact_ok=0; }
+	done
+	for v in KNACKPACK_COMPACT=off KNACKPACK_COMPACT=Off EVAL_KNACKPACK_COMPACT=off 'CLAUDE_CODE_ENTRYPOINT=sdk-cli KNACKPACK_COMPACT=no'; do
+		# shellcheck disable=SC2086 # $v holds one or two assignments
+		prun "$s" $v
+		[ ! -s "$tmp/out" ] || { fail "compaction hook under $s with $v printed something"; compact_ok=0; }
+	done
+done
+prun sh
+size=$(wc -c <"$tmp/out" | tr -d ' ')
+[ "$size" -le 9900 ] || { fail "compaction hook prints $size bytes; Claude Code cuts PreCompact output at 10,000 characters"; compact_ok=0; }
+if command -v jq >/dev/null 2>&1; then
+	jq -e '[.hooks.PreCompact[]?.hooks[]?.command] | any(contains("hooks/compact.sh"))' hooks/hooks.json >/dev/null 2>&1 ||
+		{ fail "hooks/hooks.json doesn't run hooks/compact.sh before compaction"; compact_ok=0; }
+fi
+[ "$compact_ok" = 1 ] && pass "compaction hook under$shells ($size bytes)"
 
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi

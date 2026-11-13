@@ -33,7 +33,7 @@ Otherwise, follow every section in full.
 
 ## Where to save
 
-Never write into the repository unless the user asks. To save the brief, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
+Never write into the repository unless the user asks. To save the brief, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user. With `KNACKPACK_DOCS=repo` set, also commit the brief as knackpack's session-start rules say.
 
 ## 1. Establish the task and its maturity
 
@@ -91,10 +91,8 @@ Consult available relevant evidence:
 - Linked tickets and authorized project context.
 - Version-specific primary documentation where external behavior matters.
 
-Treat existing implementation as evidence of current behavior, not proof of
-desired behavior.
-
-Treat tests as evidence of expectations, not unquestionable authority.
+Treat existing implementation as evidence of current behavior, and tests as
+evidence of expectations, not proof of desired behavior.
 
 When sources disagree, describe the conflict and identify the decision needed.
 Do not silently choose whichever source is easiest to implement.
@@ -257,8 +255,6 @@ Do not use "nonblocking" to avoid asking a consequential question.
 Do not use "blocking" for ordinary implementation discretion.
 
 ## 8. Ask high-value questions
-
-Before asking, check whether the available evidence already answers it.
 
 Ask the smallest batch that will unlock the next meaningful decision.
 Prefer one to three consequential questions at a time.

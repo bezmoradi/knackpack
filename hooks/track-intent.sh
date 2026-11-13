@@ -44,6 +44,8 @@
 #
 # KNACKPACK_INTENT=off turns the hooks off. KNACKPACK_INTENT=on also runs them
 # in sessions nobody attends, such as `claude -p`, which they skip by default.
+# `claude plugin eval` passes a case only variables named EVAL_*, so
+# EVAL_KNACKPACK_INTENT stands in for it there, letting an eval run the hooks.
 
 # test -O isn't POSIX, but dash and bash both have it. Before the first
 # command, this directive covers the whole script.
@@ -76,7 +78,7 @@ if [ "$mode" = manual ]; then
 	sid=${2:-}
 	dir=${3:-}
 else
-	setting=$(printf '%s' "${KNACKPACK_INTENT:-}" | tr '[:upper:]' '[:lower:]')
+	setting=$(printf '%s' "${KNACKPACK_INTENT:-${EVAL_KNACKPACK_INTENT:-}}" | tr '[:upper:]' '[:lower:]')
 	case $setting in
 	off | 0 | false | no) exit 0 ;;
 	on | 1 | true | yes) ;;
@@ -241,8 +243,18 @@ fi
 # claude-<session>) and, outside the project, the temporary folders. A
 # reminder that lists the assumptions adds "listed <checksum>". Stop adds
 # "work" when the project's changes differ from the turn's start, which
-# catches edits made with a shell command, then "end"; only a prompt after it
-# starts a new turn.
+# catches edits made with a shell command, then "end" and "next <checksum>"
+# of the records then. A prompt after "end" starts a new turn. A prompt before
+# it adds "queued". The docs don't say when the prompt hook runs for a message
+# queued while Claude works, but a session logged second by second showed it
+# run as the message was queued and, when the turn ended with the message
+# still waiting, the message's turn start with no prompt event. So a file edit
+# or a Stop after "end", with no prompt in between, starts a new turn when the
+# turn that ended has a "queued" line: its notes start from "next", and the
+# old lines stay as "was <line>", which no check reads. A Stop that a Stop
+# hook, this one included, sent back to work (stop_hook_active) continues the
+# same turn, so it puts them back. Without a "queued" line, what follows "end"
+# is such a continuation and stays in the turn.
 turns=$root/.turns
 turn=$turns/$sid
 
@@ -258,6 +270,44 @@ turn_ok() {
 		rm -f "$turn" 2>/dev/null
 	fi
 	[ ! -L "$turn" ] && { [ ! -e "$turn" ] || [ -f "$turn" ]; }
+}
+
+# A queued message's turn, which begins without a prompt after the last turn's
+# "end", starts its notes from the records as that turn left them, so its
+# checks never read the last turn's lines. What the last turn left unsettled
+# carries over: its edits when it didn't update the record, or else its
+# starting "tree", so a change made with a shell command still shows at the
+# next Stop; and a "queued" line for each further message it queued. A turn
+# file without "next", as an older version wrote, stays as it is. Call it
+# after turn_ok.
+resume() {
+	grep -qx end "$turn" 2>/dev/null && grep -qx queued "$turn" 2>/dev/null || return 0
+	notes=$(awk '
+	/^was / { next }
+	{ line[++k] = $0 }
+	/^next / { n = substr($0, 6) }
+	$0 == "record" { rec = 1 }
+	$0 == "work" { work = 1 }
+	$0 == "queued" { q++ }
+	/^sum / && s == "" { s = substr($0, 5) }
+	/^tree / && t == "" { t = $0 }
+	END {
+		if (n == "") exit 1
+		print "sum " n
+		if (!rec && work && (s == "" || s == n)) print "work"
+		else if (!rec && !work && t != "") print t
+		while (--q > 0) print "queued"
+		for (i = 1; i <= k; i++) print "was " line[i]
+	}' "$turn" 2>/dev/null) || return 0
+	printf '%s\n' "$notes" 2>/dev/null >"$turn"
+}
+# A Stop with stop_hook_active ends a continuation of the last turn, not a
+# queued message's turn: put back the lines resume kept, drop the lines it
+# wrote above them, and keep what the continuation added below them.
+unresume() {
+	grep -q '^was ' "$turn" 2>/dev/null && ! grep -qx end "$turn" 2>/dev/null || return 0
+	notes=$(awk '/^was / { w = 1; print substr($0, 5); next } w' "$turn" 2>/dev/null) || return 0
+	printf '%s\n' "$notes" 2>/dev/null >"$turn"
 }
 
 # A checksum of the session's records, so an update made with any tool, a
@@ -694,14 +744,18 @@ state)
 	mkdir -p "$repo_dir" 2>/dev/null
 	gloss=$(print_file "Personal glossary for this repository: meanings the developer confirmed" "$glossary" 3000)
 	[ -n "$gloss" ] && printf '%s\n' "$gloss"
-	# After a compaction, the checkpoint skill's file for this session, from
-	# the folder it uses when Claude Code names no scratchpad.
+	# After a compaction, the checkpoint skill's file for this session: in the
+	# session's scratchpad, which Claude Code 2.1.257 and later name in
+	# scratchpad_dir and the skill uses when the system prompt names one, or
+	# else in the folder the skill uses when Claude Code names no scratchpad.
 	ckpt=
 	if [ "$src" = compact ]; then
+		pad=$(field scratchpad_dir)
+		case $pad in /*) ;; *) pad= ;; esac
 		# Without the trailing slash macOS's TMPDIR has, which would double.
 		t=${TMPDIR:-/tmp}
 		t=${t%"${t##*[!/]}"}
-		for f in "$t/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
+		for f in ${pad:+"$pad/CHECKPOINT.md"} "$t/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
 			[ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && { ckpt="
 ## Checkpoint
 
@@ -742,7 +796,8 @@ prompt)
 	# message queued while Claude works, which arrives within the turn, or the
 	# first after an interrupted turn, where Stop doesn't run. It keeps the
 	# turn's notes, so an update made before it still counts at Stop, and edits
-	# made before it are checked along with the rest of the turn.
+	# made before it are checked along with the rest of the turn. It adds
+	# "queued", since its turn may start after this one ends, with no prompt.
 	missed=0
 	midturn=0
 	if [ "$writable" = 1 ] && { [ ! -f "$turn" ] || grep -qx end "$turn" || ! grep -q '^sum ' "$turn"; }; then
@@ -753,6 +808,7 @@ prompt)
 }" 2>/dev/null >"$turn"
 	elif [ "$writable" = 1 ]; then
 		midturn=1
+		echo queued 2>/dev/null >>"$turn"
 	fi
 	missed_line="Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	other=$(others | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
@@ -804,6 +860,7 @@ tool)
 	# session started with `claude --agent` has one as well.)
 	[ -z "$(field agent_id)" ] || exit 0
 	turn_ok || exit 0
+	resume
 	# Judge the edit by the edited file's path, since the content of an edit
 	# can quote the record's path too; only an event without one is searched
 	# whole. Only the current record counts, not an earlier task's or a file
@@ -840,11 +897,14 @@ stop)
 	# shell command, counts as work too; it's checked only when nothing else
 	# has settled the turn, since it runs git.
 	if turn_ok; then
+		# A Stop that a Stop hook, this one included, sent back to work
+		# continues the same turn, so it keeps the turn's notes.
+		if printf '%s' "$input" | grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then unresume; else resume; fi
 		t0=$(sed -n 's/^tree //p' "$turn" 2>/dev/null | head -n 1)
 		if [ -n "$t0" ] && ! grep -qx work "$turn" && ! grep -qx record "$turn" && [ "$(tree_sum)" != "$t0" ]; then
 			echo work 2>/dev/null >>"$turn"
 		fi
-		echo end 2>/dev/null >>"$turn"
+		printf 'end\nnext %s\n' "$(records_sum)" 2>/dev/null >>"$turn"
 	fi
 	stopped && exit 0
 	printf '%s' "$input" | grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true' && exit 0
