@@ -256,6 +256,8 @@ Do not use "blocking" for ordinary implementation discretion.
 
 ## 8. Ask high-value questions
 
+Before asking, check whether the evidence already answers it.
+
 Ask the smallest batch that will unlock the next meaningful decision.
 Prefer one to three consequential questions at a time.
 
@@ -273,9 +275,8 @@ attempt cleanup? This changes retry behavior, recovery work, and what the user
 is charged for." Avoid broad questions such as "Can you provide more details?"
 or "What are all the edge cases?"
 
-When a decision has a few discrete options and your environment offers a
-structured question tool (AskUserQuestion in Claude Code), use it and put your
-recommended option first. Otherwise, ask in plain text.
+When a decision has a few discrete options and the AskUserQuestion tool is
+available, use it and put your recommended option first. Otherwise, ask in plain text.
 
 Do not ask the user to make technical choices that you can responsibly resolve.
 
