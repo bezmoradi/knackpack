@@ -27,6 +27,10 @@
 # Exit status: 0 when nothing blocks, 1 when a high-confidence finding blocks,
 # 2 when the audit couldn't run. git push --no-verify skips the hook.
 #
+# git connects to the remote before it runs the hook, so a long audit can
+# outlast that connection, and the push then fails after the audit passed.
+# Push again: the results are saved, so the second push costs nothing.
+#
 # KNACKPACK_AUDIT_BUDGET caps each file's run in dollars (default 2); Claude
 # Code checks it between turns, so a run can pass it by one turn's cost.
 # KNACKPACK_AUDIT_MAX_FILES caps the number of files one run may audit
@@ -63,6 +67,7 @@ before_protocol() { # <commit> <path>: the file up to its review protocol
 
 wt=
 tmp=
+in_hook=
 cleanup() {
 	[ -z "$wt" ] || git worktree remove --force "$wt" >/dev/null 2>&1
 	[ -z "$tmp" ] || rm -rf "$tmp"
@@ -128,6 +133,7 @@ audit() { # <commit>: audit what it changes since the base; prints and returns t
 		done <"$tmp/list"
 		wait
 		printf 'prompt-audit: spent $%s\n' "$(cat "$tmp"/*.cost 2>/dev/null | awk '{ s += $1 } END { printf "%.2f", s }')"
+		[ -z "$in_hook" ] || printf 'prompt-audit: if the push now fails with a closed connection, the audit outlasted it; push again, which reuses these results\n'
 	fi
 	status=0
 	while read -r f k; do
@@ -183,6 +189,7 @@ EOF
 	printf 'prompt-audit: accepted the findings for this version of %s; a change to the file is audited again\n' "$2"
 	;;
 --hook)
+	in_hook=1
 	worst=0
 	while read -r _ lsha _ _; do
 		case $lsha in *[!0]*) ;; *) continue ;; esac # all zeros: a branch being deleted
