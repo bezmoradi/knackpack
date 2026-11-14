@@ -481,7 +481,7 @@ fallback=$(printf '%s\n' "$save_folder" | sed -n 's/.*`\([A-Za-z0-9._-]*\)${CLAU
 [ -n "$fallback" ] || { fail "check.sh's save-folder words name no folder for the hook tests"; contract_ok=0; }
 layout=$(sed -n '/^```markdown$/,/^```$/p' skills/track-intent/SKILL.md)
 for s in '# Intent record: ' '- Status: active | paused | stopped | done' '## Assumed' '- ASM-01: <assumption, in one sentence>. Why: ' '## Not agreed' \
-	'- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n>' \
+	'- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n> or REQ-<n>' \
 	'## Open questions' '- Q-01: ' '## History'; do
 	printf '%s\n' "$layout" | grep -qF -- "$s" || { fail "track-intent's record layout no longer has \"$s\", which the hook reads"; contract_ok=0; }
 done
@@ -688,6 +688,14 @@ for s in $shells; do
 	run "$s" stop "$done_event" && run "$s" prompt "$event" && run "$s" tool "{\"session_id\":\"$sid\",\"tool_input\":{\"file_path\":\"/tmp/knackpack-check-scratch/render.py\"}}" &&
 		run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
 	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s counts a scratch file in /tmp, outside the project, as work"; hook_ok=0; }
+	# Staging and unstaging change no file, so a turn that only does that
+	# isn't flagged.
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && git -C "$long/project" add -A &&
+		run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s counts git add, which changes no file, as an edit"; hook_ok=0; }
+	run "$s" stop "$done_event" && run "$s" prompt "$event" && git -C "$long/project" reset -q &&
+		run "$s" stop "$done_event" && run "$s" prompt "$event" || hook_ok=0
+	grep -q 'edited files but not the record' "$tmp/out" && { fail "hook under $s counts git reset, which changes no file, as an edit"; hook_ok=0; }
 	# Reading what changed mustn't write to the repository. git diff refreshes
 	# the index when a file's timestamp changed but its content didn't, which
 	# rewrites .git/index and can make the user's own git command fail on its
@@ -709,6 +717,11 @@ for s in $shells; do
 	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"<task-notification>\\n<status>completed<\/status>"/')" || hook_ok=0
 	{ grep -q 'background-task notification' "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
 		{ fail "hook under $s gives a background-task notification the full reminder"; hook_ok=0; }
+	# So does a subagent's hand-back, which Claude Code sends as a message
+	# from another Claude session.
+	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"Another Claude session sent a message:\\n<agent-message from=\\"a1\\">\\n[Subagent hand-back] done"/')" || hook_ok=0
+	{ grep -q "a subagent's hand-back" "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
+		{ fail "hook under $s gives a subagent's hand-back the full reminder"; hook_ok=0; }
 	# The current record is the one edited last, not the highest-numbered.
 	two=${rec%.md}.2.md
 	printf '%s\n' '# Intent record: side task' >"$two" && touch -t 202601010000 "$two" && printf '%s\n' '- edited' >>"$rec"
@@ -939,6 +952,45 @@ for s in $shells; do
 	{ grep -q '^- Q-01: still open$' "$tmp/out" && grep -q '^- 2026-10-30: history entry 149$' "$tmp/out" &&
 		! grep -q 'PROP-01' "$tmp/out" && grep -q '^\[Shortened from .*left out: rejected proposals, older History entries' "$tmp/out"; } ||
 		{ fail "hook state under $s didn't shorten a long record by dropping rejected proposals and old History first"; hook_ok=0; }
+	# A record with more Agreed entries than fit keeps its newest ones, and
+	# its assumptions, open questions and unfinished Built entries, after them.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN {
+			print "# Intent record: test"; print "- Status: active"; print "## Agreed"
+			for (i = 1; i <= 300; i++) print "- REQ-" i ": a requirement long enough to fill the record"
+			print "## Assumed (not confirmed)"; print "- ASM-01: an assumption"; print "## Open questions"; print "- Q-01: still open"
+			print "## Built"; for (i = 1; i <= 100; i++) print "- REQ-" i ": verified"; print "- REQ-300: in progress"
+		}' >"$d$sid.md"
+	done
+	run "$s" state "$event" || hook_ok=0
+	{ grep -q '^- REQ-300: a requirement' "$tmp/out" && ! grep -q '^- REQ-1: a requirement' "$tmp/out" &&
+		grep -q '^- ASM-01: ' "$tmp/out" && grep -q '^- Q-01: still open$' "$tmp/out" && grep -q '^- REQ-300: in progress$' "$tmp/out" &&
+		grep -q '^\[Shortened from .*left out: [0-9]* of 300 Agreed entries, [0-9]* of 101 Built entries\. ' "$tmp/out"; } ||
+		{ fail "hook state under $s didn't keep a long record's newest Agreed entries and its open items: $(grep '^\[Shortened' "$tmp/out")"; hook_ok=0; }
+	# Its Goal survives assumptions that alone fill the room, even one longer
+	# than any assumption, which the room they leave can't hold.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN {
+			print "# Intent record: test"; print "## Goal"
+			g = "Ship the export to every region."; while (length(g) < 300) g = g " Keep it small and safe to repeat."; print g
+			print "## Assumed (not confirmed)"
+			for (i = 1; i <= 80; i++) print "- ASM-" i ": an assumption long enough that eighty of them fill far more than the room the record has. Why: a test"
+		}' >"$d$sid.md"
+	done
+	run "$s" state "$event" || hook_ok=0
+	grep -q '^Ship the export to every region\. Keep it small' "$tmp/out" || { fail "hook state under $s drops a long record's Goal when its assumptions fill the room"; hook_ok=0; }
+	# The closing note stays within the room kept for it, however many
+	# sections it names, so the record stays within its share of the output.
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN {
+			print "# Intent record: test"
+			for (k = 1; k <= 15; k++) { print "## A section with a long heading the developer added, number " k; for (i = 1; i <= 20; i++) print "- item " i " of section " k ", long enough to fill the room" }
+		}' >"$d$sid.md"
+	done
+	run "$s" state "$event" || hook_ok=0
+	n=$(sed -n '/^## Current record/,/^----- end -----$/p' "$tmp/out" | sed '1,/^----- begin -----$/d; /^----- end -----$/d' | wc -c | tr -d ' ')
+	{ [ "$n" -le 6001 ] && grep -q '^\[Shortened from [0-9]* bytes; left out: ' "$tmp/out"; } ||
+		{ fail "hook state under $s prints a shortened record of $n bytes, past its 6,000"; hook_ok=0; }
 	# It keeps or drops a History entry whole, with the line under it. Two
 	# record sizes, since the room left decides where a cut would fall.
 	for n in 40 41; do

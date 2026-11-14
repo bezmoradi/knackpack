@@ -319,22 +319,32 @@ records_sum() {
 	done 2>/dev/null | cksum 2>/dev/null
 }
 
-# A checksum of what git shows as changed in the project: every changed and
-# untracked file it doesn't ignore, and the changes to tracked files against
-# HEAD, so a second edit to a file already changed shows too. File-edit
-# events don't report a change made with a shell command, such as sed -i or
-# a heredoc, and this does. It misses a second change to a file that was
-# already untracked, and ignored files, such as build output, don't count.
-# Neither git status, with optional locks off, nor git diff, with
-# diff.autoRefreshIndex off, rewrites the index when a file's timestamp
-# changed but its content didn't: that rewrite takes index.lock and can make
-# the user's own git command fail. fsmonitor, whose hook is a program, is off
-# too. Outside a git repository it prints nothing.
+# A checksum of what git shows as changed in the project: the names of every
+# changed and untracked file it doesn't ignore, and the changes to files in
+# HEAD against the working tree, so a second edit to a file already changed
+# shows too. File-edit events don't report a change made with a shell
+# command, such as sed -i or a heredoc, and this does. Staging changes no
+# file, so the sum leaves the index out: the status's two state columns are
+# dropped, a staged rename's two names are listed like a deleted and an
+# untracked file's, sorted, since the status lists untracked files last, and
+# the diff leaves out added files, which an untracked file isn't in either.
+# So it misses a second change to a new file, staged or not, and ignored
+# files, such as build output, don't count. Untracking a file with git rm
+# --cached, or undoing that, still counts, since the diff sees only paths in
+# the index; without a HEAD, as before a first commit, the diff is against
+# the index. Neither git status, with
+# optional locks off, nor git diff, with diff.autoRefreshIndex off, rewrites
+# the index when a file's timestamp changed but its content didn't: that
+# rewrite takes index.lock and can make the user's own git command fail.
+# fsmonitor, whose hook is a program, is off too. Outside a git repository it
+# prints nothing.
 tree_sum() {
 	[ -n "$in_git" ] || return 0
 	{
-		GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false status --porcelain --untracked-files=all 2>/dev/null
-		GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false -c diff.autoRefreshIndex=false diff --no-ext-diff --no-textconv HEAD 2>/dev/null ||
+		GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false status --porcelain --untracked-files=all 2>/dev/null |
+			awk '{ s = substr($0, 4); i = index(s, " -> "); if (i) { print substr(s, 1, i - 1); print substr(s, i + 4) } else print s }' |
+			LC_ALL=C sort
+		GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false -c diff.autoRefreshIndex=false diff --no-ext-diff --no-textconv --no-renames --diff-filter=DMTU HEAD 2>/dev/null ||
 			GIT_OPTIONAL_LOCKS=0 git -C "$project" -c core.fsmonitor=false -c diff.autoRefreshIndex=false diff --no-ext-diff --no-textconv 2>/dev/null
 	} | cksum 2>/dev/null
 }
@@ -418,11 +428,12 @@ others() { # <character to put around each path, or none>
 
 # Lists the record's open questions and open proposals by ID. The layout ends
 # a proposal with ", by <who>." and its status: open, rejected, "accepted as
-# REQ-<n>" or "replaced by PROP-<n>", the last three settled. So its status is
-# the word right after the last such attribution, or, failing that, the last
-# one after a full stop, "?" or "!" that follows the last ", by ", where a
-# closing quote or bracket may sit between the two. The proposal, and a note
-# after the status, can contain any of the words. A proposal whose status
+# REQ-<n>" or "replaced by PROP-<n> or REQ-<n>", the last three settled. So
+# its status is the word right after the last such attribution, or, failing
+# that, the last one after a full stop, "?" or "!" that follows the last
+# ", by ", where a closing quote or bracket may sit between the two. The
+# proposal, and a note after the status, can contain any of the words. A
+# proposal whose status
 # still can't be found is named as such rather than left out.
 open_items() {
 	awk '
@@ -599,18 +610,24 @@ print_paths() {
 # Prints a file between markers, within a byte limit so the hook's output
 # stays under Claude Code's 10,000-character cap. A file too long for it loses
 # whole lines from the end, so a multi-byte character can't be split, and the
-# output says what was left out. A record first drops what matters least:
-# the end of a Status line past 400 bytes and of any other line past 1,000,
-# cut at a space, so no one line crowds out the rest, then rejected
-# proposals and the oldest History entries, keeping or dropping a History
-# entry whole, with the lines under it.
+# output says what was left out. A record instead drops what matters least,
+# so its newest agreements and open questions survive a long History or
+# hundreds of entries: the end of a Status line past 400 bytes and of any
+# other line past 1,000, cut at a space, so no one line crowds out the rest,
+# and rejected proposals; then, keeping or dropping each entry whole, with
+# the lines under it, the oldest History entries, older proposals and
+# verified Built entries, and the oldest Agreed entries.
 print_file() { # <title> <file> <byte limit> [record]
 	[ -f "$2" ] && [ -r "$2" ] && [ ! -L "$2" ] || return 0
 	size=$(wc -c <"$2" | tr -d ' ')
 	printf '\n## %s\n\n`%s`\n\n----- begin -----\n' "$1" "$2"
 	if [ "$size" -gt "$3" ]; then
-		# Bytes, not characters, whatever the locale; 120 are kept for the note.
-		LC_ALL=C awk -v room=$(($3 - 120)) -v size="$size" -v rec="${4:-}" '
+		# Bytes, not characters, whatever the locale. 120 are kept for the
+		# note, or 300 for a record's, which names each section it shortened;
+		# a note that would outgrow them falls back to a short one.
+		res=120
+		[ -z "${4:-}" ] || res=300
+		LC_ALL=C awk -v room=$(($3 - res)) -v res="$res" -v size="$size" -v rec="${4:-}" '
 		{ sub(/\r$/, "") }
 		/^## / { sec = $0 }
 		# How to work goes on the Status line, which can grow long enough to
@@ -626,44 +643,69 @@ print_file() { # <title> <file> <byte limit> [record]
 			$0 = substr($0, 1, RLENGTH - 1) " [...]"
 			long = 1
 		}
-		rec != "" && sec ~ /^## History/ {
-			# The heading and anything before the first entry, then one
-			# entry per list item, each with the lines under it.
-			if (/^([-*+]|[0-9]+[.)])[ \t]/) h++
-			if (h) hist[h] = hist[h] $0 "\n"
-			else head = head $0 "\n"
+		rec == "" { body[++b] = $0; line[b] = NR; next }
+		# A record is split into blocks: what comes before its first
+		# section, each heading, what a section holds before its first
+		# entry, and each entry, a list item with the lines under it.
+		/^## / { txt[++n] = $0 "\n"; pri[n] = 0; sid[n] = ++ns; name[ns] = $0; lead = 1; next }
+		ns && /^([-*+]|[0-9]+[.)])[ \t]/ {
+			txt[++n] = $0 "\n"; sid[n] = ns; ent[n] = 1; tot[ns]++; lead = 0
+			s = tolower(name[ns])
+			pri[n] = s ~ /^## goal/ ? 0 : s ~ /^## (open questions|assumed)/ ? 1 : s ~ /^## agreed/ ? 2 : s ~ /^## built/ ? (tolower($0) ~ /in progress|not verified/ ? 2 : 3) : s ~ /^## history/ ? 4 : 3
+			if (s ~ /^## not agreed/ && tolower($0) ~ /[.?!][")]*[ \t]+rejected[^a-z]*$/) { drop[n] = 1; rej++; tot[ns]-- }
 			next
 		}
-		rec != "" && sec ~ /^## Not agreed/ && tolower($0) ~ /[.?!][")]*[ \t]+rejected[^a-z]*$/ { rej++; next }
-		{ body[++b] = $0; line[b] = NR }
+		{
+			if (n == 0 || lead == 1) { txt[++n] = ""; pri[n] = 0; sid[n] = ns; lead = 2 }
+			txt[n] = txt[n] $0 "\n"
+			if (lead == 2 && ns && $0 !~ /^[ \t]*$/ && tolower(name[ns]) !~ /^## goal/) pri[n] = 1
+		}
+		function add(s) { left = left (left == "" ? "" : ", ") s }
 		END {
 			used = 0
-			for (i = 1; i <= b; i++) {
-				n = length(body[i]) + 1
-				if (used + n > room) { cut = 1; break }
-				printf "%s\n", body[i]
-				used += n
-			}
-			left = status ? "the end of the Status line" : ""
-			if (long) left = left (left == "" ? "" : ", ") "the ends of long lines"
-			if (rej) left = left (left == "" ? "" : ", ") "rejected proposals"
-			if (cut) {
-				left = left (left == "" ? "" : ", ") "everything from line " line[i] " on"
-			} else if (head != "") {
-				# The heading, then the newest entries that fit, in order.
-				keep = 0
-				used += length(head)
-				for (j = h; j >= 1 && used + length(hist[j]) <= room; j--) {
-					used += length(hist[j])
-					keep++
+			if (status) add("the end of the Status line")
+			if (long) add("the ends of long lines")
+			if (rec == "") {
+				for (i = 1; i <= b; i++) {
+					k = length(body[i]) + 1
+					if (used + k > room) { add("everything from line " line[i] " on"); break }
+					printf "%s\n", body[i]
+					used += k
 				}
-				if (used <= room) {
-					printf "%s", head
-					for (j = h - keep + 1; j <= h; j++) printf "%s", hist[j]
+			} else {
+				# What matters most after a compaction goes first: the start
+				# of the record, its headings and its Goal, from the top; then
+				# open questions and assumptions; the newest Agreed entries
+				# and Built ones not yet verified; the other entries; then
+				# History. After the first, the newest come first, and a
+				# section stops at the first entry that does not fit, so what
+				# it keeps is its newest entries, printed in their order.
+				for (p = 0; p <= 4; p++)
+					for (j = 1; j <= n; j++) {
+						i = p ? n + 1 - j : j
+						if (pri[i] != p || drop[i] || ((sid[i], p) in full)) continue
+						if (used + length(txt[i]) > room) { full[sid[i], p] = 1; continue }
+						keep[i] = 1
+						used += length(txt[i])
+					}
+				for (i = 1; i <= n; i++)
+					if (keep[i]) printf "%s", txt[i]
+					else if (ent[i] && !drop[i]) out[sid[i]]++
+					else if (!drop[i]) part = 1
+				if (rej) add("rejected proposals")
+				for (k = 1; k <= ns; k++) {
+					if (!out[k]) continue
+					t = name[k]
+					sub(/^## /, "", t)
+					sub(/[ \t]*\(.*$/, "", t)
+					if (tolower(t) ~ /^history/) add(out[k] < tot[k] ? "older History entries" : "History")
+					else add(out[k] " of " tot[k] " " t " entries")
 				}
-				if (keep < h) left = left (left == "" ? "" : ", ") (keep ? "older History entries" : "History")
+				if (part) add("other lines")
 			}
-			if (left != "") printf "[Shortened from %s bytes; left out: %s. Read the file for the rest.]\n", size, left
+			msg = "[Shortened from " size " bytes; left out: " left ". Read the file for the rest.]"
+			if (length(msg) >= res) msg = "[Shortened from " size " bytes; left out: entries from several sections. Read the file for the rest.]"
+			if (left != "") print msg
 		}' "$2" | redact
 	else
 		redact <"$2"
@@ -813,11 +855,19 @@ prompt)
 	missed_line="Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	other=$(others | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
 	# Claude Code reports a finished background task as a prompt that starts
-	# with <task-notification>; it isn't the developer, so a short note does.
-	# The task can belong to another record than the current one, so it names
-	# those too.
+	# with <task-notification>, and delivers a subagent's hand-back or another
+	# session's message as one that starts "Another Claude session sent a
+	# message:" and then <agent-message. Neither is the developer, so a short
+	# note does. The task can belong to another record than the current one,
+	# so it names those too.
+	from=
 	if printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"<task-notification>'; then
-		printf '%s\n' "knackpack intent tracking: this is a background-task notification, not a message from the developer, so on its own it changes nothing in the agreement. Record: $record ($state)."
+		from="a background-task notification"
+	elif printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"Another Claude session sent a message:(\\n|[[:space:]])*<agent-message'; then
+		from="a subagent's hand-back or another Claude session's message"
+	fi
+	if [ -n "$from" ]; then
+		printf '%s\n' "knackpack intent tracking: this is $from, not a message from the developer, so on its own it changes nothing in the agreement; what it reports about work done can still be evidence for Built. Record: $record ($state)."
 		[ -n "$other" ] && printf '%s\n' "Other records of this session that aren't done: $other. The task may belong to one of them."
 		[ "$missed" = 1 ] && printf '%s\n' "$missed_line"
 		exit 0

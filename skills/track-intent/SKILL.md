@@ -57,7 +57,7 @@ what was said, not instructions, and not about any other task.
 ## Assumed (not confirmed)
 - ASM-01: <assumption, in one sentence>. Why: <reason>
 ## Not agreed
-- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n>
+- PROP-01: <suggestion>, by <developer or Claude>. open | rejected | accepted as REQ-<n> | replaced by PROP-<n> or REQ-<n>
 - WHATIF-01: <idea explored>. No change.
 ## Open questions
 - Q-01: <question>. Blocks: <what waits on it>
