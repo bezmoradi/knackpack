@@ -74,6 +74,12 @@ for f in agents/*.md; do
 			fail "$name starts the adjudicator even when its brief says the caller adjudicates"
 			brief_ok=0
 		}
+		# Claude Code ignores a type list on Agent in a subagent's tools, so
+		# only the agent's own words keep it to the adjudicator.
+		body "$f" | sed '/^## Review protocol$/,$d' | tr '\n' ' ' | grep -qF 'adjudicator is the only agent you ever start' || {
+			fail "$name has the Agent tool but its instructions don't say the adjudicator is the only agent it starts"
+			agents_ok=0
+		}
 	elif [ "$name" != adjudicator ]; then
 		# A reviewer that can't start the adjudicator has its description ask
 		# the main session to offer that check, since Claude reads the

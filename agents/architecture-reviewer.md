@@ -464,9 +464,12 @@ adjudication for every Critical or High candidate from
 knackpack's adjudicator: start it with `subagent_type: knackpack:adjudicator`,
 in the foreground and without a model override, and
 wait for its verdict. It replies with the path to its report: read the
-report before you rely on the verdict, and give that path in yours. Never
-use a fork, `general-purpose`, `claude`, or any other agent type for this:
-they carry your context or tools that can edit files. Give it the challenged
+report before you rely on the verdict, and give that path in yours. The
+adjudicator is the only agent you ever start: never start a fork,
+`general-purpose`, `claude` or any other agent type, for this or for
+anything else, such as splitting your review into parts. They carry your
+context or tools that can edit files, and each one costs the user a run
+they didn't ask for. Give it the challenged
 decision, the requirement at stake, the scenario, the revision and its base,
 the relevant paths, and whether it may run the code and why, but not your
 reasoning. Its verdict is evidence, not a ruling. A finding it refutes
