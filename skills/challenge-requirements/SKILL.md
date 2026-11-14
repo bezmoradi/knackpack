@@ -1,6 +1,6 @@
 ---
 name: challenge-requirements
-description: Challenge and clarify requirements before planning or implementing a software change — feature requests, bug reports, specs, tickets, proposed solutions and any other request to change code, configuration or documents, small ones included. Finds missing outcomes, ambiguous behavior, conflicting constraints, hidden assumptions, unsafe defaults and untestable acceptance criteria, and asks the few questions that matter. Start it yourself before acting on every change request, even a clear one, so the developer is challenged rather than agreed with; started that way it stays short and the change goes ahead. Run by the user, or asked to pressure-test requirements, it also writes a full requirements brief. It doesn't replace a skill made for the task, so a change to a document still starts Write docs, and a choice between technologies still starts Research. Not for a request that changes nothing, such as how code works; answer that directly.
+description: Challenge and clarify requirements before planning or implementing a software change — feature requests, bug reports, specs, tickets, proposed solutions and any other request to change code, configuration or documents, small ones included. Finds missing outcomes, ambiguous behavior, conflicting constraints, hidden assumptions, unsafe defaults and untestable acceptance criteria, and asks the few questions that matter. Start it yourself before acting on every change request, even a clear one, so the developer is challenged rather than agreed with; started that way it stays short and the change goes ahead. Run by the user, or asked to pressure-test requirements, it also writes a full requirements brief. It doesn't replace a skill made for the task, so a change to a document still starts Write docs, a choice between technologies Research, and building from a plan Execute plan. Not for a request that changes nothing, such as how code works; answer that directly.
 argument-hint: "[request, ticket or spec]"
 ---
 
@@ -26,7 +26,7 @@ Never invent business rules or silently turn assumptions into requirements.
 Keep it short: a full brief before every small edit costs more than it saves.
 
 - Read the request, the code it touches and anything else stating that behavior, such as docs or usage text, and name each gap that changes what gets built or whether it's safe, with what shows it. Say plainly when there is none: a made-up gap costs time to dismiss and teaches the developer to skip your challenges.
-- Ask only blocking questions (section 7), at most three. The change request authorizes the change, so make every part that doesn't depend on an answer in the same turn, recording minor choices as assumptions.
+- Ask only blocking questions (section 7), at most three. The change request authorizes the change, so make every part that doesn't depend on an answer in the same turn, recording minor choices as assumptions. Building from a plan, such as a phase or work package of a plan document, goes to execute-plan instead.
 - Skip section 12's brief and hand-off unless the change touches permissions, money, sensitive data, irreversible actions or several components, or the developer asks.
 
 Otherwise, follow every section in full.
@@ -77,8 +77,6 @@ agreed freshness window" describes an outcome and constraint.
 
 Do not assume the mechanism is wrong. Determine whether it is a genuine
 constraint, an informed choice, or an untested suggestion.
-
-If the problem is already clear, do not ask the user to explain it again.
 
 ## 3. Investigate before questioning
 
@@ -162,8 +160,6 @@ reasonably decide.
 - Are historical records affected?
 - Is migration, backfill, staged rollout, or rollback required?
 - Does the change alter an existing contract?
-
-Do not assume a local code change has only local consequences.
 
 ### Operational expectations
 
