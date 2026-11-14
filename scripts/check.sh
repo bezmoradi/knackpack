@@ -1179,6 +1179,13 @@ crun sh CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_DOCS=repo
 size=$(wc -c <"$tmp/out" | tr -d ' ')
 [ "$size" -le 9900 ] || { fail "challenge hook prints $size bytes; Claude Code cuts hook output past 10,000 characters"; challenge_ok=0; }
 grep -q 'challenge\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run hooks/challenge.sh"; challenge_ok=0; }
+# The challenge skill starts before every change, so it must hand building
+# from a plan to execute-plan rather than edit itself.
+crun sh CLAUDE_CODE_SESSION_ATTENDED=1
+grep -q 'hands it to the execute-plan skill when it builds from a plan' "$tmp/out" ||
+	{ fail "challenge hook's rules don't hand building from a plan to execute-plan"; challenge_ok=0; }
+grep -q 'goes to execute-plan instead' skills/challenge-requirements/SKILL.md && grep -q '^description:.*building from a plan Execute plan' skills/challenge-requirements/SKILL.md ||
+	{ fail "skills/challenge-requirements/SKILL.md doesn't hand building from a plan to execute-plan"; challenge_ok=0; }
 [ "$challenge_ok" = 1 ] && pass "challenge hook under$shells ($size bytes with the committed-documents rules)"
 
 # KNACKPACK_DOCS=repo: the challenge hook prints the rules for committing the
