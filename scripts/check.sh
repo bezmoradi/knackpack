@@ -717,11 +717,14 @@ for s in $shells; do
 	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"<task-notification>\\n<status>completed<\/status>"/')" || hook_ok=0
 	{ grep -q 'background-task notification' "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
 		{ fail "hook under $s gives a background-task notification the full reminder"; hook_ok=0; }
-	# So does a subagent's hand-back, which Claude Code sends as a message
-	# from another Claude session.
-	run "$s" prompt "$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"Another Claude session sent a message:\\n<agent-message from=\\"a1\\">\\n[Subagent hand-back] done"/')" || hook_ok=0
-	{ grep -q "a subagent's hand-back" "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
-		{ fail "hook under $s gives a subagent's hand-back the full reminder"; hook_ok=0; }
+	# So does a subagent's hand-back, which the hook gets as a prompt that
+	# starts with <agent-message, and the transcript shows after a line
+	# saying another Claude session sent it.
+	for hb in '' 'Another Claude session sent a message:\\n'; do
+		run "$s" prompt "$(printf '%s' "$event" | sed "s/\"prompt\":\"hi\"/\"prompt\":\"$hb<agent-message from=\\\\\"a1\\\\\">\\\\n[Subagent hand-back] done\"/")" || hook_ok=0
+		{ grep -q "a subagent's hand-back" "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
+			{ fail "hook under $s gives a subagent's hand-back the full reminder (prompt starting ${hb:-<agent-message})"; hook_ok=0; }
+	done
 	# The current record is the one edited last, not the highest-numbered.
 	two=${rec%.md}.2.md
 	printf '%s\n' '# Intent record: side task' >"$two" && touch -t 202601010000 "$two" && printf '%s\n' '- edited' >>"$rec"

@@ -856,14 +856,15 @@ prompt)
 	other=$(others | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
 	# Claude Code reports a finished background task as a prompt that starts
 	# with <task-notification>, and delivers a subagent's hand-back or another
-	# session's message as one that starts "Another Claude session sent a
-	# message:" and then <agent-message. Neither is the developer, so a short
-	# note does. The task can belong to another record than the current one,
-	# so it names those too.
+	# session's message as one that starts with <agent-message. The transcript
+	# shows the latter after a line "Another Claude session sent a message:",
+	# which the prompt the hook gets doesn't have, so either form counts.
+	# Neither is the developer, so a short note does. The task can belong to
+	# another record than the current one, so it names those too.
 	from=
 	if printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"<task-notification>'; then
 		from="a background-task notification"
-	elif printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"Another Claude session sent a message:(\\n|[[:space:]])*<agent-message'; then
+	elif printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"(Another Claude session sent a message:(\\n|[[:space:]])*)?<agent-message'; then
 		from="a subagent's hand-back or another Claude session's message"
 	fi
 	if [ -n "$from" ]; then
