@@ -21,7 +21,7 @@ Write TypeScript the way the project already writes it, so that its types say wh
 
 Read before writing:
 
-- **Version and compiler:** the `typescript` version the lockfile resolves. Since July 2026 `npm install typescript` gives 7.0, the native compiler (still `tsc`), which has no stable compiler API; 6.0 changed defaults (`strict` on, `module: esnext`, `target: es2025`, `types: []`, `rootDir` the tsconfig's folder) and 7.0 removed `baseUrl`, `moduleResolution: node10`/`classic`, `target: es5`, `outFile` and AMD/UMD/System. Write code and config for the version installed.
+- **Version and compiler:** the `typescript` version the lockfile resolves. From 7.0 it is the native compiler (still `tsc`), which has no stable compiler API; 6.0 changed defaults (`strict` on, `module: esnext`, `target: es2025`, `types: []`, `rootDir` the tsconfig's folder) and 7.0 removed `baseUrl`, `moduleResolution: node10`/`classic`, `target: es5`, `outFile` and AMD/UMD/System. Write code and config for the version installed.
 - **The tsconfig that applies** to the files you touch: follow `extends` and `references`, and note `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `module`, `moduleResolution`, `target`, `lib`, `isolatedModules`, `verbatimModuleSyntax`, `erasableSyntaxOnly`, `allowJs` and `checkJs`.
 - **How the code runs:** `tsc` output run by Node, a bundler that strips types (Vite, esbuild, SWC, Babel), Node's own type stripping, `tsx`, Bun or Deno. Only `tsc` checks types.
 - **Application or library:** for a package, `exports`, `types`, `type`, `files`, `peerDependencies` and whether declarations are generated or hand-written.

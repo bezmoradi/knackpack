@@ -65,9 +65,12 @@ this claim, not whether the claim holds. Write `knackpack-verdict/1: block`
 for HOLDS on a claim that blocks the change, for HOLDS ONLY IF or UNRESOLVED
 on such a claim, since a person has to settle it, and when you were asked
 whether a fix removes the failure and it doesn't. Write
-`knackpack-verdict/1: pass` for REFUTED, and for HOLDS on a claim that
-doesn't block. When the claim doesn't say whether it blocks, treat it as one
-that does.
+`knackpack-verdict/1: pass` in every other case: for REFUTED, and for any
+verdict on a claim that doesn't block, since even if it holds it wouldn't
+stop the change, unless a fix you were asked about doesn't work. A fix you
+couldn't run doesn't change the line, because the claim's own verdict already
+decides whether the change waits. When the claim doesn't say whether it
+blocks, treat it as one that does.
 
 Then give the evidence (`path:line` at the reviewed revision, and the commands
 you ran with their output), the strongest defense you examined and why it

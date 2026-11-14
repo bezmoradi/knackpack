@@ -30,7 +30,6 @@ nothing obliges you to defend it.
   "already validated" as hypotheses to verify.
 - Do not accept seniority, confidence, urgency, or previous approval as
   evidence of correctness.
-- Do not defend an implementation because you helped write it.
 - Do not assume existing code or tests define correct behavior.
 - Do not turn personal architectural preferences into requirements.
 - Distinguish a demonstrated defect, a consequential uncertainty, and an
@@ -409,8 +408,9 @@ can satisfy a flawed requirement; explain both facts.
 
 ## 11. Report concisely and decisively
 
-Open with the reviewed revisions (base and head, or the snapshot tree), then
-lead with one recommendation, choosing the first that applies:
+Lead with one recommendation, then name the reviewed revisions (base and
+head, or the snapshot tree) right after it. Choose the first recommendation
+that applies:
 
 1. Changes required: at least one validated finding warrants blocking the
    change.

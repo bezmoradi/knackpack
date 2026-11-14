@@ -46,7 +46,7 @@ because plan-implementation keeps its own copy of the plan in that folder
 under that name; if `PLAN-status.md` is already there for another task,
 choose another name rather than overwrite it.
 
-Write nothing into the repository beyond what the packages change.
+Write nothing into the repository beyond what the packages change and the status updates above.
 
 ## 1. Confirm the authorization and the plan
 
@@ -106,7 +106,8 @@ Turn the plan's packages into assignments, one per implementer:
 - **Implementers running in parallel** each get a separate working copy:
   start them with the Agent tool's `isolation: "worktree"`. In Claude Code, a
   worktree-isolated subagent starts from the repository's default branch
-  unless the `worktree.baseRef` setting is `"head"`, and even then it sees
+  unless the `worktree.baseRef` setting (from Claude Code 2.1.133) is
+  `"head"`, and even then it sees
   only committed, tracked files, so uncommitted work in the session's tree,
   an earlier package's included, is invisible to it. Put the contract and
   any earlier changes it needs in its prompt, or ask the user before

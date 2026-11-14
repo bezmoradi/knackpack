@@ -8,7 +8,7 @@ argument-hint: "[focus]"
 
 Produce a focused, high-level writeup of the work most recently done so it can be handed off to another developer or coding agent for review. The full writeup goes to a file (see "Output & delivery" below) so the user can hand the receiving agent a single file path instead of copy-pasting; chat gets the path, a paste-ready instruction, and a brief summary — the full text goes to chat only if the user explicitly asks for it there. The reviewer works the same way: it writes its whole review to a file, beside the handoff unless its own instructions forbid that, and replies with only that file's path.
 
-The structure follows widely used conventions for change descriptions: a commit-style lede, what and why, rejected alternatives, a reproducible test plan, and invariants phrased in RFC 2119 terms. Don't invent variants.
+The structure follows widely used conventions for change descriptions: a commit-style lede, what and why, rejected alternatives, a reproducible test plan, and invariants phrased in RFC 2119 terms. Use the sections below under their own names and in their order, leaving out only those the rules below let you skip, so every handoff reads the same way to the reviewer.
 
 ## Arguments
 
@@ -20,11 +20,11 @@ Optional free-text argument describing the scope to cover (e.g. `rate-limit fix`
 
 2. **Open the file with a role-setting preamble addressed to the receiving agent**, placed before all writeup sections:
 
-   > You are a principal code reviewer, and ONLY a code reviewer — reviewing this handoff is your sole task; do not continue, extend, or fix the work described, and do not take on any other task. The writeup below hands off recently completed work for your review. Scrutinize it with the rigor of a principal engineer. Treat its Verification and Invariants sections as the author's claims, and verify them against the actual code. Build your own view of the risks from the code first, then work through the author's "What to scrutinize" list. Before you start, compare the repository with the revision the writeup names (`git rev-parse HEAD` and `git status --short`, in the checkout it names): if they differ, say how at the top of your review, and review the work as it is now. You are report-only: you are NOT allowed to change any file in the repository; scratch files for your own checks go in a temporary folder outside it, which you delete afterwards. Your responsibility is only and only to report back the issues or improvements you find; deciding on and applying them stays with the author/owner. Write your entire review to `<absolute-path-to-the-review-file>`, never into the repository and not into your scratch folder, so your cleanup doesn't delete it, and reply with only that path. If your own instructions don't allow you to write there, save it where they do and reply with that path. If you run on another machine, give the review in your reply instead.
+   > You are a principal code reviewer, and reviewing the work this handoff describes is your only task. The writeup below hands off recently completed work for your review. Your job is to report the issues and improvements you find; the author owns the change, so deciding on and applying them stays with the author. Don't continue, extend or fix the work, don't take on any other task, and don't change any file in the repository. Scrutinize it with the rigor of a principal engineer. Treat its Verification and Invariants sections as the author's claims, and verify them against the actual code. Build your own view of the risks from the code first, then work through the author's "What to scrutinize" list. Before you start, compare the repository with the revision the writeup names (`git rev-parse HEAD` and `git status --short`, in the checkout it names): if they differ, say how at the top of your review, and review the work as it is now. Scratch files for your own checks go in a temporary folder outside the repository, which you delete afterwards. Write your entire review to `<absolute-path-to-the-review-file>`, never into the repository and not into your scratch folder, so your cleanup doesn't delete it, and reply with only that path. If your own instructions don't allow you to write there, save it where they do and reply with that path. If you run on another machine, give the review in your reply instead.
 
    Replace `<absolute-path-to-the-review-file>` with the review file's real absolute path.
 
-3. **The file must be fully self-contained.** The receiving agent has NONE of this session's context — it sees only this file plus the repo. Therefore:
+3. **The file must be fully self-contained.** The receiving agent has none of this session's context: it sees only this file plus the repo. Therefore:
    - State on the first line after the preamble which repo the work is in and its exact revision: the checkout's absolute path (a worktree's own, when the work is in one), the branch, the full commit (`git rev-parse HEAD`), the base it's compared with, and each uncommitted or untracked file in the work. The reviewer may be launched from the monorepo root or from inside the repo, and the work can move on after you write.
    - Every file reference is a full `path:line` from the repo root, never "the file we just edited".
    - Name every symbol, sentinel, table, event, and command explicitly; never "the helper from earlier" or "as discussed above".
@@ -34,7 +34,7 @@ Optional free-text argument describing the scope to cover (e.g. `rate-limit fix`
 4. **In chat, report** (in this order):
    - The absolute path to the handoff file, and the absolute path the review will be written to.
    - The exact instruction the user should give the reviewing agent: **"Read `<absolute-path-to-the-file>` in full, then carry out the review it describes and write it to `<absolute-path-to-the-review-file>`."**
-   - A 3–5 line summary (the lede plus the top "What to scrutinize" items) so the user can sanity-check the handoff without opening the file.
+   - A short summary (the lede plus the top "What to scrutinize" items) so the user can sanity-check the handoff without opening the file.
 
    Caveat: a remote/cloud agent cannot read or write local paths — if the user says the reviewer is remote, paste the full text in chat instead; the reviewer will then give its review in its reply.
 
@@ -44,7 +44,7 @@ Sections marked **required** must appear. Sections marked **conditional** appear
 
 In order:
 
-1. **Lede** *(optional, one line)* — imperative-mood summary in the style of a good commit subject (Google CL + Chris Beams). Doubles as the PR title candidate. Example: *"Close the token-refresh replay hole."* Skip for trivial changes.
+1. **Lede** *(optional, one line)* — imperative-mood summary in the style of a good commit subject. Doubles as the PR title candidate. Example: *"Close the token-refresh replay hole."* Skip for trivial changes.
 
 2. **What this changes** *(required)* — one short paragraph. Behavior delta from the reviewer's perspective, not a code description. For unfinished work, say what's done and what isn't, so a missing part isn't mistaken for an oversight.
 
@@ -59,11 +59,11 @@ In order:
 
 6. **Deliberately out of scope** *(required if non-empty)* — bullet list. Prevents the reviewer from treating an omission as an oversight. Each bullet must explain *why* it was deferred, not just *what*. If nothing's out of scope, omit the section.
 
-7. **Verification** *(required)* — how you convinced yourself the change works. Modeled on Meta's Test Plan norm: reproducible, not "ran locally" or "#yolo". Cover three things where applicable:
+7. **Verification** *(required)* — how you convinced yourself the change works, written so the reviewer can repeat it; "ran locally" isn't a test plan. Cover three things where applicable:
    - **Happy path**: the primary success case.
    - **Edge / error cases**: what you exercised that *should* fail, and how.
    - **Regression check**: what existing behavior you confirmed is unbroken.
-   Use concrete inputs (curl commands, database keys, UI steps, log snippets). "Compiled and linted" is necessary but NOT sufficient.
+   Use concrete inputs (curl commands, database keys, UI steps, log snippets). "Compiled and linted" is necessary but not sufficient.
 
 8. **Requirements covered** *(conditional)* — when the work implements requirements with IDs (REQ-01 and so on), list each ID with where it's implemented and how it was verified, and cite the requirements brief, the plan and the intent record by absolute path when they exist.
 
@@ -71,18 +71,18 @@ In order:
 
 10. **Files touched** *(required)* — bullet list, one line per file, stating the role each plays (source / docs / reviewer rules / config). Purpose: let the reviewer pick the order to read them.
 
-11. **What to scrutinize** *(required)* — numbered list of 3–6 items. These are the questions the reviewer should actively ask, derived from the *actual* risk surface of this diff. Each item states the concern and what a bad answer would look like. Do NOT restate generic review items (style, naming, error handling) — the reviewer already has those. Name the *specific* things you are worried about. This section is what distinguishes a senior-to-senior handoff from a generic summary.
+11. **What to scrutinize** *(required)* — numbered list of the specific concerns this diff raises, usually no more than six, and one or two for a low-risk change. These are the questions the reviewer should actively ask, derived from the *actual* risk surface of this diff. Each item states the concern and what a bad answer would look like. Don't restate generic review items (style, naming, error handling): the reviewer already checks those. Name the *specific* things you are worried about. This section is what distinguishes a senior-to-senior handoff from a generic summary.
 
 12. **Invariants it relies on** *(required if any)* — bullet list. Load-bearing assumptions elsewhere in the codebase that the change trusts. If any of them change, the fix breaks silently; the reviewer should know. Encouraged: RFC 2119 phrasing ("This change relies on `Order.status` never moving backwards: a `shipped` order MUST NOT return to `pending`") for precision. If the change touches cross-service contracts (event payload shape, token claim, URL path segment, DB field rename, shared regex), call that out explicitly and name the consumer services.
 
 13. **Related / Feedback ask** *(optional, one line each)* —
     - *Related*: tickets, incidents, prior PRs. Skip if none.
-    - *Feedback ask*: what kind of review you want (GitHub's advice). Example: *"Design review on the validation placement; line-by-line not needed."* Skip if standard line-by-line is fine.
+    - *Feedback ask*: what kind of review you want. Example: *"Design review on the validation placement; line-by-line not needed."* Skip if standard line-by-line is fine.
 
 ## Rules
 
-- **Tone**: factual, senior-to-senior. The reviewer is a peer or principal, not a junior; don't over-explain language features or basic patterns. Name trade-offs; don't hide them. Admit shortcomings up front (Google CL guidance).
-- **Do NOT include**: line counts, diff stats, marketing language ("clean", "elegant", "robust"), claims about test coverage the repo doesn't have, anything the reviewer can get from `git show` in two seconds.
+- **Tone**: factual, senior-to-senior. The reviewer is a peer or principal, not a junior; don't over-explain language features or basic patterns. Name trade-offs; don't hide them. Admit shortcomings up front.
+- **Leave out**: line counts, diff stats, marketing language ("clean", "elegant", "robust"), claims about test coverage the repo doesn't have, anything the reviewer can get from `git show` in two seconds.
 - **Do include**: every invariant the change newly relies on, even if it feels obvious — the whole point of handoff is to surface implicit assumptions.
 - **File references**: prefer `path:line` over bare function names; the reviewer will paste them into their editor.
 - **Cross-service contracts**: if the change touches an event payload, token claim, URL path shape, DB field, or regex shared across services, flag it in *Invariants* and name every consumer service.
@@ -92,11 +92,11 @@ In order:
 ## Process
 
 1. If no argument was provided, state the scope being covered in one line so the user can correct course (e.g., *"Covering the `UpdateProfile` validation change and the two doc updates from this session — say if you meant something else"*). Proceed without blocking.
-2. If any facts are unclear, use read-only tools (`git log`, `git diff`, file reads) to pin them down before writing. Do NOT fabricate file paths, line numbers, sentinel names, or invariants.
+2. If any facts are unclear, use read-only tools (`git log`, `git diff`, file reads) to pin them down before writing. Don't fabricate file paths, line numbers, sentinel names, or invariants: the reviewer will act on them.
 3. Write the writeup to the file named in "Output & delivery" above, using markdown headings (not bolded titles). Length should be proportional to change complexity — trivial refactors get a short writeup, architectural changes get more.
 4. Do not commit or push anything, and do not write the file anywhere except the folder named above, unless the user asks.
 
-## What NOT to do
+## What not to do
 
 - Do not produce a generic "what I did" summary. The *Why*, *Verification*, and *What to scrutinize* sections are the reason this skill exists; without them the output is a changelog, not a handoff.
 - Do not invent "what to scrutinize" items that don't tie to real risk in the actual diff. If the change is low-risk, say so and keep that section short.

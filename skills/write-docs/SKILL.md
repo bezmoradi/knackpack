@@ -64,7 +64,7 @@ Decide the question the diagram answers and give it a title that says so. Then d
 
 - Use plain words, short sentences and the active voice, naming who acts: "the gateway checks the token", not "the token is checked". Many readers have English as a second language, so skip idioms and wordplay.
 - Describe concrete behavior instead of praising it. Cut robust, seamless, powerful, flexible, scalable, comprehensive, intuitive, enterprise-grade, leverage, simply and easily unless a number or a source backs the claim, and don't fill the gap with behavior you made up.
-- Drop the habits of generated text: emoji in headings, "it's worth noting", "in conclusion", "not just X but Y", and lists of three where one item does the work.
+- Drop the habits of generated text: emoji in headings, "it's worth noting", "in conclusion", "not just X but Y", and lists of three where one item does the work. Readers take them as a sign that nobody checked the text, and stop trusting the rest.
 - Keep conditions, numbers with units, and requirement strength (must, should, may) exact. Replace "as needed", "properly" and "as appropriate" with the actual condition.
 - Use one term per concept, matching the code and the glossary, and don't rename public identifiers.
 - Avoid "currently", "new" and "soon", which go stale; give a version or date when timing matters.
