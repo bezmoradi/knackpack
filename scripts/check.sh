@@ -1188,9 +1188,9 @@ grep -q 'challenge\.sh' hooks/hooks.json || { fail "hooks/hooks.json doesn't run
 # The challenge skill starts before every change, so it must hand building
 # from a plan to execute-plan rather than edit itself.
 crun sh CLAUDE_CODE_SESSION_ATTENDED=1
-grep -q 'hands it to the execute-plan skill when it builds from a plan' "$tmp/out" ||
+grep -q 'such as a phase or section of one, with or without work packages, starts the execute-plan skill instead, not challenge-requirements' "$tmp/out" ||
 	{ fail "challenge hook's rules don't hand building from a plan to execute-plan"; challenge_ok=0; }
-grep -q 'goes to execute-plan instead' skills/challenge-requirements/SKILL.md && grep -q '^description:.*building from a plan Execute plan' skills/challenge-requirements/SKILL.md ||
+grep -q 'goes to execute-plan instead, with or without work packages' skills/challenge-requirements/SKILL.md && grep -q '^description:.*building from a plan Execute plan' skills/challenge-requirements/SKILL.md && grep -q '^description: .*Start it, not challenge-requirements, .*section of a plan, PRD or roadmap, with or without packages' skills/execute-plan/SKILL.md && grep -q '^challenge-requirements for this: it would build the work in this session' skills/execute-plan/SKILL.md ||
 	{ fail "skills/challenge-requirements/SKILL.md doesn't hand building from a plan to execute-plan"; challenge_ok=0; }
 [ "$challenge_ok" = 1 ] && pass "challenge hook under$shells ($size bytes with the committed-documents rules)"
 
