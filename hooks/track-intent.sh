@@ -847,8 +847,18 @@ prompt)
 	if [ "$writable" = 1 ] && { [ ! -f "$turn" ] || grep -qx end "$turn" || ! grep -q '^sum ' "$turn"; }; then
 		if [ -f "$turn" ] && grep -qx work "$turn" && ! grep -qx record "$turn" &&
 			! { grep -q '^sum ' "$turn" && ! grep -qxF "sum $sum" "$turn"; }; then missed=1; fi
+		# A turn that a hand-back or a background task starts carries on the
+		# developer's last one, whose reply often waits for it, so it keeps
+		# that turn's starting records: an update made before it still counts
+		# for a "Noted:" line after it.
+		base=$sum
+		if [ -f "$turn" ] && grep -qx end "$turn" && printf '%s' "$input" |
+			grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"(<task-notification>|(Another Claude session sent a message:(\\n|[[:space:]])*)?<agent-message)'; then
+			b=$(sed -n 's/^sum //p' "$turn" 2>/dev/null | head -n 1)
+			[ -n "$b" ] && base=$b
+		fi
 		tree=$(tree_sum)
-		printf 'sum %s\n%s' "$sum" "${tree:+tree $tree
+		printf 'sum %s\n%s' "$base" "${tree:+tree $tree
 }" 2>/dev/null >"$turn"
 	elif [ "$writable" = 1 ]; then
 		midturn=1

@@ -731,6 +731,14 @@ for s in $shells; do
 		{ grep -q "a subagent's hand-back" "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
 			{ fail "hook under $s gives a subagent's hand-back the full reminder (prompt starting ${hb:-<agent-message})"; hook_ok=0; }
 	done
+	# A "Noted:" after a hand-back counts an update made since the developer's
+	# message, in the turn before it, and is still caught when there was none.
+	hbe=$(printf '%s' "$event" | sed "s/\"prompt\":\"hi\"/\"prompt\":\"<agent-message from=\\\\\"a1\\\\\">\\\\n[Subagent hand-back] done\"/")
+	run "$s" prompt "$event" && printf '%s\n' '- 2026-11-14: changed before the hand-back' >>"$rec" && run "$s" stop "$done_event" &&
+		run "$s" prompt "$hbe" && run "$s" stop "$(said 'Noted: x')" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s says a record updated before a hand-back wasn't updated: $(head -c 200 "$tmp/out")"; hook_ok=0; }
+	run "$s" prompt "$event" && run "$s" stop "$done_event" && run "$s" prompt "$hbe" && run "$s" stop "$(said 'Noted: x')" || hook_ok=0
+	grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s misses a claimed update after a hand-back when the record never changed"; hook_ok=0; }
 	# The current record is the one edited last, not the highest-numbered.
 	two=${rec%.md}.2.md
 	printf '%s\n' '# Intent record: side task' >"$two" && touch -t 202601010000 "$two" && printf '%s\n' '- edited' >>"$rec"
