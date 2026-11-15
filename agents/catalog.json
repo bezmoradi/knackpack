@@ -1,0 +1,266 @@
+{
+  "format": "knackpack-catalog/1",
+  "agents": [
+    {
+      "name": "adjudicator",
+      "kind": "adjudicator",
+      "summary": "Checks one claim about a change, such as another reviewer's serious finding, and says whether the evidence holds it up and, when asked, whether a fix removes the failure.",
+      "appliesTo": {
+        "always": false,
+        "paths": [],
+        "alsoWhen": "Started to check one claim, such as a reviewer's Critical, High or blocking finding, never chosen by the files a target changes."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": [],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "adversarial-reviewer",
+      "kind": "reviewer",
+      "summary": "Tries to break any kind of change and proves each defect it reports, from code to configuration, migrations and CI pipelines.",
+      "appliesTo": { "always": true, "paths": [] },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "architecture-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews proposed and implemented architecture against the requirements: boundaries, coupling, consistency, failure handling and operating cost.",
+      "appliesTo": { "always": true, "paths": [] },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "css-code-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews stylesheets against the project's browser targets: layout and stacking, the cascade, accessibility, responsive and right-to-left behavior, and support.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["\\.css$", "\\.s[ac]ss$", "\\.less$"],
+        "alsoWhen": "Also when the target has style blocks in markup or components, or CSS-in-JS."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": true, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "database-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews how a change stores and reads data, migrations included: invariants, queries, transactions, phased rollouts, backfills and recovery.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["(^|/)(migrations|migrate|alembic)/", "\\.sql$", "(^|/)schema\\.prisma$", "(^|/)schema\\.rb$"],
+        "alsoWhen": "Also when the target has code that uses a database or Redis client."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "disposable-only" }
+    },
+    {
+      "name": "design-pattern-reviewer",
+      "kind": "reviewer",
+      "summary": "Judges whether one design approach, such as an interface, wrapper or named pattern, fits the problem, the language and its callers.",
+      "appliesTo": {
+        "always": true,
+        "paths": [],
+        "except": "the target has only docs, stylesheets, configuration or lockfiles"
+      },
+      "modes": ["identify", "validate", "select", "simplify"],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": false, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "docker-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews image builds and Docker Compose: build context, stages, base images, secrets, entrypoints, signals, healthchecks and the effective Compose setup.",
+      "appliesTo": {
+        "always": false,
+        "paths": [
+          "(^|/)Dockerfile$",
+          "(^|/)Containerfile$",
+          "\\.Dockerfile$",
+          "(^|/)docker-bake\\.hcl$",
+          "(^|/)compose[^/]*\\.ya?ml$",
+          "(^|/)docker-compose[^/]*\\.ya?ml$"
+        ]
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "go-code-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews Go backend changes for security, tenant isolation, errors, concurrency, performance, resilience and observability.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["(^|/)go\\.mod$", "\\.go$"]
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": false, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "kubernetes-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews Kubernetes manifests, Kustomize overlays and Helm charts by what they render: rollouts, probes, resources, RBAC, exposure, storage and upgrades.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["(^|/)Chart\\.yaml$", "(^|/)kustomization\\.yaml$"],
+        "alsoWhen": "Also when the target has YAML with top-level apiVersion: and kind: keys."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "opentelemetry-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews OpenTelemetry instrumentation and Collector pipelines, or diagnoses misbehaving telemetry, for usefulness, cost and exposure.",
+      "appliesTo": {
+        "always": false,
+        "paths": [],
+        "alsoWhen": "When the target has an opentelemetry dependency, OTEL_ variables, or a Collector configuration with top-level receivers: and exporters: keys."
+      },
+      "modes": ["review", "diagnose"],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "python-code-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews Python services, workers, libraries and CLIs against the project's own Python versions: semantics, async, typing, packaging and frameworks.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["(^|/)pyproject\\.toml$", "(^|/)setup\\.py$", "(^|/)requirements[^/]*\\.txt$", "\\.py$"]
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": false, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "react-code-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews React front-end changes against the React and framework versions in use: hooks, state, effects, server boundaries, hydration and data fetching.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["\\.jsx$", "\\.tsx$"],
+        "alsoWhen": "Also when the target has a package.json that depends on react."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "security-reviewer",
+      "kind": "reviewer",
+      "summary": "Security gate built on OWASP ASVS 5.0.0 that plans requirements, reviews changes, verifies fixes and assesses whole systems.",
+      "appliesTo": { "always": true, "paths": [] },
+      "modes": ["plan", "review", "verify-fix", "assess"],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "slop-reviewer",
+      "kind": "reviewer",
+      "summary": "Finds maintenance cost a change adds without a reason, such as pass-through layers, unused options or duplicated code, and names the smaller change.",
+      "appliesTo": {
+        "always": true,
+        "paths": [],
+        "except": "the target has only docs, stylesheets, configuration or lockfiles"
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": false, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "terraform-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews Terraform and OpenTofu changes by what they do to real infrastructure and state: versions, backends, resource identity, replacements and secrets.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["\\.tf$", "\\.tofu$", "\\.tfvars$", "\\.tftest\\.hcl$", "(^|/)terragrunt\\.hcl$"]
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "typescript-code-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews TypeScript and type-checked JavaScript for types that make real guarantees, and for tsconfig, modules and declarations that match the runtime.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["\\.ts$", "\\.tsx$", "\\.mts$", "\\.cts$", "(^|/)tsconfig[^/]*\\.json$"],
+        "alsoWhen": "Also when the target has JavaScript under checkJs or // @ts-check or in a package that ships .d.ts files, or a package.json whose types or exports change."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
+      "name": "ui-code-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews front-end changes for visual quality, user experience, accessibility and responsive behavior, in an already-running preview when it can.",
+      "appliesTo": {
+        "always": false,
+        "paths": ["\\.html?$", "\\.css$", "\\.jsx$", "\\.tsx$", "\\.vue$", "\\.svelte$", "\\.tmpl$", "\\.jinja$", "\\.erb$"],
+        "alsoWhen": "Also when the target has front-end components or HTML or CSS templates in other file types."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": false, "browser": true, "runsCode": "never" }
+    },
+    {
+      "name": "web-components-code-reviewer",
+      "kind": "reviewer",
+      "summary": "Reviews custom elements and the libraries built on them: registration, lifecycle, public contract, shadow DOM, accessibility, forms and framework use.",
+      "appliesTo": {
+        "always": false,
+        "paths": [],
+        "alsoWhen": "When the target defines or uses custom elements: customElements.define, Lit, FAST, Stencil, or a hyphenated tag in markup, JSX or selectors."
+      },
+      "modes": [],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": true,
+      "needs": { "network": true, "browser": true, "runsCode": "trusted-only" }
+    }
+  ]
+}
