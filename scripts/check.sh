@@ -1201,6 +1201,14 @@ grep -q 'such as a phase or section of one, with or without work packages, start
 grep -q 'goes to execute-plan instead, with or without work packages' skills/challenge-requirements/SKILL.md && grep -q '^description:.*building from a plan Execute plan' skills/challenge-requirements/SKILL.md && grep -q '^description: .*Start it, not challenge-requirements, .*section of a plan, PRD or roadmap, with or without packages' skills/execute-plan/SKILL.md && grep -q '^challenge-requirements for this: it would build the work in this session' skills/execute-plan/SKILL.md ||
 	{ fail "skills/challenge-requirements/SKILL.md doesn't hand building from a plan to execute-plan"; challenge_ok=0; }
 [ "$challenge_ok" = 1 ] && pass "challenge hook under$shells ($size bytes with the committed-documents rules)"
+# A message typed during the checkpoint's reply reaches Claude before a
+# queued /compact, so the reply tells the user to wait for the compaction.
+if grep -q 'then wait for the compaction to finish and just send their next message' skills/checkpoint/SKILL.md &&
+	grep -q 'reaches you in this turn, before `/compact` runs' skills/checkpoint/SKILL.md; then
+	pass "checkpoint reply says to wait for the compaction before the next message"
+else
+	fail "skills/checkpoint/SKILL.md doesn't tell the user to wait for the compaction before sending the next message"
+fi
 
 # KNACKPACK_DOCS=repo: the challenge hook prints the rules for committing the
 # brief and the plan, headless too and with the challenge rules off, naming
