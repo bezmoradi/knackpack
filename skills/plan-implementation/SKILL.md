@@ -14,12 +14,12 @@ requirements or making unsafe architectural decisions.
 
 Optimize for correctness, manageable change size, and decisive verification.
 
-Do not optimize for step count, apparent sophistication, or agreement with
+Don't optimize for step count, apparent sophistication, or agreement with
 the user's proposed approach.
 
-Challenge an approach when evidence shows that it cannot satisfy the requirements
-or creates unnecessary risk. Explain the consequence and recommend a practical
-alternative.
+Challenge an approach when evidence shows it can't satisfy the requirements
+or creates unnecessary risk: explain the consequence and recommend a
+practical alternative.
 
 A plan is justified decisions and executable work packages, not aspirations
 such as "implement," "test," and "deploy."
@@ -28,14 +28,14 @@ such as "implement," "test," and "deploy."
 
 Never write into the repository unless the user asks, since a plan file there would show up in their work and could end up in their commits. To save the plan, use the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 
-Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if a `PLAN.md` for another task is already there, listing at its top the absolute paths of the brief, intent record and research it builds on. Give the user its absolute path; to have it reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to review the plan at <absolute path>`, and to implement it: `/knackpack:execute-plan <absolute path>`. With `KNACKPACK_DOCS=repo` set, also commit the plan as knackpack's session-start rules say, and give the committed copy's path in those lines.
+Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if one for another task is there, listing at its top the absolute paths of the brief, intent record and research it builds on. Give the user its absolute path, and say the folder belongs to this session and the operating system may clean it up, so they should copy the plan somewhere durable: Execute plan may read it in a later session. To have it reviewed, they can ask: `Use the knackpack:architecture-reviewer agent to review the plan at <absolute path>`, and to implement it: `/knackpack:execute-plan <absolute path>`. With `KNACKPACK_DOCS=repo` set, also commit the plan as knackpack's session-start rules say, and give the committed copy's path in those lines.
 
 ## 1. Establish the planning contract
 
 The change to plan is the text passed with this skill. If it names a file,
-such as a `REQUIREMENTS.md` brief, read the file first. If nothing was passed,
-use the most recent agreed request in the conversation and say which one you
-took. To revise an existing plan, read it first, keep its package IDs, and say
+such as a `REQUIREMENTS.md` brief, read it first. If nothing was passed, use
+the most recent agreed request in the conversation and say which you took.
+To revise an existing plan, read it first, keep its package IDs, and say
 what changed and why.
 
 Identify:
@@ -50,17 +50,17 @@ Identify:
 
 Respect the requested mode. When the request doesn't say, plan only, and say
 so. In planning-only mode, investigate read-only and produce the plan.
-Do not modify implementation code or external systems.
+Don't modify implementation code or external systems.
 
 A request for a plan never authorizes building it. If execution is also
-authorized, finish the necessary planning and save the plan, then start
-knackpack's `execute-plan` skill with the plan's absolute path, without
-inventing an additional approval requirement. It orchestrates: subagents
-make every implementation change, however small, and it checks their diffs
-before accepting them, so don't implement packages yourself.
+authorized, finish planning and save the plan, then start knackpack's
+`execute-plan` skill with the plan's absolute path, without inventing another
+approval step. It orchestrates: subagents make every implementation change,
+however small, and it checks their diffs before accepting them, so don't
+implement packages yourself.
 
-Existing organizational or repository approvals still apply.
-Name the concrete requirement if it prevents dependent work.
+Existing organizational or repository approvals still apply; name the
+concrete one if it blocks dependent work.
 
 ## 2. Check whether the requirements are ready
 
@@ -82,7 +82,7 @@ Identify unresolved decisions that materially affect:
 - Architecture or substantial implementation effort.
 - Acceptance criteria.
 
-Do not silently resolve these as implementation details.
+Don't silently resolve these as implementation details.
 
 If requirements are incomplete:
 
@@ -93,8 +93,8 @@ If requirements are incomplete:
 
 Use explicit, reversible assumptions for ordinary local choices.
 
-Do not require a formal requirements document when a small request already
-contains enough information to proceed.
+Don't require a formal requirements document when a small request already
+has enough to proceed.
 
 ## 3. Investigate the repository before designing the solution
 
@@ -106,7 +106,7 @@ commands, configuration and dependency versions, build, CI, deployment and
 migration mechanisms, and observability conventions.
 
 Use targeted searches and follow the affected execution paths.
-Do not read the entire repository without a reason.
+Don't read the entire repository without a reason.
 
 Record the baseline revision and relevant local modifications
 (`git rev-parse HEAD`, `git status --porcelain`).
@@ -120,7 +120,7 @@ Distinguish:
 - Proposed changes.
 - Unresolved assumptions.
 
-Do not invent files, functions, commands, services, or framework capabilities.
+Don't invent files, functions, commands, services, or framework capabilities.
 
 Mark new files as new; if a location is uncertain, name the boundary to
 inspect.
@@ -149,7 +149,7 @@ For a bug fix, separate the observed symptom from the established root cause.
 If the cause is unverified, plan a diagnostic step before committing to a remedy.
 
 For a refactor, specify the behavior that must remain unchanged and how it
-will be checked. Do not quietly combine it with a behavioral redesign.
+will be checked. Don't quietly combine it with a behavioral redesign.
 
 For an integration, verify actual protocol and dependency behavior against
 the relevant versions and primary documentation.
@@ -159,7 +159,7 @@ the relevant versions and primary documentation.
 Prefer an approach that satisfies the requirements using established
 repository patterns and supported mechanisms.
 
-Do not introduce a new service, framework, queue, cache, abstraction, or
+Don't introduce a new service, framework, queue, cache, abstraction, or
 dependency without a concrete need.
 
 Consider alternatives when the choice materially affects correctness,
@@ -168,9 +168,9 @@ reversibility. For consequential choices, record the decision, its evidence
 and constraints, the main alternative, why the selected approach fits better,
 and its material downside.
 
-Do not create an alternatives matrix for routine local decisions.
+Don't create an alternatives matrix for routine local decisions.
 
-Do not preserve an existing pattern when evidence shows it is unsafe or
+Don't preserve an existing pattern when evidence shows it's unsafe or
 incompatible with the requirements.
 
 ## 6. Resolve uncertainty before expensive commitment
@@ -186,16 +186,16 @@ question, the minimal experiment or inspection, its inputs and environment,
 the success and failure observations, an effort limit, and the decision each
 outcome leads to.
 
-Schedule this before dependent implementation. When you run such an
-experiment yourself, run it outside the working tree, in a scratch directory,
-and delete it afterward.
+Schedule this before dependent implementation. Run any such experiment of
+your own outside the working tree, in a scratch directory, and delete it
+afterward.
 
-Do not disguise speculative implementation as a feasibility experiment.
-Do not request privileged access when a local or synthetic experiment can
+Don't disguise speculative implementation as a feasibility experiment.
+Don't request privileged access when a local or synthetic experiment can
 answer the question.
 
-If the uncertainty cannot be resolved, make the plan conditional and explain
-the alternatives. Do not manufacture certainty.
+If the uncertainty can't be resolved, make the plan conditional and explain
+the alternatives. Don't manufacture certainty.
 
 ## 7. Create small, coherent work packages
 
@@ -219,7 +219,7 @@ Each package should have:
 Prefer packages that can be reviewed and verified independently.
 
 Organize around coherent behavior rather than arbitrary file counts.
-Do not split tightly coupled changes into independently deployable steps
+Don't split tightly coupled changes into independently deployable steps
 when intermediate states would be broken or unsafe.
 
 Implementation order, review or PR boundaries, and deployment order may
@@ -247,9 +247,9 @@ Identify the critical path and genuine parallel opportunities.
 Parallel tasks need stable shared contracts, clear ownership, few
 overlapping edits, and a defined integration point with its validation.
 
-Do not assume tasks are independent merely because they modify different files.
+Don't assume tasks are independent just because they change different files.
 
-Do not assume more agents will make the work faster.
+Don't assume more agents will make the work faster.
 Group packages for implementation subagents by coherent boundaries, never
 one per file: say which packages one implementer should own together, which
 can run in parallel, which share a file and must run one after another, and
@@ -257,7 +257,7 @@ where their results are integrated and verified.
 
 ## 9. Integrate security into the work
 
-For security-sensitive changes, consume the security gate's requirements
+For security-sensitive changes, use the security gate's requirements
 and findings when available, such as the plan-mode output of knackpack's
 `security-reviewer` agent.
 
@@ -273,9 +273,9 @@ Include appropriate negative cases, such as:
 - Security dependency failures.
 - Attempts through alternate entry points.
 
-Do not place all security work in a final generic review task.
+Don't place all security work in a final generic review task.
 
-Do not invent an ASVS mapping or claim security verification was performed
+Don't invent an ASVS mapping or claim security verification was performed
 when it was only planned.
 
 Identify where independent security review is required by project policy.
@@ -301,20 +301,20 @@ For each important requirement, identify:
 
 Choose the cheapest checks that decide each requirement: static inspection,
 unit, integration, contract or end-to-end tests, migration rehearsals,
-failure injection, performance measurements, or security checks. Do not
+failure injection, performance measurements, or security checks. Don't
 require every test type for every change. Where the project's rules forbid
 test code, plan runs of the real program instead.
 
-Specify actual verified commands when available.
+Specify verified commands when available.
 Label commands that still require discovery or configuration.
 
 For a defect correction, plan a check that shows the defect before the
 correction when feasible.
 
-For critical side effects, verify both the expected response and the resulting
-state. A successful response alone may not establish correctness.
+For critical side effects, verify both the expected response and the
+resulting state; a successful response alone may not establish correctness.
 
-Avoid tests whose expected values merely reproduce implementation logic.
+Avoid tests whose expected values only reproduce implementation logic.
 
 Differentiate:
 - Checks already executed.
@@ -325,7 +325,7 @@ Never report planned checks as passed.
 
 ## 11. Plan data and compatibility transitions
 
-When relevant, explicitly address:
+When relevant, address:
 
 - Existing records.
 - Schema and API compatibility.
@@ -339,14 +339,14 @@ When relevant, explicitly address:
 When old and new versions must coexist, use expand and contract: add
 compatible capabilities, deploy code that works with both, migrate or
 backfill, verify, and remove the old path once compatibility obligations
-expire. Do not prescribe this pattern when it is unnecessary.
+expire. Don't prescribe this pattern when it's unnecessary.
 
 Separate irreversible cleanup from reversible rollout when possible.
 
 For backfills, consider bounded batches, checkpoints, retries, concurrent
 writes, resource use, and verification of completeness.
 
-Do not call a schema downgrade a data recovery plan.
+Don't call a schema downgrade a data recovery plan.
 
 ## 12. Define rollout and recovery
 
@@ -362,7 +362,7 @@ For changes that need deployment planning, identify:
 - Data repair or reconciliation needs.
 
 Use existing operational targets where available.
-Do not invent acceptable error rates, latency thresholds, or observation
+Don't invent acceptable error rates, latency thresholds, or observation
 periods and present them as approved policy.
 
 Label proposed thresholds and unresolved decisions clearly.
@@ -377,10 +377,10 @@ Distinguish:
 A code rollback may not undo a payment, message, resource creation, or
 destructive migration.
 
-If safe rollback is unavailable, state that explicitly and plan the
-appropriate prevention, staged exposure, and recovery measures.
+If safe rollback is unavailable, say so explicitly and plan prevention,
+staged exposure, and recovery measures.
 
-Do not include production deployment as an executable task when the user's
+Don't include production deployment as an executable task when the user's
 authorization only covers implementation.
 
 ## 13. Define stop conditions and replanning triggers
@@ -394,7 +394,7 @@ Require reassessment when:
   snapshot or suppression).
 - A migration risks data loss or incompatible mixed-version operation.
 - Implementation expands beyond the agreed scope.
-- Validation cannot exercise the relevant behavior.
+- Validation can't exercise the relevant behavior.
 - Repository changes invalidate the plan's baseline or contracts.
 
 A failed test normally calls for diagnosis and correction, not immediate
@@ -405,7 +405,7 @@ requirement, taking an unauthorized action, or accepting material risk.
 
 Continue independent safe work where useful.
 
-Do not instruct an implementation agent to force the plan through contrary
+Don't instruct an implementation agent to force the plan through contrary
 evidence.
 
 ## 14. Make the plan traceable
@@ -419,7 +419,7 @@ implementation and verification, every substantial package to a requirement
 or a necessary engineering reason, and every dependency to an owner or a way
 to resolve it.
 
-Do not pad the mapping with trivial edits.
+Don't pad the mapping with trivial edits.
 
 Give effort estimates, if useful, as ranges with their uncertainty, never as
 precise times or commitments.
@@ -462,7 +462,7 @@ Consequential uncertainties and the exact action needed to resolve them.
 The earliest ready package and its completion criterion.
 
 For a small change, compress this into a short ordered list.
-Do not create empty sections or unnecessary planning ceremony.
+Don't create empty sections or unnecessary planning ceremony.
 
 ## Completion rule
 
@@ -473,5 +473,5 @@ explicit dependencies, security, compatibility, rollout and recovery are
 covered where needed, and another coding agent can identify its first action
 and know when it is done.
 
-Planning readiness is not implementation completion, security approval,
+Planning readiness isn't implementation completion, security approval,
 or permission to release.
