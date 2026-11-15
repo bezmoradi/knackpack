@@ -731,6 +731,14 @@ for s in $shells; do
 		{ grep -q "a subagent's hand-back" "$tmp/out" && ! grep -q 'before acting' "$tmp/out"; } ||
 			{ fail "hook under $s gives a subagent's hand-back the full reminder (prompt starting ${hb:-<agent-message})"; hook_ok=0; }
 	done
+	# A "Noted:" after a hand-back counts an update made since the developer's
+	# message, in the turn before it, and is still caught when there was none.
+	hbe=$(printf '%s' "$event" | sed "s/\"prompt\":\"hi\"/\"prompt\":\"<agent-message from=\\\\\"a1\\\\\">\\\\n[Subagent hand-back] done\"/")
+	run "$s" prompt "$event" && printf '%s\n' '- 2026-11-14: changed before the hand-back' >>"$rec" && run "$s" stop "$done_event" &&
+		run "$s" prompt "$hbe" && run "$s" stop "$(said 'Noted: x')" || hook_ok=0
+	[ -s "$tmp/out" ] && { fail "hook under $s says a record updated before a hand-back wasn't updated: $(head -c 200 "$tmp/out")"; hook_ok=0; }
+	run "$s" prompt "$event" && run "$s" stop "$done_event" && run "$s" prompt "$hbe" && run "$s" stop "$(said 'Noted: x')" || hook_ok=0
+	grep -q "record wasn't updated" "$tmp/out" || { fail "hook under $s misses a claimed update after a hand-back when the record never changed"; hook_ok=0; }
 	# The current record is the one edited last, not the highest-numbered.
 	two=${rec%.md}.2.md
 	printf '%s\n' '# Intent record: side task' >"$two" && touch -t 202601010000 "$two" && printf '%s\n' '- edited' >>"$rec"
@@ -840,7 +848,7 @@ for s in $shells; do
 			'- PROP-14: "Ship it as it is." Accepted as REQ-44' >"$d$sid.md"
 	done
 	run "$s" prompt "$event" || hook_ok=0
-	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08, PROP-13\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
+	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08, PROP-13\. Proposals with no status the hook can read: PROP-10\. Fix each in this turn, keeping its meaning: end it with ", by <who>\. <status>", the status first and any note after it, where the status is open, rejected, accepted as REQ-<n> or replaced by PROP-<n> or REQ-<n>; a part still undecided becomes a new PROP entry, open\.$' "$tmp/out" ||
 		{ fail "hook prompt under $s lists the wrong open proposals: $(grep -o 'Open proposals:.*' "$tmp/out")"; hook_ok=0; }
 	# Assumptions, each up to its "Why:": the newest by number in full, within
 	# about 1,000 characters, in order of number, and the oldest by ID.
@@ -1193,6 +1201,14 @@ grep -q 'such as a phase or section of one, with or without work packages, start
 grep -q 'goes to execute-plan instead, with or without work packages' skills/challenge-requirements/SKILL.md && grep -q '^description:.*building from a plan Execute plan' skills/challenge-requirements/SKILL.md && grep -q '^description: .*Start it, not challenge-requirements, .*section of a plan, PRD or roadmap, with or without packages' skills/execute-plan/SKILL.md && grep -q '^challenge-requirements for this: it would build the work in this session' skills/execute-plan/SKILL.md ||
 	{ fail "skills/challenge-requirements/SKILL.md doesn't hand building from a plan to execute-plan"; challenge_ok=0; }
 [ "$challenge_ok" = 1 ] && pass "challenge hook under$shells ($size bytes with the committed-documents rules)"
+# A message typed during the checkpoint's reply reaches Claude before a
+# queued /compact, so the reply tells the user to wait for the compaction.
+if grep -q 'then wait for the compaction to finish and just send their next message' skills/checkpoint/SKILL.md &&
+	grep -q 'reaches you in this turn, before `/compact` runs' skills/checkpoint/SKILL.md; then
+	pass "checkpoint reply says to wait for the compaction before the next message"
+else
+	fail "skills/checkpoint/SKILL.md doesn't tell the user to wait for the compaction before sending the next message"
+fi
 
 # KNACKPACK_DOCS=repo: the challenge hook prints the rules for committing the
 # brief and the plan, headless too and with the challenge rules off, naming
