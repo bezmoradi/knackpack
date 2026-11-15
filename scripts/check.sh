@@ -840,7 +840,7 @@ for s in $shells; do
 			'- PROP-14: "Ship it as it is." Accepted as REQ-44' >"$d$sid.md"
 	done
 	run "$s" prompt "$event" || hook_ok=0
-	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08, PROP-13\. Proposals with no status the hook can read: PROP-10\.$' "$tmp/out" ||
+	grep -q 'Open proposals: PROP-01, PROP-02, PROP-05, PROP-07, PROP-08, PROP-13\. Proposals with no status the hook can read: PROP-10\. Fix each in this turn, keeping its meaning: end it with ", by <who>\. <status>", the status first and any note after it, where the status is open, rejected, accepted as REQ-<n> or replaced by PROP-<n> or REQ-<n>; a part still undecided becomes a new PROP entry, open\.$' "$tmp/out" ||
 		{ fail "hook prompt under $s lists the wrong open proposals: $(grep -o 'Open proposals:.*' "$tmp/out")"; hook_ok=0; }
 	# Assumptions, each up to its "Why:": the newest by number in full, within
 	# about 1,000 characters, in order of number, and the oldest by ID.

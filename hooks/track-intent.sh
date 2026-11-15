@@ -488,7 +488,9 @@ open_items() {
 		if (q != "") printf "Open questions: %s.", q
 		if (q != "" && p != "") printf " "
 		if (p != "") printf "Open proposals: %s.", p
-		if (u != "") printf "%sProposals with no status the hook can read: %s.", (q != "" || p != "" ? " " : ""), u
+		# Named alone, the entries stayed as they were for hundreds of
+		# messages, so the notice says how to fix them.
+		if (u != "") printf "%sProposals with no status the hook can read: %s. Fix each in this turn, keeping its meaning: end it with \", by <who>. <status>\", the status first and any note after it, where the status is open, rejected, accepted as REQ-<n> or replaced by PROP-<n> or REQ-<n>; a part still undecided becomes a new PROP entry, open.", (q != "" || p != "" ? " " : ""), u
 	}' "$1" 2>/dev/null
 }
 
