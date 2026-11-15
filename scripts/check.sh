@@ -156,6 +156,15 @@ else
 	fail "scripts/review-protocol.md no longer defines the knackpack-finding/1 lines, or no longer says the findings and verdict lines outrank them; programs read them, so restore them, or name the format change as breaking in the release notes and update this check"
 fi
 
+# zsh refuses a command whose unquoted *, ? or [ matches no file, and
+# reviewers didn't read grep's --include=*.go or an ID ending in ? as a glob,
+# so the shell paragraph names the characters and those cases.
+if grep -qF "quote every word holding \`*\`, \`?\` or \`[\` that the shell mustn't expand, such as \`grep -r --include='*.go'\`" scripts/review-protocol.md; then
+	pass "the review protocol names the glob characters to quote, with grep's --include as an example"
+else
+	fail "scripts/review-protocol.md no longer tells reviewers to quote words holding *, ? or [, such as grep's --include='*.go'; zsh fails on them unquoted when no file matches"
+fi
+
 # The findings line is public interface, so run the review protocol's own count
 # command on reports it must count, and on reports it must refuse rather than
 # print a wrong line for: an Earlier column first, a copy of the heading in a
