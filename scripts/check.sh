@@ -146,21 +146,44 @@ if grep -qF 'printf "knackpack-findings/1: critical=%d high=%d medium=%d low=%d 
 else
 	fail "scripts/review-protocol.md no longer defines the knackpack-findings/1: line or the knackpack-verdict/1: line; programs that read verdicts depend on both, so restore them, or name the format change as breaking in the release notes and update this check"
 fi
+# The finding lines before them are public interface too, printed by the same
+# count command, and the protocol must say that the two lines above win.
+if grep -qF 'f[++nf] = "knackpack-finding/1 " o "}"' scripts/review-protocol.md &&
+	grep -qF 'every finding line the command printed, in order' scripts/review-protocol.md &&
+	grep -qF 'the findings line and the last line are authoritative' scripts/review-protocol.md; then
+	pass "the review protocol defines the reply's knackpack-finding/1 lines, which the findings and verdict lines outrank"
+else
+	fail "scripts/review-protocol.md no longer defines the knackpack-finding/1 lines, or no longer says the findings and verdict lines outrank them; programs read them, so restore them, or name the format change as breaking in the release notes and update this check"
+fi
 
 # The findings line is public interface, so run the review protocol's own count
 # command on reports it must count, and on reports it must refuse rather than
 # print a wrong line for: an Earlier column first, a copy of the heading in a
 # code block, findings as a list, and a table of fixed findings below
-# `No findings.`
+# `No findings.` count_case compares the findings line, the output's last
+# line; a refusal must print neither it nor a finding line. finding_case
+# compares the whole output, finding lines included.
 prog=$(awk '/^awk -F.[|]. .$/ { p = 1; next } p && /^}. <report-dir>/ { print "}"; exit } p' scripts/review-protocol.md)
 count_ok=1
-count_case() {
-	printf '%s\n' "$3" >"$tmp/count.md"
+count_run() {
+	printf '%s\n' "$1" >"$tmp/count.md"
 	got=$(awk -F'|' "$prog" "$tmp/count.md" 2>&1)
+}
+count_case() {
+	count_run "$3"
 	case $1 in
-	refuse) case $got in knackpack-findings/1:*) fail "the review protocol's count command counted $2 instead of refusing it: $got"; count_ok=0 ;; esac ;;
-	*) [ "$got" = "knackpack-findings/1: $1" ] || { fail "the review protocol's count command printed '$got' for $2"; count_ok=0; } ;;
+	refuse) case $got in *knackpack-finding*) fail "the review protocol's count command counted $2 instead of refusing it: $got"; count_ok=0 ;; esac ;;
+	*) [ "$(printf '%s\n' "$got" | tail -n 1)" = "knackpack-findings/1: $1" ] || { fail "the review protocol's count command printed '$got' for $2"; count_ok=0; } ;;
 	esac
+}
+finding_case() {
+	count_run "$3"
+	[ "$got" = "$1" ] || { fail "the review protocol's count command printed '$got' for $2, not '$1'"; count_ok=0; }
+	json=$(printf '%s\n' "$got" | sed -n 's/^knackpack-finding\/1 //p')
+	if [ -n "$json" ] && command -v jq >/dev/null 2>&1 && ! printf '%s\n' "$json" | jq -s -e 'all(type == "object")' >/dev/null 2>&1; then
+		fail "a knackpack-finding/1 line the count command printed for $2 isn't a JSON object"
+		count_ok=0
+	fi
 }
 row='| ID | Severity | Blocks | Evidence | Location | Finding |
 |---|---|---|---|---|---|'
@@ -195,10 +218,52 @@ No findings.
 
 '"$row"'
 | F2 | High | yes | Confirmed | a.go:1 | fixed |'
+# The finding lines: a | escaped in a title, a line range, a Location that
+# names no file, one outside the repository, a cell listing two places, an
+# Earlier column, no findings, and a table past the 200-line cap.
+finding_case 'knackpack-finding/1 {"id":"F1","severity":"high","blocking":true,"path":"internal/auth/token.go","line":42,"endLine":48,"title":"Refresh token accepted after revocation | reuse","evidence":"confirmed"}
+knackpack-finding/1 {"id":"F2","severity":"low","blocking":false,"title":"`opts` named \"o\" in C:\\x","evidence":"unproven"}
+knackpack-findings/1: critical=0 high=1 medium=0 low=1 blocking=1' 'two findings, an escaped | and a Location of n/a' '## Findings table
+
+'"$row"'
+| F1 | **High** | yes | Confirmed | `internal/auth/token.go:42-48` | Refresh token accepted after revocation \| reuse |
+| F2 | Low | no | Unproven | n/a | `opts` named "o" in C:\x |
+
+## Cost'
+finding_case 'knackpack-finding/1 {"id":"F1","severity":"medium","blocking":false,"title":"Reads outside the repository","evidence":"conditional"}
+knackpack-finding/1 {"id":"F2","severity":"low","blocking":false,"path":"a/b.go","line":7,"title":"Two places"}
+knackpack-findings/1: critical=0 high=0 medium=1 low=1 blocking=0' 'an Earlier column, a path with .. and a Location naming two places' '## Findings table
+
+| Earlier | ID | Severity | Blocks | Evidence | Location | Finding |
+|---|---|---|---|---|---|---|
+| F3 | F1 | Medium | no | Conditional | ../lib/x.go:3 | Reads outside the repository |
+| new | F2 | Low | no | Fixed? | a/b.go:7, c.go:9 | Two places |'
+finding_case 'knackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0' 'No findings.' '## Findings table
+
+No findings.
+
+## Cost'
+rows=$(awk 'BEGIN { for (i = 1; i <= 201; i++) printf "| F%d | Low | no | Confirmed | a.go:%d | t%d |\n", i, i, i }')
+want=$(awk 'BEGIN { for (i = 1; i <= 200; i++) printf "knackpack-finding/1 {\"id\":\"F%d\",\"severity\":\"low\",\"blocking\":false,\"path\":\"a.go\",\"line\":%d,\"title\":\"t%d\",\"evidence\":\"confirmed\"}\n", i, i, i; print "knackpack-findings/1: critical=0 high=0 medium=0 low=201 blocking=0" }')
+finding_case "$want" '201 findings' '## Findings table
+
+'"$row"'
+'"$rows"
+# A title past 199 characters is cut without splitting a UTF-8 character,
+# whether this awk counts bytes or characters.
+long=$(awk 'BEGIN { for (i = 0; i < 150; i++) printf "\303\251" }')
+count_run '## Findings table
+
+'"$row"'
+| F1 | Low | no | Confirmed | a.go:1 | ab'"$long"' |'
+if command -v jq >/dev/null 2>&1 && ! printf '%s\n' "$got" | sed -n 's/^knackpack-finding\/1 //p' | jq -e '.title | length >= 99 and length <= 199 and (test("�") | not)' >/dev/null 2>&1; then
+	fail "the review protocol's count command didn't cut a long title to at most 199 whole characters: $got"
+	count_ok=0
+fi
 if [ -z "$prog" ]; then
 	fail "scripts/check.sh can't find the count command in scripts/review-protocol.md; update the extraction to match its first and last lines"
 elif [ "$count_ok" = 1 ]; then
-	pass "the review protocol's count command counts or refuses each sample report"
+	pass "the review protocol's count command counts or refuses each sample report, and prints each sample's finding lines"
 fi
 
 # Agents cite the review protocol's steps by number, as in "the copy from step
@@ -265,6 +330,301 @@ else
 	[ -z "$bad" ] || { fail "hooks/hooks.json has keys Claude Code doesn't know: $bad"; keys_ok=0; }
 fi
 [ "$keys_ok" = 1 ] && pass "frontmatter and hooks.json keys"
+
+# The reviewer catalog, agents/catalog.json, which programs that run the
+# reviewers read (knackpack-catalog/1 in the README): one entry per agent
+# file, named as its frontmatter is, in the format's fields and types and
+# nothing else, so no tool list or permission gets into it. Its network and
+# browser needs follow each agent's tools. Its path patterns must compile
+# under Go's regexp, which is RE2, the dialect its readers are promised, and
+# select for sample paths exactly the reviewers Orchestrate review's "Choose
+# the reviewers" names for them.
+catalog=agents/catalog.json
+cat_ok=1
+cat_fail() {
+	fail "$catalog: $1"
+	cat_ok=0
+}
+# Prints a line for each agent file without an entry, entry without an agent
+# file, and agent file whose frontmatter name isn't its file name, for the
+# agent files and catalog.json in <dir>.
+catalog_drift() { # <dir>
+	jq -r '.agents[]?.name | strings' "$1/catalog.json" 2>/dev/null | LC_ALL=C sort >"$tmp/cat-names"
+	: >"$tmp/cat-files"
+	for f in "$1"/*.md; do
+		[ -f "$f" ] || continue
+		b=${f##*/}
+		b=${b%.md}
+		fm=$(frontmatter "$f" | sed -n 's/^name:[[:space:]]*//p' | sed 's/[[:space:]]*$//')
+		[ "$fm" = "$b" ] || printf '%s\n' "agents/$b.md has the frontmatter name ${fm:-(none)}, not $b"
+		[ -n "$fm" ] && printf '%s\n' "$fm" >>"$tmp/cat-files"
+	done
+	LC_ALL=C sort -o "$tmp/cat-files" "$tmp/cat-files"
+	LC_ALL=C uniq -d "$tmp/cat-names" | sed 's/^/more than one entry is named /'
+	LC_ALL=C comm -23 "$tmp/cat-files" "$tmp/cat-names" | sed 's/^/no entry for the agent /'
+	LC_ALL=C comm -13 "$tmp/cat-files" "$tmp/cat-names" | LC_ALL=C sort -u | sed 's/$/ has an entry but no agent file/'
+}
+if ! command -v jq >/dev/null 2>&1; then
+	fail "jq isn't installed, so $catalog wasn't checked"
+	cat_ok=0
+elif ! jq -e 'type == "object"' "$catalog" >/dev/null 2>&1; then
+	cat_fail "missing, or not a JSON object"
+else
+	catalog_drift agents >"$tmp/cat-drift"
+	while IFS= read -r line; do cat_fail "$line"; done <"$tmp/cat-drift"
+	# The drift check must notice an agent file removed, renamed with its
+	# name, or renamed alone; each case runs on a copy in the temp folder,
+	# with the first agent file as the one removed or renamed.
+	for f in agents/*.md; do
+		a=${f#agents/}
+		a=${a%.md}
+		break
+	done
+	for c in removed renamed moved; do
+		mkdir "$tmp/drift-$c" && cp agents/*.md "$catalog" "$tmp/drift-$c/" || { cat_fail "can't copy agents/ to test the drift check"; break; }
+		d="$tmp/drift-$c"
+		case $c in
+		removed) rm "$d/$a.md" ;;
+		renamed) sed "s/^name: $a\$/name: $a-renamed/" "$d/$a.md" >"$d/$a-renamed.md" && rm "$d/$a.md" ;;
+		moved) mv "$d/$a.md" "$d/$a-renamed.md" ;;
+		esac
+		[ -n "$(catalog_drift "$tmp/drift-$c")" ] || cat_fail "the drift check didn't notice an agent file $c"
+		rm -rf "$tmp/drift-$c"
+	done
+	# Every key is one the format defines, with its type and allowed values.
+	jq -r '
+		def strs: type == "array" and all(.[]; type == "string");
+		((keys - ["format", "agents"])[] | "has the key \(.), which knackpack-catalog/1 does not define"),
+		(if .format != "knackpack-catalog/1" then "format is \(.format | tojson), not \"knackpack-catalog/1\"" else empty end),
+		(if (.agents | type) != "array" or (.agents | length) == 0 then "agents is not a list of entries" else empty end),
+		(.agents[]? | (.name? // "with no name" | tostring) as $n | def bad(m): "the entry \($n) \(m)";
+			if type != "object" then "has an entry that is not an object" else
+			((keys - ["name", "kind", "summary", "appliesTo", "modes", "verdict", "findings", "canBlock", "needs"])[] | bad("has the key \(.), which knackpack-catalog/1 does not define")),
+			((["name", "kind", "summary", "appliesTo", "modes", "verdict", "findings", "canBlock", "needs"] - keys)[] | bad("lacks \(.)")),
+			(if (.name | type) == "string" and (.name | test("^[a-z0-9]+(-[a-z0-9]+)*$")) then empty else bad("needs a name of lowercase letters, digits and single hyphens") end),
+			(if .kind == "reviewer" or .kind == "adjudicator" then empty else bad("has kind \(.kind | tojson), not reviewer or adjudicator") end),
+			(if (.kind == "adjudicator") != ($n == "adjudicator") then bad("has kind \(.kind | tojson), but only the adjudicator has kind adjudicator") else empty end),
+			(if (.summary | type) == "string" and (.summary | length) > 0 and (.summary | length) < 200 and (.summary | test("[\n\t`]") | not) and (.summary | endswith("."))
+				then empty else bad("needs a summary of one plain-text sentence, ending with a period, under 200 characters") end),
+			(if (.appliesTo | type) != "object" then bad("needs appliesTo as an object") else
+				((.appliesTo | keys - ["always", "paths", "alsoWhen", "except"])[] | bad("has appliesTo.\(.), which knackpack-catalog/1 does not define")),
+				(if (.appliesTo.always | type) == "boolean" then empty else bad("needs appliesTo.always as true or false") end),
+				(if (.appliesTo.paths | strs) then empty else bad("needs appliesTo.paths as a list of strings") end),
+				((.appliesTo.alsoWhen, .appliesTo.except) | select(. != null and (type != "string" or length == 0)) | bad("has an alsoWhen or except that is not a sentence")),
+				(if .appliesTo.always == true and (.appliesTo.paths | length) > 0 then bad("is always started, so its paths must be empty") else empty end),
+				(if .appliesTo.always == false and (.appliesTo.paths | length) == 0 and .appliesTo.alsoWhen == null then bad("is never chosen: it has no paths and no alsoWhen") else empty end),
+				(if .appliesTo.except != null and .appliesTo.always != true then bad("has an except but is not always started") else empty end)
+			end),
+			(if (.modes | strs) and all(.modes[]; test("^[a-z]+(-[a-z]+)*$")) then empty else bad("needs modes as a list of lowercase names") end),
+			(if .verdict == "knackpack-verdict/1" then empty else bad("has verdict \(.verdict | tojson), not \"knackpack-verdict/1\"") end),
+			(if .kind == "adjudicator" and .findings != [] then bad("is the adjudicator, which has no findings lines, so its findings must be []")
+				elif .kind == "reviewer" and .findings != ["knackpack-findings/1", "knackpack-finding/1"] then bad("needs findings [\"knackpack-findings/1\", \"knackpack-finding/1\"]")
+				else empty end),
+			(if (.canBlock | type) == "boolean" then empty else bad("needs canBlock as true or false") end),
+			(if (.needs | type) != "object" then bad("needs needs as an object") else
+				((.needs | keys - ["network", "browser", "runsCode"])[] | bad("has needs.\(.), which knackpack-catalog/1 does not define")),
+				(if (.needs.network | type) == "boolean" and (.needs.browser | type) == "boolean" then empty else bad("needs needs.network and needs.browser as true or false") end),
+				(if .needs.runsCode == "never" or .needs.runsCode == "trusted-only" or .needs.runsCode == "disposable-only" then empty
+					else bad("has needs.runsCode \(.needs.runsCode | tojson), not never, trusted-only or disposable-only") end)
+			end)
+			end)
+	' "$catalog" >"$tmp/cat-schema" 2>&1
+	while IFS= read -r line; do cat_fail "$line"; done <"$tmp/cat-schema"
+	# needs.network and needs.browser say what each agent's tools let it use.
+	jq -r '.agents[]? | "\(.name) \(.needs.network) \(.needs.browser)"' "$catalog" >"$tmp/cat-needs" 2>/dev/null
+	for f in agents/*.md; do
+		name=${f#agents/}
+		name=${name%.md}
+		tools=$(frontmatter "$f" | sed -n 's/^tools:[[:space:]]*//p')
+		net=false browser=false
+		tool_is 'WebFetch|WebSearch' && net=true
+		tool_is 'mcp__(playwright|plugin_playwright_playwright)__.*' && browser=true
+		line=$(grep "^$name " "$tmp/cat-needs")
+		[ -z "$line" ] || [ "$line" = "$name $net $browser" ] ||
+			cat_fail "the entry $name says network and browser are ${line#"$name "}, but its tools give $net $browser"
+	done
+fi
+[ "$cat_ok" = 1 ] && pass "$catalog: an entry for each of the $n agent files, in knackpack-catalog/1's fields; the drift check notices an agent file removed or renamed"
+
+# The path patterns, and the reviewers each sample path must select, by
+# Orchestrate review's "Choose the reviewers": every file type it names for a
+# reviewer is a sample here, with the full set of path-based reviewers that
+# file brings in, and a few paths bring in none. A file type added there needs
+# a sample here and a pattern in the catalog.
+pat_ok=1
+pat_fail() {
+	fail "$catalog paths: $1"
+	pat_ok=0
+}
+cat >"$tmp/cat-want" <<'EOF'
+go.mod	go-code-reviewer
+cmd/x/main.go	go-code-reviewer
+pyproject.toml	python-code-reviewer
+setup.py	python-code-reviewer
+requirements.txt	python-code-reviewer
+requirements-dev.txt	python-code-reviewer
+app/main.py	python-code-reviewer
+Dockerfile	docker-reviewer
+deploy/Dockerfile	docker-reviewer
+Containerfile	docker-reviewer
+build/api.Dockerfile	docker-reviewer
+docker-bake.hcl	docker-reviewer
+compose.yaml	docker-reviewer
+compose.override.yml	docker-reviewer
+docker-compose.yml	docker-reviewer
+docker-compose.prod.yml	docker-reviewer
+charts/web/Chart.yaml	kubernetes-reviewer
+k8s/overlays/prod/kustomization.yaml	kubernetes-reviewer
+src/Button.jsx	react-code-reviewer ui-code-reviewer
+app/page.tsx	react-code-reviewer typescript-code-reviewer ui-code-reviewer
+infra/main.tf	terraform-reviewer
+infra/main.tofu	terraform-reviewer
+env/prod.tfvars	terraform-reviewer
+tests/main.tftest.hcl	terraform-reviewer
+live/prod/terragrunt.hcl	terraform-reviewer
+db/migrations/0001_init.sql	database-reviewer
+db/migrations/20240101_add_users.rb	database-reviewer
+migrate/000002_orders.up.go	database-reviewer go-code-reviewer
+alembic/versions/a1b2_add_index.py	database-reviewer python-code-reviewer
+sql/report.sql	database-reviewer
+prisma/schema.prisma	database-reviewer
+db/schema.rb	database-reviewer
+public/index.html	ui-code-reviewer
+legacy/page.htm	ui-code-reviewer
+templates/page.tmpl	ui-code-reviewer
+templates/page.jinja	ui-code-reviewer
+app/views/home.html.erb	ui-code-reviewer
+src/App.vue	ui-code-reviewer
+src/App.svelte	ui-code-reviewer
+styles/site.css	css-code-reviewer ui-code-reviewer
+styles/site.scss	css-code-reviewer
+styles/site.sass	css-code-reviewer
+styles/theme.less	css-code-reviewer
+src/util.ts	typescript-code-reviewer
+types/index.d.ts	typescript-code-reviewer
+src/esm.mts	typescript-code-reviewer
+src/cjs.cts	typescript-code-reviewer
+tsconfig.json	typescript-code-reviewer
+packages/a/tsconfig.build.json	typescript-code-reviewer
+README.md
+docs/guide.md
+package.json
+go.sum
+src/index.js
+config/app.yaml
+notes/Dockerfile.md
+scripts/migrate.sh
+src/ts/index.js
+EOF
+tab=$(printf '\t')
+cut -f 1 "$tmp/cat-want" >"$tmp/cat-samples"
+if command -v jq >/dev/null 2>&1 && jq -r '.agents[] | .name as $n | .appliesTo.paths[] | "\($n)\t\(.)"' "$catalog" >"$tmp/cat-pats" 2>/dev/null; then
+	if command -v go >/dev/null 2>&1; then
+		how='Go regexp'
+		by="Go's regexp"
+		mkdir "$tmp/catgo"
+		printf 'module catalogcheck\n\ngo 1.18\n' >"$tmp/catgo/go.mod"
+		cat >"$tmp/catgo/main.go" <<'EOF'
+// Reads "<agent>\t<pattern>" lines from the first file and paths from the
+// second. Prints "bad\t<agent>\t<pattern>\t<error>" for a pattern Go's regexp
+// rejects, "unused\t<agent>\t<pattern>" for one no path matches, and
+// "path\t<path>\t<agents>" with the agents whose patterns match each path.
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+)
+
+func lines(name string) []string {
+	f, err := os.Open(name)
+	if err != nil {
+		fmt.Println("bad\t\t\t" + err.Error())
+		os.Exit(1)
+	}
+	defer f.Close()
+	var out []string
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		out = append(out, s.Text())
+	}
+	return out
+}
+
+func main() {
+	type rule struct {
+		agent, pattern string
+		re             *regexp.Regexp
+		used           bool
+	}
+	var rules []*rule
+	for _, l := range lines(os.Args[1]) {
+		agent, pattern, _ := strings.Cut(l, "\t")
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			fmt.Printf("bad\t%s\t%s\t%v\n", agent, pattern, err)
+			continue
+		}
+		rules = append(rules, &rule{agent: agent, pattern: pattern, re: re})
+	}
+	for _, p := range lines(os.Args[2]) {
+		var hit []string
+		for _, r := range rules {
+			if r.re.MatchString(p) {
+				r.used = true
+				if len(hit) == 0 || hit[len(hit)-1] != r.agent {
+					hit = append(hit, r.agent)
+				}
+			}
+		}
+		fmt.Printf("path\t%s\t%s\n", p, strings.Join(hit, " "))
+	}
+	for _, r := range rules {
+		if !r.used {
+			fmt.Printf("unused\t%s\t%s\n", r.agent, r.pattern)
+		}
+	}
+}
+EOF
+		(cd "$tmp/catgo" && env GOFLAGS= GOWORK=off GOTOOLCHAIN=local go run . "$tmp/cat-pats" "$tmp/cat-samples") >"$tmp/cat-got" 2>"$tmp/cat-goerr" ||
+			{ [ -s "$tmp/cat-goerr" ] && pat_fail "the Go check didn't run: $(head -c 300 "$tmp/cat-goerr")"; }
+	else
+		# Without Go, reject what RE2 lacks, lookaround and backreferences,
+		# and match with grep -E, whose dialect the patterns keep to.
+		how='grep -E, without Go: lookaround and backreferences rejected, not compiled as RE2'
+		by='the check without Go'
+		grep -E '\(\?<?[=!]|\\[1-9]' "$tmp/cat-pats" | while IFS="$tab" read -r a p; do
+			printf 'bad\t%s\t%s\tlookaround or a backreference, which RE2 lacks\n' "$a" "$p"
+		done >"$tmp/cat-got"
+		while IFS="$tab" read -r a p; do
+			grep -E -- "$p" "$tmp/cat-samples" >"$tmp/cat-hit" 2>"$tmp/cat-err"
+			[ $? -le 1 ] && [ ! -s "$tmp/cat-err" ] || { printf 'bad\t%s\t%s\tgrep -E rejects it\n' "$a" "$p"; continue; }
+			[ -s "$tmp/cat-hit" ] || printf 'unused\t%s\t%s\n' "$a" "$p"
+			sed "s/\$/$tab$a/" "$tmp/cat-hit" >>"$tmp/cat-pairs"
+		done <"$tmp/cat-pats" >>"$tmp/cat-got"
+		while IFS= read -r p; do
+			printf 'path\t%s\t%s\n' "$p" "$(awk -F '\t' -v p="$p" '$1 == p { print $2 }' "$tmp/cat-pairs" 2>/dev/null | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ $//')"
+		done <"$tmp/cat-samples" >>"$tmp/cat-got"
+	fi
+	while IFS="$tab" read -r kind a b c; do
+		case $kind in
+		bad) pat_fail "the entry $a has a pattern $by rejects: $b ($c)" ;;
+		unused) pat_fail "no sample path matches the entry $a's pattern $b; add a sample for the file type it stands for" ;;
+		path)
+			got=$(printf '%s\n' "$b" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ' | sed 's/^ *//; s/ $//')
+			want=$(awk -F '\t' -v p="$a" '$1 == p { print $2 }' "$tmp/cat-want" | tr ' ' '\n' | sed '/^$/d' | LC_ALL=C sort | tr '\n' ' ' | sed 's/ $//')
+			[ "$got" = "$want" ] || pat_fail "$a selects ${got:-no path-based reviewer}, but Orchestrate review chooses ${want:-none} for it"
+			;;
+		esac
+	done <"$tmp/cat-got"
+	[ "$(grep -c "^path$tab" "$tmp/cat-got")" = "$(wc -l <"$tmp/cat-samples" | tr -d ' ')" ] || pat_fail "the check with $how didn't report every sample path"
+	[ "$pat_ok" = 1 ] && pass "$catalog paths: $(wc -l <"$tmp/cat-pats" | tr -d ' ') patterns compile and select the reviewers Orchestrate review names for $(wc -l <"$tmp/cat-samples" | tr -d ' ') sample paths ($how)"
+else
+	fail "$catalog paths weren't checked: jq isn't installed or can't read the catalog"
+fi
 
 # The counts of skills, agents and hooks in the README, and the number of
 # agent files CLAUDE.md says carry the review protocol.
