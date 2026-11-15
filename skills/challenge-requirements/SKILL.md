@@ -26,7 +26,8 @@ Never invent business rules or silently turn assumptions into requirements.
 Keep it short: a full brief before every small edit costs more than it saves.
 
 - Read the request, the code it touches and anything else stating that behavior, such as docs or usage text, and name each gap that changes what gets built or whether it's safe, with what shows it. Say plainly when there is none: a made-up gap costs time to dismiss and teaches the developer to skip your challenges.
-- Ask only blocking questions (section 7), at most three. The change request authorizes the change, so make every part that doesn't depend on an answer in the same turn, recording minor choices as assumptions. Building from a plan, such as a phase or work package of a plan document, goes to execute-plan instead.
+- Ask only blocking questions (section 7), at most three. The change request authorizes the change, so make every part that doesn't depend on an answer in the same turn, recording minor choices as assumptions.
+- Building what a plan, PRD or roadmap describes, such as a phase, a section or its listed requirements, goes to execute-plan instead, with or without work packages and whether or not the request names the document.
 - Skip section 12's brief and hand-off unless the change touches permissions, money, sensitive data, irreversible actions or several components, or the developer asks.
 
 Otherwise, follow every section in full.
@@ -40,9 +41,7 @@ Never write into the repository unless the user asks. To save the brief, use the
 The request to challenge is the text passed with this skill. If nothing was
 passed, use the most recent request in the conversation and say which one you
 took. If you were given a file path, such as a spec or a ticket export, read
-the file. A long document is better passed as a path than pasted: a long
-pasted argument can be cut short when this skill is carried over after the
-conversation is compacted.
+the file.
 
 Identify what you received (an early idea, a feature request, a bug report,
 a specification, a proposed solution or a change to agreed behavior) and

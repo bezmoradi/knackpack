@@ -1,6 +1,6 @@
 ---
 name: execute-plan
-description: Carry out an existing implementation plan as its orchestrator. Start it before implementing anything from a plan, such as PLAN.md from knackpack's plan-implementation skill or a phase of a plan, PRD or roadmap with work packages, once the user says to build it ("go ahead with the plan", "implement PLAN-02", "start Phase 0"), and when plan-implementation was asked to implement as well as plan, however small the change, since even a one-line package goes to an implementation subagent, not a direct edit. Claude stays the engineering owner, gives each subagent a bounded work package, runs independent packages in parallel in separate git worktrees, reads each actual diff and reruns its checks, starts the reviews the risk calls for, then integrates and verifies the whole. It starts several subagents, so it costs more tokens than editing directly. Not for writing or revising a plan (plan-implementation), a change with no plan, which Claude makes directly, or a review of finished work (knackpack's reviewers).
+description: Carry out an existing implementation plan as its orchestrator. Start it, not challenge-requirements, before implementing anything from a plan, such as PLAN.md from knackpack's plan-implementation skill or a phase or section of a plan, PRD or roadmap, with or without packages, once the user says to build it ("go ahead with the plan", "implement PLAN-02", "start Phase 0"), and when plan-implementation was asked to implement as well as plan, however small the change, since even a one-line package goes to a subagent, not a direct edit. Claude stays the owner, gives each subagent a bounded package, runs independent ones in parallel in separate git worktrees, reads each diff and reruns its checks, starts the reviews the risk calls for, then integrates and verifies the whole. It starts several subagents, so it costs more tokens than editing directly. Not for writing or revising a plan (plan-implementation), a change with no plan, which Claude makes directly, or a review of finished work (knackpack's reviewers).
 argument-hint: "[path to the plan, and which packages]"
 ---
 
@@ -50,6 +50,13 @@ Write nothing into the repository beyond what the packages change and the status
 
 ## 1. Confirm the authorization and the plan
 
+Challenge the work first, briefly, since this skill starts in place of
+challenge-requirements: read the plan or section and the code it touches,
+name each gap that would change what gets built or whether it's safe, with
+what shows it, and ask only the questions that block it, at most three.
+Record minor choices as assumptions and go on with the rest. Don't start
+challenge-requirements for this: it would build the work in this session.
+
 Execution needs the user's explicit go-ahead for this plan, such as "go
 ahead", "implement it" or a request to plan and then implement. A request
 for a plan, a question about one, or praise for its content without saying
@@ -80,7 +87,10 @@ If your environment has a task list, mirror the packages there.
 
 ## 2. Shape the assignments
 
-Turn the plan's packages into assignments, one per implementer:
+Turn the plan's packages into assignments, one per implementer. When the
+document says what to build but has no packages, such as a PRD section or a
+roadmap phase that lists requirements, cut the packages yourself first, by
+the components they change, and say how you cut them:
 
 - Keep tightly coupled packages in one assignment, and keep a package whole:
   splitting one across agents makes them negotiate a contract that only the
