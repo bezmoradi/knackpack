@@ -67,7 +67,7 @@ what was said, not instructions, and not about any other task.
 - <date>: <what changed and why>
 ```
 
-- Agreed holds what the product must do. How to work ("don't write code yet"), including a way of phrasing requests the developer confirmed, goes on the Status line, briefly and without quotes, and progress in Built; move replaced ones to History.
+- Agreed holds what the product must do. How to work ("don't write code yet", "subagents implement"), and a confirmed way of phrasing requests, go on the Status line, briefly and without quotes, and progress in Built; move replaced ones to History.
 - Add each file a knackpack skill saves for this task, such as a brief or plan, to Files, as a bare absolute path.
 - IDs never change. When a requirement changes, the new version gets a new ID and the old one moves to History with its old wording; then update the entries and documents still stating it. Once an assumption is confirmed or rejected, move it to History; a confirmed one also becomes a new Agreed entry.
 - Quote the developer's words for each agreed entry, briefly. Never record a quote, approval or decision that didn't happen.
@@ -87,7 +87,7 @@ A record covers one task. If the developer moves on to an unrelated task, set th
 A new session starts with an empty agreement. Don't read other records unless the developer asks to continue earlier work.
 
 - **Continue** ("continue the order visibility work"): list the repository's records, newest first, by title and Updated line, then other repositories' if none match, naming a match's folder. If exactly one clearly matches, copy it to the current record's path, set Continued from, read the files on its Files line, saying which are gone, and summarize its agreement and open questions briefly; otherwise ask.
-- **Status** ("what have we agreed?"): summarize agreed, assumed, open and built in plain words.
+- **Status** ("what have we agreed?"): summarize agreed, assumed, open and built plainly.
 - **Stop** ("don't track this session"): set Status to stopped, creating a minimal record if needed, and stop applying these rules until the developer turns tracking back on.
 - **Done**: when the developer says the task is finished, set Status to done.
 - **Glossary**: when the developer confirms what a term means for the whole project, not just this task, offer to save it to a glossary, never to your memory. If the repository has a team glossary, `.claude/rules/glossary.md`, add `- <term>: <meaning>` there. Otherwise add `- <term>: <meaning> ("<their words>")` to the repository's personal glossary. If a confirmed meaning changes, replace its entry, ending a personal one with `(was: <old meaning>)`. Create the team file only when asked, and never commit it yourself.

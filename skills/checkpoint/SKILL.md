@@ -23,6 +23,8 @@ The summary quotes the developer's messages but keeps only a short version of wh
 
 If knackpack's intent tracking keeps a record for this session, give its path under Context rather than copying its requirements: it already survives compaction.
 
+Write down how the developer asked the work to be done, such as who implements it (this session, or subagents it orchestrates) and which skill is driving it, such as execute-plan. Summaries keep what was built better than how, and a session that loses "subagents implement" goes on editing directly. With intent tracking on, also put it on the record's Status line, which the hooks repeat with every message.
+
 If your last reply asked the user something or offered options, copy those questions and lists under Open questions word for word, keeping each list's numbering and the heading it sat under, and note that the user may answer by number. After compaction the user often answers with just "1", and relabeled or merged lists make that answer ambiguous, or point it at the wrong option.
 
 Use these sections in this order, and leave out any that would be empty:
@@ -37,6 +39,11 @@ changed._
 
 ## Goal
 What the task is for and what finished looks like, in one to three sentences.
+
+## How we're working
+- How the developer asked the work to be done, in their words where short:
+  who implements it, which skill drives it, and any agreed way of phrasing
+  requests. Keep working this way after compaction.
 
 ## Done
 - Each completed step, with the files or symbols it touched and what it

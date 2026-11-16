@@ -10,10 +10,14 @@
 #                            current record, if they exist, and name the
 #                            files on its Files line that are gone and its
 #                            other records that aren't done, or nothing if
-#                            the session's record is stopped
+#                            the session's record is stopped; after a
+#                            compaction, also note it in the turn file
 #   track-intent.sh prompt   (UserPromptSubmit) print a short reminder to
-#                            update the record, with the open items and
-#                            assumptions, and flag a last turn that edited
+#                            update the record, with the open items,
+#                            assumptions and how the developer asked the
+#                            work to be done, after a compaction say once to
+#                            read the checkpoint and keep working that way,
+#                            and flag a last turn that edited
 #                            files but not the record, entries outside their
 #                            section, a long Status line and what looks like
 #                            a credential in the record
@@ -241,7 +245,9 @@ fi
 # the state folder, the folders where skills save files (Claude Code's
 # scratchpad, <session>/scratchpad, and knackpack's fallback,
 # claude-<session>) and, outside the project, the temporary folders. A
-# reminder that lists the assumptions adds "listed <checksum>". Stop adds
+# reminder that lists the assumptions adds "listed <checksum>". A compaction
+# adds "compacted <checkpoint path or nothing>", which the next prompt reads
+# and removes. Stop adds
 # "work" when the project's changes differ from the turn's start, which
 # catches edits made with a shell command, then "end" and "next <checksum>"
 # of the records then. A prompt after "end" starts a new turn. A prompt before
@@ -284,6 +290,7 @@ resume() {
 	grep -qx end "$turn" 2>/dev/null && grep -qx queued "$turn" 2>/dev/null || return 0
 	notes=$(awk '
 	/^was / { next }
+	/^compacted( |$)/ { keep = keep $0 "\n"; next }
 	{ line[++k] = $0 }
 	/^next / { n = substr($0, 6) }
 	$0 == "record" { rec = 1 }
@@ -298,6 +305,7 @@ resume() {
 		else if (!rec && !work && t != "") print t
 		while (--q > 0) print "queued"
 		for (i = 1; i <= k; i++) print "was " line[i]
+		printf "%s", keep
 	}' "$turn" 2>/dev/null) || return 0
 	printf '%s\n' "$notes" 2>/dev/null >"$turn"
 }
@@ -406,6 +414,38 @@ misplaced() {
 
 stopped() {
 	[ "$exists" = 1 ] && grep -Eq '^- Status:[[:space:]]*[Ss]topped([^A-Za-z]|$)' "$record" 2>/dev/null
+}
+
+# How the developer asked the work to be done: the record's Status line
+# without its state word and Updated date, such as "subagents implement" from
+# "- Status: active; subagents implement", with the dot and date after it as
+# the record's layout has them. Empty when
+# the line holds only the state, and for a record that's done, whose way of
+# working belongs to a finished task. Past 400 bytes it's cut at a space, or
+# without one before the last character, so a cut never splits one. The
+# octal escapes are the middle dot and the en and em dashes in UTF-8, written
+# so the script stays ASCII.
+how_to_work() {
+	[ "$exists" = 1 ] || return 0
+	is_done "$record" && return 0
+	LC_ALL=C awk '
+	/^- Status:/ {
+		s = $0
+		sub(/\r$/, "", s)
+		sub(/^- Status:[ \t]*/, "", s)
+		sub(/[ \t]*(\302\267|[|,;-])?[ \t]*Updated:.*$/, "", s)
+		if (match(s, /^([Aa]ctive|[Pp]aused|[Ss]topped|[Dd]one)/) && substr(s, RLENGTH + 1, 1) !~ /[A-Za-z]/)
+			s = substr(s, RLENGTH + 1)
+		sub(/^([ \t;,:.|-]|\342\200\224|\342\200\223)+/, "", s)
+		if (length(s) > 400) {
+			s = substr(s, 1, 400)
+			if (index(s, " ")) sub(/ [^ ]*$/, "", s)
+			else sub(/[\300-\377][\200-\277]*$/, "", s)
+			s = s " [...]"
+		}
+		if (s != "") print s
+		exit
+	}' "$record" 2>/dev/null | redact
 }
 
 # Names the session's other records that aren't done, one per line with its
@@ -799,12 +839,24 @@ state)
 		# Without the trailing slash macOS's TMPDIR has, which would double.
 		t=${TMPDIR:-/tmp}
 		t=${t%"${t##*[!/]}"}
+		ckpt_file=
 		for f in ${pad:+"$pad/CHECKPOINT.md"} "$t/claude-$sid/CHECKPOINT.md" "/tmp/claude-$sid/CHECKPOINT.md"; do
-			[ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && { ckpt="
+			[ -f "$f" ] && [ ! -L "$f" ] && [ -O "$f" ] && { ckpt_file=$f ckpt="
 ## Checkpoint
 
 This session has a checkpoint: \`$f\`. Read it in full before you continue; where the summary covers work after the checkpoint, the summary is newer."; break; }
 		done
+		# This output sits above the whole summary, far from the developer's
+		# next message, and a field report showed Claude, in two sessions,
+		# acting on that message without reading the checkpoint or keeping
+		# the agreed way of working. So the turn file notes the compaction, and the prompt mode
+		# repeats both once, beside the next message. A path holding a line
+		# break would split the note, so such a checkpoint gets none.
+		case $ckpt_file in *'
+'*) ckpt_file= ;; esac
+		if { [ -n "$ckpt_file" ] || [ -n "$(how_to_work)" ]; } && turn_ok; then
+			printf 'compacted %s\n' "$ckpt_file" 2>/dev/null >>"$turn"
+		fi
 	fi
 	[ -n "$ckpt" ] && printf '%s\n' "$ckpt"
 	# The session's other records that aren't done, so a resumed session sees
@@ -836,6 +888,17 @@ prompt)
 		exit 0
 	fi
 	sum=$(records_sum)
+	# The first prompt after a compaction, whoever sends it, takes the note
+	# the state mode left and repeats what it stood for, once.
+	compacted=0
+	ckpt_file=
+	if [ "$writable" = 1 ] && grep -Eq '^compacted( |$)' "$turn" 2>/dev/null; then
+		compacted=1
+		ckpt_file=$(sed -n 's/^compacted //p' "$turn" 2>/dev/null | tail -n 1)
+		[ -f "$ckpt_file" ] || ckpt_file=
+		notes=$(grep -Ev '^compacted( |$)' "$turn" 2>/dev/null)
+		printf '%s\n' "$notes" 2>/dev/null >"$turn"
+	fi
 	# Only a prompt after Stop's "end" starts a new turn. One before it is a
 	# message queued while Claude works, which arrives within the turn, or the
 	# first after an interrupted turn, where Stop doesn't run. It keeps the
@@ -866,6 +929,17 @@ prompt)
 	fi
 	missed_line="Your last turn edited files but not the record: check whether the agreement or Built changed, and update the record if so. If not, carry on without mentioning it."
 	other=$(others | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
+	# How the developer asked the work to be done goes beside every message,
+	# not only at session start, where a field report showed an agreement
+	# such as "subagents implement" lost to the message in hand.
+	work=$(how_to_work)
+	[ -z "$work" ] || work="How the developer asked you to work, from the record's Status line: $work"
+	post=
+	if [ "$compacted" = 1 ]; then
+		post="knackpack: this conversation was just compacted."
+		[ -z "$ckpt_file" ] || post="$post Before you act on this message, read the checkpoint \`$ckpt_file\` in full; where the summary covers work after it, the summary is newer."
+		post="$post Keep working the way the developer asked before the compaction: if the next step builds part of a plan, start the execute-plan skill instead of editing directly, unless the developer asked to build it in this session."
+	fi
 	# Claude Code reports a finished background task as a prompt that starts
 	# with <task-notification>, and delivers a subagent's hand-back or another
 	# session's message as one that starts with <agent-message. The transcript
@@ -879,8 +953,10 @@ prompt)
 	elif printf '%s' "$input" | grep -Eq '"prompt"[[:space:]]*:[[:space:]]*"(Another Claude session sent a message:(\\n|[[:space:]])*)?<agent-message'; then
 		from="a subagent's hand-back or another Claude session's message"
 	fi
+	[ -z "$post" ] || printf '%s\n' "$post"
 	if [ -n "$from" ]; then
 		printf '%s\n' "knackpack intent tracking: this is $from, not a message from the developer, so on its own it changes nothing in the agreement; what it reports about work done can still be evidence for Built. Record: $record ($state)."
+		[ -z "$work" ] || printf '%s\n' "$work"
 		[ -n "$other" ] && printf '%s\n' "Other records of this session that aren't done: $other. The task may belong to one of them."
 		[ "$missed" = 1 ] && printf '%s\n' "$missed_line"
 		exit 0
@@ -900,6 +976,7 @@ prompt)
 	fi
 	printf '%s\n' "knackpack intent tracking: before acting on this message, decide whether it changes the agreement: adds, changes or answers something, or approves a proposal. Approving the next step of work already agreed isn't a change. If it changes the agreement, update the record first, with your file-editing tools, then do the work. When the record gained something the developer didn't spell out, such as an assumption, a replaced entry, a proposal's status or an open question, end your final message with a line that starts with \"Noted:\" saying so. If it defines a term for the whole project, offer to save it to the glossary, not to your memory. If nothing changes, don't mention the record."
 	printf '%s\n' "Record: $record ($state).${open:+ $open}"
+	[ -z "$work" ] || printf '%s\n' "$work"
 	[ -n "$other" ] && printf '%s\n' "Other records of this session that aren't done: $other. A message about one of their tasks goes in that record, and a side task's record is set to done when it ends."
 	[ -n "$assumed" ] && printf '%s\n' "$assumed" | redact
 	# A message sent while Claude works reaches it with a later tool result,
