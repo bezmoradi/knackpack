@@ -1464,6 +1464,75 @@ for s in $shells; do
 			{ fail "hook state under $s on compact with scratchpad_dir=$dir doesn't point to $want: $(grep -o 'checkpoint: `[^`]*`' "$tmp/out")"; hook_ok=0; }
 	done
 	rm -rf "$real/tmpdir" "$pad" "$real/linkpad" "$real/linked-CHECKPOINT.md"
+	# After a compaction that found the checkpoint, the next prompt says to
+	# read it, by its path, and the one after doesn't; a hand-back takes the
+	# note too. A compaction with no checkpoint leaves a note only when the
+	# record says how to work. That way of working, without the Status line's
+	# state word and date, goes beside every message, and nothing does for a
+	# Status line that holds only the state.
+	mkdir -p "${ckpt%/*}" && : >"$ckpt"
+	cev=$(printf '%s' "$event" | sed 's/"startup"/"compact"/')
+	hev=$(printf '%s' "$event" | sed 's/"prompt":"hi"/"prompt":"<task-notification>done"/')
+	compacted() {
+		printf '%s' "$cev" | env -u KNACKPACK_INTENT -u EVAL_KNACKPACK_INTENT -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SESSION_ATTENDED=1 \
+			TMPDIR="$real/tmpdir" XDG_STATE_HOME="$long/state" CLAUDE_PROJECT_DIR="$long/project" "$s" "$hook" state >/dev/null 2>&1
+	}
+	compacted
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qF "read the checkpoint \`$ckpt\` in full" "$tmp/out" ||
+		{ fail "hook prompt under $s after a compaction doesn't say to read $ckpt"; hook_ok=0; }
+	run "$s" prompt "$event" || hook_ok=0
+	! grep -q 'just compacted' "$tmp/out" || { fail "hook prompt under $s repeats the compaction note on a second message"; hook_ok=0; }
+	compacted
+	run "$s" prompt "$hev" || hook_ok=0
+	grep -qF "read the checkpoint \`$ckpt\` in full" "$tmp/out" ||
+		{ fail "hook prompt under $s gives a hand-back after a compaction no note to read the checkpoint"; hook_ok=0; }
+	rm -f "$ckpt"
+	compacted
+	run "$s" prompt "$event" || hook_ok=0
+	! grep -q 'just compacted' "$tmp/out" || { fail "hook prompt under $s notes a compaction with no checkpoint or way of working"; hook_ok=0; }
+	for d in "$long/state/knackpack/intent"/*/; do
+		printf '# Intent record: test\n\n- Status: active \342\200\224 subagents implement \302\267 Updated: 2026-11-16\n' >"$d$sid.md"
+	done
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qxF "How the developer asked you to work, from the record's Status line: subagents implement" "$tmp/out" ||
+		{ fail "hook prompt under $s doesn't repeat the record's way of working: $(grep 'asked you to work' "$tmp/out")"; hook_ok=0; }
+	compacted
+	run "$s" prompt "$hev" || hook_ok=0
+	{ grep -q 'just compacted' "$tmp/out" && grep -q 'asked you to work, from the record' "$tmp/out"; } ||
+		{ fail "hook prompt under $s gives a hand-back after a compaction no note when the record says how to work"; hook_ok=0; }
+	for d in "$long/state/knackpack/intent"/*/; do
+		printf '# Intent record: test\n\n- Status: active \302\267 Updated: 2026-11-16\n' >"$d$sid.md"
+	done
+	run "$s" prompt "$event" || hook_ok=0
+	! grep -q 'asked you to work' "$tmp/out" || { fail "hook prompt under $s gives a way of working for a Status line with only its state"; hook_ok=0; }
+	# A done record's way of working belongs to a finished task, so it isn't
+	# repeated, and a compaction with no checkpoint leaves no note for it. A
+	# first word that isn't a state stays. A long line with no space is cut
+	# before its last character, never inside one.
+	for d in "$long/state/knackpack/intent"/*/; do
+		printf '# Intent record: test\n\n- Status: done; subagents implement \302\267 Updated: 2026-11-16\n' >"$d$sid.md"
+	done
+	run "$s" prompt "$event" || hook_ok=0
+	compacted
+	run "$s" prompt "$event" || hook_ok=0
+	! grep -q -e 'asked you to work' -e 'just compacted' "$tmp/out" ||
+		{ fail "hook prompt under $s repeats a done record's way of working"; hook_ok=0; }
+	for d in "$long/state/knackpack/intent"/*/; do
+		printf '# Intent record: test\n\n- Status: in progress; subagents implement\n' >"$d$sid.md"
+	done
+	run "$s" prompt "$event" || hook_ok=0
+	grep -qxF "How the developer asked you to work, from the record's Status line: in progress; subagents implement" "$tmp/out" ||
+		{ fail "hook prompt under $s drops a first word that isn't a state: $(grep 'asked you to work' "$tmp/out")"; hook_ok=0; }
+	for d in "$long/state/knackpack/intent"/*/; do
+		awk 'BEGIN { s = "- Status: active; "; for (i = 0; i < 140; i++) s = s "\346\227\245"; print s }' >"$d$sid.md"
+	done
+	run "$s" prompt "$event" || hook_ok=0
+	w=$(sed -n "s/^How the developer asked you to work, from the record's Status line: //p" "$tmp/out")
+	{ case $w in *' [...]') ;; *) false ;; esac && [ "${#w}" -le 406 ] && printf '%s' "$w" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1; } ||
+		{ fail "hook prompt under $s cuts a long way of working with no space inside a character"; hook_ok=0; }
+	rm -rf "$real/tmpdir" "$long/state/knackpack/intent/.turns"
+	rm -f "$long/state/knackpack/intent"/*/"$sid.md"
 	# A turn file that can't be written must not stop the hook.
 	rm -rf "$long/state/knackpack/intent/.turns"
 	: >"$long/state/knackpack/intent/.turns"
@@ -1758,7 +1827,8 @@ for s in $shells; do
 		'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=0' KNACKPACK_COMPACT=on; do
 		# shellcheck disable=SC2086 # $v holds one or two assignments
 		prun "$s" $v
-		grep -q 'what you found out yourself' "$tmp/out" && [ "$(head -c 1 "$tmp/out")" != '{' ] ||
+		grep -q 'what you found out yourself' "$tmp/out" && grep -q 'how the developer asked the work to be done' "$tmp/out" &&
+			[ "$(head -c 1 "$tmp/out")" != '{' ] ||
 			{ fail "compaction hook under $s with $v printed no instructions as plain text"; compact_ok=0; }
 	done
 	for v in KNACKPACK_COMPACT=off KNACKPACK_COMPACT=Off EVAL_KNACKPACK_COMPACT=off 'CLAUDE_CODE_ENTRYPOINT=sdk-cli KNACKPACK_COMPACT=no'; do

@@ -10,8 +10,10 @@
 # The summary quotes the developer's messages but keeps only a short version
 # of what Claude worked out itself, such as a script's result or why something
 # failed, which the next context then can't recall. These instructions ask it
-# to keep that too, and Claude's last numbered questions word for word, since
-# the developer may answer one with just a number. They also ask it to point
+# to keep that too, how the developer asked the work to be done, which a
+# summary can drop while keeping what was built, and Claude's last numbered
+# questions word for word, since the developer may answer one with just a
+# number. They also ask it to point
 # the next context to a checkpoint saved for the task, which the intent hook
 # does too, but only while intent tracking runs.
 #
@@ -34,6 +36,7 @@ From knackpack: this summary will already quote the developer's messages, but wh
 - each cause you diagnosed, each explanation you gave and each decision you made, with its reason;
 - the approaches you tried or rejected, and why;
 - every file you created or changed, and where you saved reports, briefs, plans and checkpoints, by absolute path.
+Keep how the developer asked the work to be done, word for word, such as who implements it (this session, or subagents it orchestrates) and which skill is driving it, such as execute-plan: a summary that keeps what was built but drops how lets the next context switch to doing the work differently.
 If your last reply asked the developer questions or offered numbered options, copy them word for word, with their numbering and the heading they sat under, since the developer may answer with just a number.
 If you saved a checkpoint to resume the current task from, such as CHECKPOINT.md, say in the next step to read it in full before continuing, by its absolute path, and that this summary is newer where it covers later work.
 EOF
