@@ -156,6 +156,17 @@ else
 	fail "scripts/review-protocol.md no longer defines the knackpack-finding/1 lines, or no longer says the findings and verdict lines outrank them; programs read them, so restore them, or name the format change as breaking in the release notes and update this check"
 fi
 
+# The coverage lines are public interface too: the count command prints them
+# before the finding lines, and the protocol must say they never change the
+# verdict.
+if grep -qF 'g[++ng] = o "}"' scripts/review-protocol.md &&
+	grep -qF 'every coverage line the command printed, in order' scripts/review-protocol.md &&
+	grep -qF 'for display, and never change the verdict' scripts/review-protocol.md; then
+	pass "the review protocol defines the reply's knackpack-coverage/1 lines, which never change the verdict"
+else
+	fail "scripts/review-protocol.md no longer defines the knackpack-coverage/1 lines, or no longer says they never change the verdict; programs read them, so restore them, or name the format change as breaking in the release notes and update this check"
+fi
+
 # zsh refuses a command whose unquoted *, ? or [ matches no file, and
 # reviewers didn't read grep's --include=*.go or an ID ending in ? as a glob,
 # so the shell paragraph names the characters and those cases.
@@ -181,16 +192,16 @@ count_run() {
 count_case() {
 	count_run "$3"
 	case $1 in
-	refuse) case $got in *knackpack-finding*) fail "the review protocol's count command counted $2 instead of refusing it: $got"; count_ok=0 ;; esac ;;
+	refuse) case $got in *knackpack-finding* | *knackpack-coverage*) fail "the review protocol's count command counted $2 instead of refusing it: $got"; count_ok=0 ;; esac ;;
 	*) [ "$(printf '%s\n' "$got" | tail -n 1)" = "knackpack-findings/1: $1" ] || { fail "the review protocol's count command printed '$got' for $2"; count_ok=0; } ;;
 	esac
 }
 finding_case() {
 	count_run "$3"
 	[ "$got" = "$1" ] || { fail "the review protocol's count command printed '$got' for $2, not '$1'"; count_ok=0; }
-	json=$(printf '%s\n' "$got" | sed -n 's/^knackpack-finding\/1 //p')
+	json=$(printf '%s\n' "$got" | sed -n -e 's/^knackpack-finding\/1 //p' -e 's/^knackpack-coverage\/1 //p')
 	if [ -n "$json" ] && command -v jq >/dev/null 2>&1 && ! printf '%s\n' "$json" | jq -s -e 'all(type == "object")' >/dev/null 2>&1; then
-		fail "a knackpack-finding/1 line the count command printed for $2 isn't a JSON object"
+		fail "a knackpack-finding/1 or knackpack-coverage/1 line the count command printed for $2 isn't a JSON object"
 		count_ok=0
 	fi
 }
@@ -269,10 +280,109 @@ if command -v jq >/dev/null 2>&1 && ! printf '%s\n' "$got" | sed -n 's/^knackpac
 	fail "the review protocol's count command didn't cut a long title to at most 199 whole characters: $got"
 	count_ok=0
 fi
+# The coverage lines: printed before the finding lines, one per row of the
+# requirements coverage table, with evidence required unless not verified, a
+# note cut to 200 characters, at most 100 lines and each at most 1,024 bytes.
+cov='## Requirements coverage
+
+| ID | Status | Evidence | Note |
+|---|---|---|---|'
+finding_case 'knackpack-coverage/1 {"id":"REQ-01","status":"verified","evidence":"internal/order/list.go:42","note":"filters by the caller'"'"'s team | ok"}
+knackpack-coverage/1 {"id":"REQ-02","status":"not-verified","note":"no test reaches it"}
+knackpack-coverage/1 {"id":"SEC-3","status":"violated","evidence":"api/h.go:10-12","note":"\"quoted\""}
+knackpack-finding/1 {"id":"F1","severity":"high","blocking":true,"path":"api/h.go","line":10,"title":"x","evidence":"confirmed"}
+knackpack-findings/1: critical=0 high=1 medium=0 low=0 blocking=1' 'three requirements and a finding' "$cov"'
+| REQ-01 | Verified | `internal/order/list.go:42` | filters by the caller'"'"'s team \| ok |
+| REQ-02 | Not verified | n/a | no test reaches it |
+| SEC-3 | **Violated** | ./api/h.go:10-12 | "quoted" |
+
+## Findings table
+
+'"$row"'
+| F1 | High | yes | Confirmed | api/h.go:10 | x |'
+count_case refuse 'a verified requirement with no evidence' "$cov"'
+| REQ-01 | Verified | n/a | trust me |
+
+## Findings table
+
+No findings.'
+count_case refuse 'a requirement listed twice' "$cov"'
+| REQ-01 | Verified | a.go:1 | |
+| REQ-01 | Violated | a.go:2 | |
+
+## Findings table
+
+No findings.'
+count_case refuse 'an ID unlike REQ-01 and a status that is not verified, violated or not verified' "$cov"'
+| R1 | Verified | a.go:1 | |
+| REQ-02 | Partly | a.go:2 | |
+
+## Findings table
+
+No findings.'
+count_case refuse 'evidence outside the repository' "$cov"'
+| REQ-01 | Violated | ../x.go:3 | |
+
+## Findings table
+
+No findings.'
+count_case refuse 'a copy of the coverage heading in a code block' '```
+'"$cov"'
+| REQ-09 | Verified | z.go:9 | sample |
+```
+
+'"$cov"'
+| REQ-01 | Verified | a.go:1 | |
+
+## Findings table
+
+No findings.'
+count_case refuse 'a coverage heading with no table' '## Requirements coverage
+
+All verified.
+
+## Findings table
+
+No findings.'
+long=$(awk 'BEGIN { for (i = 0; i < 1000; i++) printf "a" }')
+count_case refuse 'evidence too long for a 1,024-byte line' "$cov"'
+| REQ-01 | Verified | '"$long"'.go:1 | |
+
+## Findings table
+
+No findings.'
+rows=$(awk 'BEGIN { for (i = 1; i <= 101; i++) printf "| REQ-%d | Verified | a.go:%d | |\n", i, i }')
+want=$(awk 'BEGIN { for (i = 1; i <= 100; i++) printf "knackpack-coverage/1 {\"id\":\"REQ-%d\",\"status\":\"verified\",\"evidence\":\"a.go:%d\"}\n", i, i; print "knackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0" }')
+finding_case "$want" '101 requirements' "$cov"'
+'"$rows"'
+
+## Findings table
+
+No findings.'
+# A note past 200 characters is cut without splitting a UTF-8 character, and
+# a note that would take a line past 1,024 bytes is dropped.
+note=$(awk 'BEGIN { for (i = 0; i < 250; i++) printf "\303\251" }')
+path=$(awk 'BEGIN { for (i = 0; i < 900; i++) printf "b" }')
+count_run "$cov"'
+| REQ-01 | Verified | a.go:1 | ab'"$note"' |
+| REQ-02 | Verified | '"$path"'.go:1 | ab'"$note"' |
+
+## Findings table
+
+No findings.'
+if printf '%s\n' "$got" | LC_ALL=C awk '/^knackpack-coverage/ && length($0) > 1024 { bad = 1 } END { exit !bad }' ||
+	! printf '%s\n' "$got" | grep -q '^knackpack-coverage/1 {"id":"REQ-02","status":"verified","evidence":"b*\.go:1"}$'; then
+	fail "the review protocol's count command printed a coverage line past 1,024 bytes, or kept a note that took one there: $got"
+	count_ok=0
+fi
+if command -v jq >/dev/null 2>&1 && ! printf '%s\n' "$got" | sed -n 's/^knackpack-coverage\/1 //p' | head -n 1 | jq -e '.note | length >= 100 and length <= 200 and (test("�") | not)' >/dev/null 2>&1; then
+	fail "the review protocol's count command didn't cut a long note to at most 200 whole characters: $got"
+	count_ok=0
+fi
 if [ -z "$prog" ]; then
 	fail "scripts/check.sh can't find the count command in scripts/review-protocol.md; update the extraction to match its first and last lines"
 elif [ "$count_ok" = 1 ]; then
-	pass "the review protocol's count command counts or refuses each sample report, and prints each sample's finding lines"
+	pass "the review protocol's count command counts or refuses each sample report, and prints each sample's coverage and finding lines"
 fi
 
 # Agents cite the review protocol's steps by number, as in "the copy from step
