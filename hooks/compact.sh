@@ -41,6 +41,9 @@
 # EVAL_KNACKPACK_COMPACT and EVAL_KNACKPACK_COMPACT_GATE stand in for them
 # there.
 
+# test -O isn't POSIX, but dash and bash both have it. Before the first
+# command, this directive covers the whole script.
+# shellcheck disable=SC3067
 umask 077
 trap 'exit 0' EXIT
 
