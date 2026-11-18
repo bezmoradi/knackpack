@@ -1817,7 +1817,7 @@ prun() { # <shell> <env assignments...>
 	s=$1
 	shift
 	printf '{"session_id":"x","hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}' |
-		env -u KNACKPACK_COMPACT -u EVAL_KNACKPACK_COMPACT -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/compact.sh >"$tmp/out" 2>"$tmp/err"
+		env -u KNACKPACK_COMPACT -u EVAL_KNACKPACK_COMPACT -u KNACKPACK_COMPACT_GATE -u EVAL_KNACKPACK_COMPACT_GATE -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ATTENDED "$@" "$s" hooks/compact.sh >"$tmp/out" 2>"$tmp/err"
 	code=$?
 	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "compaction hook under $s with $*: exit $code, stderr: $(head -c 200 "$tmp/err")"; compact_ok=0; }
 }
@@ -1837,6 +1837,61 @@ for s in $shells; do
 		[ ! -s "$tmp/out" ] || { fail "compaction hook under $s with $v printed something"; compact_ok=0; }
 	done
 done
+# The gate, KNACKPACK_COMPACT_GATE=on: a manual /compact in an attended
+# session goes ahead with a checkpoint newer than the session's marker, or
+# with one and no marker yet, and with "skip-checkpoint" in its instructions,
+# and is stopped with exit 2 and a message on stderr otherwise, the
+# instructions printed only when it goes ahead. An automatic compaction, a
+# headless run, input with no session ID and a marker folder that is a
+# symbolic link always go ahead; and a compaction that goes ahead moves the
+# marker on, so the next one needs a newer checkpoint.
+gev() { # <trigger> <custom_instructions JSON> [scratchpad_dir]
+	printf '{"session_id":"s1","hook_event_name":"PreCompact","trigger":"%s","custom_instructions":%s%s}' "$1" "$2" "${3:+,\"scratchpad_dir\":\"$3\"}"
+}
+grun() { # <shell> <expected exit> <label> <env assignments...>, input on stdin
+	s=$1 want=$2 label=$3
+	shift 3
+	env -u KNACKPACK_COMPACT -u EVAL_KNACKPACK_COMPACT -u KNACKPACK_COMPACT_GATE -u EVAL_KNACKPACK_COMPACT_GATE \
+		XDG_STATE_HOME="$g/state" TMPDIR="$g/tmp" CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=1 "$@" \
+		"$s" hooks/compact.sh >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	if [ "$want" = 2 ]; then
+		[ "$code" = 2 ] && [ ! -s "$tmp/out" ] && grep -q '/knackpack:checkpoint' "$tmp/err" && grep -q 'skip-checkpoint' "$tmp/err" ||
+			{ fail "compaction gate under $s, $label: exit $code, expected it stopped with a message naming /knackpack:checkpoint and skip-checkpoint"; compact_ok=0; }
+	else
+		[ "$code" = 0 ] && [ ! -s "$tmp/err" ] && grep -q 'what you found out yourself' "$tmp/out" ||
+			{ fail "compaction gate under $s, $label: exit $code, expected it to go ahead with the instructions: $(head -c 200 "$tmp/err")"; compact_ok=0; }
+	fi
+}
+for s in $shells; do
+	g=$tmp/gate-$s
+	mkdir -p "$g/pad" "$g/tmp/claude-s1" "$g/state"
+	mark=$g/state/knackpack/compact/s1
+	gev manual null "$g/pad" | grun "$s" 0 "gate unset, no checkpoint"
+	gev manual null "$g/pad" | grun "$s" 0 "KNACKPACK_COMPACT_GATE=off, no checkpoint" KNACKPACK_COMPACT_GATE=off
+	gev manual null "$g/pad" | grun "$s" 2 "no checkpoint" KNACKPACK_COMPACT_GATE=on
+	gev manual null "$g/pad" | grun "$s" 2 "no checkpoint, EVAL_KNACKPACK_COMPACT_GATE=on" EVAL_KNACKPACK_COMPACT_GATE=on
+	gev manual '"focus on the tests, skip-checkpoint"' "$g/pad" | grun "$s" 0 "skip-checkpoint" KNACKPACK_COMPACT_GATE=on
+	[ -f "$mark" ] || { fail "compaction gate under $s left no marker after a compaction went ahead"; compact_ok=0; }
+	gev manual null "$g/pad" | grun "$s" 2 "no checkpoint after a skip" KNACKPACK_COMPACT_GATE=on
+	: >"$g/pad/CHECKPOINT.md"
+	touch -t 202601010000 "$mark"
+	gev manual null "$g/pad" | grun "$s" 0 "checkpoint newer than the marker" KNACKPACK_COMPACT_GATE=on
+	touch -t 202501010000 "$g/pad/CHECKPOINT.md"
+	gev manual null "$g/pad" | grun "$s" 2 "checkpoint older than the marker" KNACKPACK_COMPACT_GATE=on
+	gev manual null "$g/pad" | grun "$s" 0 "KNACKPACK_COMPACT_GATE=off, old checkpoint" KNACKPACK_COMPACT_GATE=off
+	gev auto null "$g/pad" | grun "$s" 0 "automatic, old checkpoint" KNACKPACK_COMPACT_GATE=on
+	gev manual null "$g/pad" | grun "$s" 0 "claude -p" KNACKPACK_COMPACT_GATE=on CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0
+	gev manual null "$g/pad" | grun "$s" 0 "no entry point, unattended" KNACKPACK_COMPACT_GATE=on CLAUDE_CODE_ENTRYPOINT= CLAUDE_CODE_SESSION_ATTENDED=0
+	printf 'not json' | grun "$s" 0 "input with no session ID" KNACKPACK_COMPACT_GATE=on
+	rm -f "$mark"
+	: >"$g/tmp/claude-s1/CHECKPOINT.md"
+	gev manual null | grun "$s" 0 "checkpoint in TMPDIR, no scratchpad_dir, no marker" KNACKPACK_COMPACT_GATE=on
+	rm -f "$mark" "$g/tmp/claude-s1/CHECKPOINT.md"
+	mv "$g/state/knackpack/compact" "$g/compact.real"
+	ln -s "$g/compact.real" "$g/state/knackpack/compact"
+	gev manual null | grun "$s" 0 "marker folder behind a symbolic link" KNACKPACK_COMPACT_GATE=on
+done
 prun sh
 size=$(wc -c <"$tmp/out" | tr -d ' ')
 [ "$size" -le 9900 ] || { fail "compaction hook prints $size bytes; Claude Code cuts PreCompact output at 10,000 characters"; compact_ok=0; }
@@ -1844,7 +1899,7 @@ if command -v jq >/dev/null 2>&1; then
 	jq -e '[.hooks.PreCompact[]?.hooks[]?.command] | any(contains("hooks/compact.sh"))' hooks/hooks.json >/dev/null 2>&1 ||
 		{ fail "hooks/hooks.json doesn't run hooks/compact.sh before compaction"; compact_ok=0; }
 fi
-[ "$compact_ok" = 1 ] && pass "compaction hook under$shells ($size bytes)"
+[ "$compact_ok" = 1 ] && pass "compaction hook and its opt-in gate under$shells ($size bytes)"
 
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
