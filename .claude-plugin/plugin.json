@@ -9,6 +9,11 @@
   "homepage": "https://github.com/bezmoradi/knackpack",
   "repository": "https://github.com/bezmoradi/knackpack",
   "license": "MIT",
+  "network": {
+    "hosts": [
+      "raw.githubusercontent.com"
+    ]
+  },
   "keywords": [
     "claude-code",
     "code-review",
