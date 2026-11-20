@@ -2299,10 +2299,14 @@ bad=$(grep -oE -e 'use_commit_signing|ssh_signing_key|mcp__github_file_ops|mcp__
 # limit, server error or timeout passes, since a later run would, and a
 # required check mustn't fail at random. With GITHUB_TOKEN set, zizmor runs
 # its online audits too and lychee gets GitHub's higher rate limit. gitleaks
-# prints what it finds redacted.
+# prints what it finds redacted. A link to a file on this repository's main
+# branch is checked against the file in this checkout instead, which is what
+# main will serve once the change merges, so a file the change adds, such as
+# CHANGELOG.md, which the update hook fetches, doesn't fail as a 404 first.
 git -c core.quotePath=false ls-files --cached --others --exclude-standard -- . ':(exclude)evals' ':(exclude,glob)**/package-lock.json' |
 	while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done >"$tmp/files"
 each() { tr '\n' '\0' | xargs -0 "$@"; } # <command>...: runs it on the names on stdin, one per line
+checkout_url=$(printf 'file:%s' "//$(pwd)") # this checkout as a URL, written so lychee doesn't read it as a link
 skipped=
 lint() { # <tool>
 	if [ "${KNACKPACK_LINTERS-}" = off ] || ! command -v "$1" >/dev/null 2>&1; then
@@ -2316,6 +2320,7 @@ lint() { # <tool>
 	codespell) each codespell <"$tmp/files" ;;
 	markdownlint-cli2) grep '\.md$' "$tmp/files" | sed 's/^/:/' | each markdownlint-cli2 --config .github/linters/markdownlint-cli2.jsonc ;;
 	lychee) each lychee --no-progress --include-verbatim --include-fragments --exclude-loopback --max-retries 3 --retry-wait-time 2 --timeout 20 \
+		--remap "^https://(raw\\.githubusercontent\\.com/bezmoradi/knackpack/main|github\\.com/bezmoradi/knackpack/blob/main)/ $checkout_url/" \
 		--accept '100..=103,200..=299,429,500..=599' --accept-timeouts <"$tmp/files" ;;
 	gitleaks) mkdir "$tmp/scan" && tar -cf - -T "$tmp/files" | tar -xf - -C "$tmp/scan" &&
 		(cd "$tmp/scan" && gitleaks dir --no-banner --no-color --redact --verbose --log-level warn .) ;;
