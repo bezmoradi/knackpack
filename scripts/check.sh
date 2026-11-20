@@ -1807,6 +1807,112 @@ for s in $shells; do
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 
+# Stop's turn check, under the same shells, on transcripts written as Claude
+# Code 2.1.329 writes them: one send-back naming the files a turn edited after
+# its last command, or with none, in a headless session and with
+# KNACKPACK_INTENT=off too, writing nothing, and requirements.txt counting as
+# no document; nothing after a command, for documents only, for a failed edit or an earlier turn's edit, on a
+# continuation, when turned off, or for a transcript it can't read; and one
+# JSON object when the record check sends Claude back in the same stop.
+tc_ok=1
+tc_prompt() { printf '{"parentUuid":null,"isSidechain":false,"promptId":"p1","type":"user","message":{"role":"user","content":"%s"},"uuid":"u-%s"}\n' "$1" "$1"; }
+tc_call() { # <n> <tool> <input>
+	printf '{"parentUuid":"u1","isSidechain":false,"message":{"model":"m","id":"msg_%s","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_%s","name":"%s","input":{%s},"caller":{"type":"direct"}}]},"type":"assistant","uuid":"a-%s"}\n' "$1" "$1" "$2" "$3" "$1"
+}
+tc_result() { # <n> [error]
+	if [ -n "${2:-}" ]; then e='"<tool_use_error>String to replace not found</tool_use_error>","is_error":true'; else e='"ok"'; fi
+	printf '{"parentUuid":"a1","isSidechain":false,"promptId":"p1","type":"user","message":{"role":"user","content":[{"type":"tool_result","content":%s,"tool_use_id":"toolu_%s"}]},"uuid":"r-%s","toolUseResult":{}}\n' "$e" "$1" "$1"
+}
+tc_edit() { tc_call "$1" Edit "\"replace_all\":false,\"file_path\":\"$long/project/$2\",\"old_string\":\"a\",\"new_string\":\"b\""; tc_result "$1" "${3:-}"; }
+tc_bash() { tc_call "$1" Bash '"command":"go test ./...","description":"Run the tests"'; tc_result "$1"; }
+tc_text() { printf '{"parentUuid":"a1","isSidechain":false,"message":{"model":"m","id":"msg_t","type":"message","role":"assistant","content":[{"type":"text","text":"Done. I edited \\"main.go\\" with \\"type\\":\\"tool_use\\",\\"id\\":\\"x\\",\\"name\\":\\"Edit\\",\\"input\\":{\\"file_path\\":\\"/x/y.go\\"}."}]},"type":"assistant","uuid":"a-t"}\n'; }
+{ tc_prompt first; tc_edit 1 old.go; tc_prompt second; tc_edit 2 main.go; tc_text; } >"$tmp/tc-go.jsonl"
+{ tc_prompt first; tc_edit 1 main.go; tc_bash 2; tc_text; } >"$tmp/tc-then-bash.jsonl"
+{ tc_prompt first; tc_bash 1; tc_edit 2 main.go; tc_text; } >"$tmp/tc-bash-then.jsonl"
+{ tc_prompt first; tc_edit 1 README.md; tc_edit 2 docs/guide.MDX; tc_edit 3 docs/index.rst; tc_edit 4 docs/api.adoc; tc_text; } >"$tmp/tc-docs.jsonl"
+{ tc_prompt first; tc_edit 1 README.md; tc_edit 2 requirements.txt; tc_text; } >"$tmp/tc-txt.jsonl"
+{ tc_prompt first; tc_edit 1 main.go x; tc_text; } >"$tmp/tc-failed.jsonl"
+{ tc_prompt first; for n in 1 2 3 4 5; do tc_edit "$n" "f$n.go"; done; tc_edit 6 f1.go; } >"$tmp/tc-many.jsonl"
+printf 'not json\n\000\001{"type":"assistant"\n' >"$tmp/tc-garbage.jsonl"
+tc_event() { printf '{"session_id":"%s","transcript_path":"%s","stop_hook_active":%s,"last_assistant_message":"%s"}' "${4:-$sid}" "$1" "${2:-false}" "${3:-Done.}"; }
+tc_run() { # <shell> <event> [assignment]...
+	s=$1
+	e=$2
+	shift 2
+	printf '%s' "$e" | env -u KNACKPACK_INTENT -u EVAL_KNACKPACK_INTENT -u KNACKPACK_TURN_CHECK -u EVAL_KNACKPACK_TURN_CHECK \
+		-u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0 \
+		XDG_STATE_HOME="$tmp/tc-state" CLAUDE_PROJECT_DIR="$long/project" "$@" "$s" "$hook" stop >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	if [ "$code" != 0 ] || [ -s "$tmp/err" ]; then
+		fail "turn check under $s: exit $code, stderr: $(head -c 200 "$tmp/err")"
+		tc_ok=0
+	fi
+}
+# Sets said to the one send-back's text, or fails when the output isn't one
+# JSON object holding it.
+tc_said() { # <what the case is>
+	said=
+	if [ "$(jq -s 'length' "$tmp/out" 2>/dev/null)" != 1 ] ||
+		! said=$(jq -er '.hookSpecificOutput | select(.hookEventName == "Stop") | .additionalContext' "$tmp/out" 2>/dev/null); then
+		fail "turn check under $s, $1, printed something other than one send-back: $(head -c 200 "$tmp/out")"
+		tc_ok=0
+	fi
+}
+for s in $shells; do
+	rm -rf "$tmp/tc-state"
+	for v in CLAUDE_CODE_ENTRYPOINT=sdk-cli 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_INTENT=off' EVAL_KNACKPACK_TURN_CHECK=on; do
+		# shellcheck disable=SC2086 # $v holds the assignments
+		tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl")" $v
+		tc_said "with $v, after a turn that edited main.go and ran nothing"
+		case $said in
+		*'this turn edited files and ran no command: main.go.'*"run the project's checks that cover them"*'say so in your reply'*'once per turn'*)
+			case $said in *old.go* | *commit* | *push*) fail "turn check under $s names an earlier turn's file or asks for a commit or push: $said"; tc_ok=0 ;; esac ;;
+		*) fail "turn check under $s, with $v, doesn't send Claude back naming main.go: $said"; tc_ok=0 ;;
+		esac
+	done
+	[ -e "$tmp/tc-state" ] && { fail "turn check under $s wrote to the state folder in a headless session"; tc_ok=0; }
+	tc_run "$s" "$(tc_event "$tmp/tc-bash-then.jsonl")"
+	tc_said "after a turn that ran a command and then edited main.go"
+	case $said in *'this turn edited files after the last command you ran: main.go.'*) ;; *) false ;; esac ||
+		{ fail "turn check under $s misses an edit after the turn's last command"; tc_ok=0; }
+	tc_run "$s" "$(tc_event "$tmp/tc-many.jsonl")"
+	tc_said "after a turn that edited five files"
+	case $said in *'this turn edited files and ran no command: f1.go, f2.go, f3.go and 2 more.'*) ;; *) false ;; esac ||
+		{ fail "turn check under $s doesn't name three of five edited files, each once"; tc_ok=0; }
+	# A .txt file such as requirements.txt is an input to the build, not a
+	# document.
+	tc_run "$s" "$(tc_event "$tmp/tc-txt.jsonl")"
+	tc_said "after a turn that edited requirements.txt and ran nothing"
+	case $said in *'this turn edited files and ran no command: requirements.txt.'*) ;; *) false ;; esac ||
+		{ fail "turn check under $s counts requirements.txt as a document: $said"; tc_ok=0; }
+	for c in then-bash docs failed garbage; do
+		tc_run "$s" "$(tc_event "$tmp/tc-$c.jsonl")"
+		[ -s "$tmp/out" ] && { fail "turn check under $s sends Claude back after a turn with $c: $(head -c 200 "$tmp/out")"; tc_ok=0; }
+	done
+	for v in KNACKPACK_TURN_CHECK=off KNACKPACK_TURN_CHECK=Off EVAL_KNACKPACK_TURN_CHECK=off 'EVAL_KNACKPACK_TURN_CHECK=on KNACKPACK_TURN_CHECK=no'; do
+		# shellcheck disable=SC2086 # $v holds the assignments
+		tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl")" $v
+		[ -s "$tmp/out" ] && { fail "turn check under $s with $v still sends Claude back"; tc_ok=0; }
+	done
+	tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl" true)"
+	[ -s "$tmp/out" ] && { fail "turn check under $s sends Claude back a second time, on a Stop with stop_hook_active"; tc_ok=0; }
+	for p in "$tmp/none.jsonl" tc-go.jsonl "$tmp" "$tmp/tc-go.json" '"x'; do
+		tc_run "$s" "$(tc_event "$p")"
+		[ -s "$tmp/out" ] && { fail "turn check under $s reads a transcript path it shouldn't: $p"; tc_ok=0; }
+	done
+	# Both checks in one stop: an update claimed but not made, in an attended
+	# session of its own, and an edit no command saw.
+	tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl" false 'Noted: x' 11111111-1111-1111-1111-111111111111)" CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=1
+	tc_said "when the record check fires too"
+	case $said in
+	*"the record wasn't updated"*'this turn edited files and ran no command: main.go.'*) ;;
+	*) fail "turn check under $s doesn't combine its send-back with the record check's into one: $said"; tc_ok=0 ;;
+	esac
+	rm -rf "$tmp/tc-state"
+done
+grep -q 'KNACKPACK_TURN_CHECK=off' hooks/hooks.json || { fail "hooks/hooks.json's description doesn't name KNACKPACK_TURN_CHECK=off"; tc_ok=0; }
+[ "$tc_ok" = 1 ] && pass "Stop's turn check under$shells"
+
 # The challenge hook, under the same shells: silent, exit 0, its rules in an
 # attended session and with KNACKPACK_CHALLENGE=on or, for evals,
 # EVAL_KNACKPACK_CHALLENGE=on, nothing under `claude -p`,
