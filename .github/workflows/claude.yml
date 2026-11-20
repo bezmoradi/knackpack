@@ -62,3 +62,9 @@ jobs:
           include_comments_by_actor: bezmoradi
           additional_permissions: |
             actions: read
+          # From v1.0.273 the action starts sessions in auto mode, where a
+          # safety review can let a tool call run that no allow rule covers.
+          # acceptEdits is the earlier mode, which the action's release notes
+          # give as the opt-out for @claude mentions, so the default tools
+          # still allow no shell commands beyond git's.
+          claude_args: --permission-mode acceptEdits
