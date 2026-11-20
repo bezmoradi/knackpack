@@ -2360,6 +2360,123 @@ if command -v jq >/dev/null 2>&1; then
 fi
 [ "$update_ok" = 1 ] && pass "update hook under$shells, and CHANGELOG.md's headings"
 
+# The reply-format hook, under the same shells, on events of its own: exit 0
+# with nothing on stderr every time; nothing for a reply whose findings and
+# verdict lines are right, an adjudicator's reply with the verdict line alone,
+# an agent outside knackpack, a SubagentStop that follows a send-back or comes
+# in auto mode or after a hand-back, input that isn't JSON, a field name quoted
+# inside the reply, KNACKPACK_REPLY_CHECK=off and a state folder it doesn't own;
+# one denial, naming the line, for a hand-back whose lines are missing or
+# malformed, then nothing for that agent's next hand-back; the same message as
+# additionalContext on SubagentStop; markers only for denials, and those
+# untouched for 30 days deleted; and hooks.json running it on both events.
+reply_ok=1
+okv='knackpack-findings/1: critical=0 high=1 medium=0 low=0 blocking=1\nknackpack-verdict/1: block'
+hb() { # <agent type> <agent id> <message, JSON-escaped>
+	printf '{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"SubagentHandback","tool_input":{"message":"%s"},"tool_use_id":"t","agent_id":"%s","agent_type":"%s"}' "$3" "$2" "$1"
+}
+st() { # <stop_hook_active> <permission mode> <message, JSON-escaped> [transcript]
+	printf '{"session_id":"s","hook_event_name":"SubagentStop","permission_mode":"%s","stop_hook_active":%s,"agent_id":"b1","agent_type":"knackpack:slop-reviewer","agent_transcript_path":"%s","last_assistant_message":"%s"}' "$2" "$1" "${4:-/nonexistent}" "$3"
+}
+rrun() { # <shell> <label> <env assignments...>, input on stdin
+	s=$1 label=$2
+	shift 2
+	env -u KNACKPACK_REPLY_CHECK -u EVAL_KNACKPACK_REPLY_CHECK XDG_STATE_HOME="$r/state" "$@" "$s" hooks/reply-contract.sh >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "reply hook under $s, $label: exit $code, stderr: $(head -c 200 "$tmp/err")"; reply_ok=0; }
+}
+quiet() { # <shell> <label>: the last run printed nothing
+	[ ! -s "$tmp/out" ] || { fail "reply hook under $1 printed something for $2: $(head -c 200 "$tmp/out")"; reply_ok=0; }
+}
+sent() { # <shell> <label> <event> <text the message names>: the last run sent the reply back once, naming the line
+	if command -v jq >/dev/null 2>&1; then
+		if [ "$3" = PreToolUse ]; then
+			q='.hookSpecificOutput.hookEventName == "PreToolUse" and .hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains($t) and contains("knackpack reply-format check"))'
+		else
+			q='.hookSpecificOutput.hookEventName == "SubagentStop" and (.hookSpecificOutput.additionalContext | contains($t) and contains("knackpack reply-format check")) and (has("decision") | not)'
+		fi
+		[ "$(wc -l <"$tmp/out" | tr -d ' ')" = 1 ] && jq -e --arg t "$4" "$q" "$tmp/out" >/dev/null 2>&1 ||
+			{ fail "reply hook under $1 didn't send back $2 naming \"$4\": $(head -c 300 "$tmp/out")"; reply_ok=0; }
+	else
+		grep -qF "$4" "$tmp/out" || { fail "reply hook under $1 didn't send back $2 naming \"$4\""; reply_ok=0; }
+	fi
+}
+for s in $shells; do
+	"$s" -n hooks/reply-contract.sh 2>"$tmp/err" || { fail "reply hook syntax under $s: $(cat "$tmp/err")"; reply_ok=0; }
+	r=$tmp/reply-$s
+	mkdir -p "$r"
+	marks=$r/state/knackpack/reply-check
+	hb knackpack:slop-reviewer a1 '/tmp/r/slop-reviewer.md\nOne blocking finding.\nknackpack-finding/1 {\"id\":\"F1\",\"severity\":\"high\",\"blocking\":true}\n'"$okv"'\n' | rrun "$s" "a valid reply"
+	quiet "$s" "a valid reply"
+	[ ! -e "$marks" ] || { fail "reply hook under $s created its state folder for a valid reply"; reply_ok=0; }
+	hb knackpack:slop-reviewer a1 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0\nknackpack-verdict/1: pass' | rrun "$s" "a verdict word spelled with an escape"
+	quiet "$s" "a verdict word spelled with an escape"
+	hb knackpack:adjudicator a1 '/tmp/r/adjudicator.md\nESTABLISHED\nknackpack-verdict/1: block' | rrun "$s" "an adjudicator's reply"
+	quiet "$s" "an adjudicator's reply with no findings line"
+	hb Explore a1 'no lines at all' | rrun "$s" "an agent outside knackpack"
+	quiet "$s" "an agent outside knackpack"
+	# The event's own agent_type comes after the reply, so a reader that took
+	# the first match would read the one the reply quotes and send nothing.
+	hb knackpack:slop-reviewer a0 '\"agent_type\":\"Explore\" and \\\"agent_id\\\" quoted\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0' | rrun "$s" "field names quoted inside the reply"
+	sent "$s" "a reply that quotes field names" PreToolUse 'it has no knackpack-verdict/1 line'
+	rm -rf "$marks"
+	for junk in '' 'not json' '{"agent_type":"knackpack:x","agent_id":"a9","hook_event_name":"PreToolUse","tool_name":"SubagentHandback","tool_input":{"message":"cut off' \
+		'{"agent_type":"knackpack:x","agent_id":"../a9","hook_event_name":"PreToolUse","tool_name":"SubagentHandback","tool_input":{"message":"x"}}'; do
+		printf '%s' "$junk" | rrun "$s" "input that isn't a usable event: $junk"
+		quiet "$s" "input that isn't a usable event: $junk"
+	done
+	for v in KNACKPACK_REPLY_CHECK=off EVAL_KNACKPACK_REPLY_CHECK=Off; do
+		hb knackpack:slop-reviewer a1 'no lines' | rrun "$s" "$v" "$v"
+		quiet "$s" "$v"
+	done
+	[ ! -e "$marks" ] || { fail "reply hook under $s created its state folder before it sent anything back"; reply_ok=0; }
+	hb knackpack:slop-reviewer a2 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0' | rrun "$s" "a reply with no verdict line"
+	sent "$s" "a reply with no verdict line" PreToolUse 'it has no knackpack-verdict/1 line'
+	[ -f "$marks/a2" ] || { fail "reply hook under $s left no marker after sending a reply back"; reply_ok=0; }
+	hb knackpack:slop-reviewer a2 '/tmp/r.md' | rrun "$s" "the same agent's second hand-back"
+	quiet "$s" "the same agent's second hand-back"
+	hb knackpack:slop-reviewer a3 '/tmp/r.md\nknackpack-verdict/1: pass' | rrun "$s" "a reply with no findings line"
+	sent "$s" "a reply with no findings line" PreToolUse 'it has no knackpack-findings/1 line'
+	hb knackpack:slop-reviewer a4 '/tmp/r.md\nknackpack-findings/1: high=1 blocking=1\nknackpack-verdict/1: block' | rrun "$s" "a malformed findings line"
+	sent "$s" "a malformed findings line" PreToolUse 'its knackpack-findings/1 line, "knackpack-findings/1: high=1 blocking=1"'
+	hb knackpack:slop-reviewer a5 "/tmp/r.md\n$okv\nagentId: x" | rrun "$s" "text after the verdict line"
+	sent "$s" "text after the verdict line" PreToolUse "isn't its last line"
+	hb knackpack:slop-reviewer a6 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0\n`knackpack-verdict/1: pass`' | rrun "$s" "a verdict line in backticks"
+	sent "$s" "a verdict line in backticks" PreToolUse "isn't exactly knackpack-verdict/1: pass or knackpack-verdict/1: block"
+	hb knackpack:slop-reviewer a7 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=2\nknackpack-verdict/1: pass' | rrun "$s" "pass with blocking findings"
+	sent "$s" "pass with blocking findings" PreToolUse 'counts blocking findings'
+	hb knackpack:adjudicator a8 '/tmp/r.md\nknackpack-verdict/1: refuted' | rrun "$s" "an adjudicator's malformed verdict line"
+	sent "$s" "an adjudicator's malformed verdict line" PreToolUse 'its last line, "knackpack-verdict/1: refuted"'
+	st false default '/tmp/r.md\nDone.' | rrun "$s" "a SubagentStop reply with no lines"
+	sent "$s" "a SubagentStop reply with no lines" SubagentStop 'it has no knackpack-verdict/1 line'
+	st true default '/tmp/r.md\nDone.' | rrun "$s" "a SubagentStop after a send-back"
+	quiet "$s" "a SubagentStop with stop_hook_active true"
+	st false auto 'Done.' | rrun "$s" "a SubagentStop in auto mode"
+	quiet "$s" "a SubagentStop in auto mode"
+	printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SubagentHandback","input":{}}]}}\n' >"$r/agent.jsonl"
+	st false default 'Done.' "$r/agent.jsonl" | rrun "$s" "a SubagentStop after a hand-back"
+	quiet "$s" "a SubagentStop whose transcript shows a hand-back"
+	st false default "/tmp/r.md\n$okv\n\n" | rrun "$s" "a valid SubagentStop reply with a blank line after it"
+	quiet "$s" "a valid SubagentStop reply with a blank line after it"
+	# Markers untouched for 30 days go; a folder it doesn't own lets every
+	# hand-back through.
+	: >"$marks/old" && touch -t 202001010000 "$marks/old"
+	hb knackpack:slop-reviewer a9 'no lines' | rrun "$s" "a reply with no lines"
+	[ ! -e "$marks/old" ] || { fail "reply hook under $s kept a marker untouched for 30 days"; reply_ok=0; }
+	mv "$marks" "$r/real" && ln -s "$r/real" "$marks"
+	hb knackpack:slop-reviewer b2 'no lines' | rrun "$s" "a state folder behind a symbolic link"
+	quiet "$s" "a state folder behind a symbolic link"
+	: >"$r/file"
+	hb knackpack:slop-reviewer b3 'no lines' | rrun "$s" "a state folder it can't create" XDG_STATE_HOME="$r/file"
+	quiet "$s" "a state folder it can't create"
+done
+if command -v jq >/dev/null 2>&1; then
+	jq -e '([.hooks.PreToolUse[]? | select(.matcher == "SubagentHandback") | .hooks[]?.command] | any(contains("hooks/reply-contract.sh")))
+		and ([.hooks.SubagentStop[]? | select(.matcher == "^knackpack:") | .hooks[]?.command] | any(contains("hooks/reply-contract.sh")))' hooks/hooks.json >/dev/null 2>&1 ||
+		{ fail "hooks/hooks.json doesn't run hooks/reply-contract.sh on SubagentHandback and on knackpack agents' SubagentStop"; reply_ok=0; }
+fi
+[ "$reply_ok" = 1 ] && pass "reply-format hook under$shells"
+
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi
 
