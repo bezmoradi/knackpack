@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && [ -f scripts/prompt-audit.sh ] && sh scripts/prompt-audit.sh --ensure; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}
