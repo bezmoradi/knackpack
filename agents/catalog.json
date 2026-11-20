@@ -39,6 +39,21 @@
       "needs": { "network": true, "browser": false, "runsCode": "trusted-only" }
     },
     {
+      "name": "code-health-reviewer",
+      "kind": "reviewer",
+      "summary": "Assesses where a whole code base or subsystem is costly or risky to change, as a profile per dimension, and compares that with an earlier revision.",
+      "appliesTo": {
+        "always": false,
+        "paths": [],
+        "alsoWhen": "Only when the user asks to assess a whole code base or a subsystem for how costly or risky it is to change, or to compare that with an earlier revision; never chosen by the files a change touches."
+      },
+      "modes": ["assess", "compare"],
+      "verdict": "knackpack-verdict/1",
+      "findings": ["knackpack-findings/1", "knackpack-finding/1"],
+      "canBlock": false,
+      "needs": { "network": false, "browser": false, "runsCode": "trusted-only" }
+    },
+    {
       "name": "css-code-reviewer",
       "kind": "reviewer",
       "summary": "Reviews stylesheets against the project's browser targets: layout and stacking, the cascade, accessibility, responsive and right-to-left behavior, and support.",

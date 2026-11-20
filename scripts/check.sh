@@ -102,6 +102,109 @@ for f in agents/*.md; do
 done
 [ "$agents_ok" = 1 ] && pass "agents: tools, omitClaudeMd, report file names and the review protocol's source"
 
+# Recipe blocks. An agent that writes scripts from fenced blocks in its own
+# file, each opened by ```<lang> file=<name> sha256=<digest>, refuses to run a
+# script whose digest differs, so a block edited without its digest silently
+# turns what the script measures into not_measured on every run. A
+# json code-health-snapshot block is the example a later compare reads: one
+# JSON object with the keys the agent defines, schema_version 1, and each
+# recipe's digest the one on its block. Blocks are cut out line by line, from
+# the opening fence to the next line that is exactly three backticks, as the
+# agent cuts them, and each line keeps its newline.
+if command -v sha256sum >/dev/null 2>&1; then
+	sha256() { sha256sum | cut -c1-64; }
+elif command -v shasum >/dev/null 2>&1; then
+	sha256() { shasum -a 256 | cut -c1-64; }
+else
+	sha256() { return 1; }
+fi
+fence_problems() { # <agent file> <scratch folder>: a line for each block that doesn't match
+	rm -rf "$2" && mkdir "$2" || {
+		echo "can't make a folder to check its recipe blocks"
+		return
+	}
+	: >"$2/list"
+	LC_ALL=C awk -v d="$2" '
+		inb { if ($0 == "```") { close(out); inb = 0 } else print > out; next }
+		/^```[A-Za-z0-9_+-]* file=[^ ]+ sha256=[0-9a-f]+$/ {
+			n++; out = d "/b" n; inb = 1; printf "" > out
+			name = $2; sub(/^file=/, "", name); dig = $3; sub(/^sha256=/, "", dig)
+			printf "%s\t%s\t%s\n", n, name, dig >> (d "/list"); next
+		}
+		$0 == "```json code-health-snapshot" { s++; out = d "/snapshot"; inb = 1; printf "" > out; next }
+		END {
+			if (inb) print "a recipe or snapshot block opened in it never closes"
+			if (s > 1) print "it has " s " code-health-snapshot blocks, not one"
+		}
+	' "$1"
+	ftab=$(printf '\t')
+	cut -f2 "$2/list" | LC_ALL=C sort | LC_ALL=C uniq -d | sed 's/^/more than one recipe block is named /'
+	while IFS="$ftab" read -r i nm dg; do
+		[ ${#dg} = 64 ] || echo "the recipe block $nm has a sha256 of ${#dg} hex digits, not 64"
+		got=$(sha256 <"$2/b$i") || {
+			echo "neither sha256sum nor shasum is installed, so the recipe block $nm wasn't checked"
+			continue
+		}
+		[ "$got" = "$dg" ] || echo "the recipe block $nm hashes to $got, not the $dg on its fence"
+	done <"$2/list"
+	[ -f "$2/snapshot" ] || return 0
+	if ! command -v jq >/dev/null 2>&1; then
+		echo "jq isn't installed, so its code-health-snapshot block wasn't checked"
+	elif ! jq -s . "$2/snapshot" >/dev/null 2>&1; then
+		echo "its code-health-snapshot block doesn't parse as JSON"
+	else
+		jq -R -n '[inputs | split("\t") | {key: .[1], value: .[2]}] | from_entries' "$2/list" >"$2/digests.json"
+		jq -r -s --slurpfile d "$2/digests.json" '
+			def says(m): "its code-health-snapshot block \(m)";
+			if length != 1 then says("holds \(length) JSON values, not one") else .[0] |
+			if type != "object" then says("is not a JSON object") else
+				(keys as $k | ["dirty", "findings", "recipes", "revision", "schema_version", "scope", "shallow", "tree", "window"] as $w |
+					if $k != $w then says("has the keys \($k | join(" ")), not \($w | join(" "))") else empty end),
+				(if .schema_version != 1 then says("has schema_version \(.schema_version | tojson), not 1") else empty end),
+				(if (.recipes | type) != "array" or (.recipes | length) == 0 then says("lists no recipes") else
+					(.recipes[] | (if type == "object" then . else {} end) as $r |
+						($r.name | if type == "string" then . else "" end) as $nm |
+						if ($d[0] | has($nm) | not) then says("names the recipe \($r.name | tojson), which has no block")
+						elif $r.sha256 != $d[0][$nm] then says("gives \($nm) the sha256 \($r.sha256 | tojson), not the \($d[0][$nm]) on its block")
+						else empty end)
+				end)
+			end end
+		' "$2/snapshot" 2>&1
+	fi
+}
+fence_ok=1
+fence_blocks=0
+fence_snaps=0
+fence_first=
+for f in agents/*.md; do
+	fence_problems "$f" "$tmp/fence" >"$tmp/fence-out"
+	while IFS= read -r line; do
+		fail "$f: $line"
+		fence_ok=0
+	done <"$tmp/fence-out"
+	fence_blocks=$((fence_blocks + $(wc -l <"$tmp/fence/list")))
+	if [ -f "$tmp/fence/snapshot" ]; then
+		fence_snaps=$((fence_snaps + 1))
+		[ -n "$fence_first" ] || [ ! -s "$tmp/fence/list" ] || fence_first=$f
+	fi
+done
+# The check must notice one byte changed in a recipe block and one hex digit
+# changed in the snapshot's first recipe digest, each in a copy of the first
+# agent file that has both.
+if [ "$fence_ok" = 1 ] && [ -n "$fence_first" ]; then
+	LC_ALL=C awk 'f == 1 { c = substr($0, 1, 1); $0 = (c == "#" ? "%" : "#") substr($0, 2); f = 2 }
+		f == 0 && /^```[A-Za-z0-9_+-]* file=[^ ]+ sha256=[0-9a-f]+$/ { f = 1 } { print }' "$fence_first" >"$tmp/fence-block.md"
+	LC_ALL=C awk 'f == 1 { i = index($0, "\"sha256\":\""); if (i) { i += 10; c = substr($0, i, 1); $0 = substr($0, 1, i - 1) (c == "0" ? "1" : "0") substr($0, i + 1) } f = 2 }
+		f == 0 && $0 == "```json code-health-snapshot" { f = 1 } { print }' "$fence_first" >"$tmp/fence-snapshot.md"
+	for c in block snapshot; do
+		if cmp -s "$fence_first" "$tmp/fence-$c.md" || [ -z "$(fence_problems "$tmp/fence-$c.md" "$tmp/fence")" ]; then
+			fail "the recipe block check didn't notice a $c changed in a copy of $fence_first"
+			fence_ok=0
+		fi
+	done
+fi
+[ "$fence_ok" = 1 ] && pass "agents' recipe blocks: $fence_blocks match the sha256 on their fences, and $fence_snaps code-health-snapshot example parses with the agent's keys, schema 1 and those digests${fence_first:+; the check notices a byte changed in a block and in a snapshot digest}"
+
 # An agent that denies Playwright MCP tools must deny each one under both the
 # bare server name `mcp__playwright__` and the plugin-bundled
 # `mcp__plugin_playwright_playwright__`, since a user can add the server either
