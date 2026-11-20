@@ -2459,6 +2459,121 @@ for s in $shells; do
 done
 [ "$tg_ok" = 1 ] && pass "scripts/trigger-gate.sh skips, passes, blocks and reuses its results as it should, with a stand-in for claude, under$shells"
 
+# scripts/review-scope.sh, which every reviewer runs to resolve its review's
+# scope, so the reviewers of one combined review read the same snapshot
+# against the same base. In throwaway repositories whose origin is a local
+# bare repository, with a stand-in gh, so nothing uses the network: a branch
+# with commits and staged, unstaged, untracked and ignored files gives the
+# starting state that the protocol's own step 2 commands give, the merge base
+# with origin's default branch and the files between them, the same output
+# twice, and leaves the status, the index, HEAD and the refs as they were.
+# --after finds the state unchanged. With no remote and no target it compares
+# with HEAD and says so, with a named local branch it uses that, and with
+# nothing to review it takes the last commit. A filter or fsmonitor that isn't
+# Git LFS's is noted and run on the user's own branch, but on a pull request's
+# branch, or one whose remote is a URL, it runs nothing and pins HEAD with a
+# refused= line, unless --own is given. A pull request number gives its head
+# and its merge base with its base branch. It refuses a folder inside the
+# repository, a folder outside one and bad usage.
+scope_ok=1
+grep -qF 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-scope.sh" <dir> <target>' scripts/review-protocol.md ||
+	{ fail 'scripts/review-protocol.md doesn'\''t run sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-scope.sh" <dir> <target>'; scope_ok=0; }
+manual=$(grep -E '^(cp "\$\(git rev-parse --git-path index\)" <dir>/index |\{ git rev-parse -q --verify HEAD; )' scripts/review-protocol.md)
+[ "$(printf '%s\n' "$manual" | grep -c .)" = 2 ] || { fail "couldn't find step 2's two commands in scripts/review-protocol.md to compare review-scope.sh with"; scope_ok=0; }
+for s in $shells; do
+	"$s" -n scripts/review-scope.sh 2>"$tmp/err" || { fail "scripts/review-scope.sh syntax under $s: $(cat "$tmp/err")"; scope_ok=0; continue; }
+	q=$tmp/scope-$s
+	w=$q/work
+	mkdir -p "$q/d" "$q/m" "$q/bin" && git init -q --bare "$q/origin.git" && git -C "$q/origin.git" symbolic-ref HEAD refs/heads/trunk &&
+		git init -q "$w" && git -C "$w" symbolic-ref HEAD refs/heads/trunk && git -C "$w" config user.name check && git -C "$w" config user.email check@example.com &&
+		printf 'a\n' >"$w/a.txt" && printf 'secret.env\n' >"$w/.gitignore" && printf 'KEY=1\n' >"$w/secret.env" &&
+		git -C "$w" add -A && git -C "$w" commit -q -m one && git -C "$w" remote add origin "$q/origin.git" &&
+		git -C "$w" push -q origin trunk && git -C "$w" fetch -q origin && git -C "$w" remote set-head origin trunk >/dev/null &&
+		git -C "$w" checkout -q -b feature && printf 'b\n' >"$w/b.txt" && git -C "$w" add b.txt && git -C "$w" commit -q -m two &&
+		printf 'c\n' >"$w/c.txt" && git -C "$w" add c.txt && git -C "$w" commit -q -m three &&
+		printf 'staged\n' >"$w/s.txt" && git -C "$w" add s.txt && printf 'unstaged\n' >>"$w/a.txt" && printf 'untracked\n' >"$w/u.txt" ||
+		{ fail "couldn't make a repository to try scripts/review-scope.sh in"; scope_ok=0; continue; }
+	sc() { (cd "$sw" && "$s" "$here/scripts/review-scope.sh" "$@" 2>"$tmp/err"); } # with $sw the repository
+	has() { printf '%s\n' "$out" | grep -qxF -- "$1" || { fail "review-scope.sh under $s $2 printed no line $1: $out"; scope_ok=0; }; }
+	sw=$w
+	ix=$(cksum <"$w/.git/index") st=$(cd "$w" && GIT_OPTIONAL_LOCKS=0 git status --porcelain) hd=$(git -C "$w" rev-parse HEAD) refs=$(git -C "$w" for-each-ref)
+	out=$(sc "$q/d") || { fail "review-scope.sh under $s failed on a branch with work: $out $(cat "$tmp/err")"; scope_ok=0; continue; }
+	(cd "$w" && printf '%s\n' "$manual" | sed "s|<dir>|$q/m|g" | "$s") || { fail "step 2's commands from scripts/review-protocol.md failed under $s"; scope_ok=0; }
+	cmp -s "$q/d/before.txt" "$q/m/before.txt" || { fail "review-scope.sh under $s recorded a starting state other than step 2's commands in scripts/review-protocol.md"; scope_ok=0; }
+	tree=$(tail -n 1 "$q/m/before.txt") base=$(git -C "$w" merge-base refs/remotes/origin/trunk HEAD)
+	files=$(git -C "$w" diff --no-ext-diff --no-textconv --name-only -z "$base" "$tree" | tr -cd '\000' | wc -c | tr -d ' ')
+	git -C "$w" cat-file -e "$tree:u.txt" && ! git -C "$w" cat-file -e "$tree:secret.env" 2>/dev/null ||
+		{ fail "step 2's snapshot under $s left out an untracked file or took in an ignored one"; scope_ok=0; }
+	for l in "snapshot=$tree" snapshot_kind=tree snapshot_source=working-tree "base=$base" base_source=merge-base target=trunk \
+		target_source=origin-head remote=origin refreshed=yes state=full filters=none "files_changed=$files" "state_file=$(cd -P "$q/d" && pwd -P)/before.txt"; do
+		has "$l" "on a branch with work"
+	done
+	[ "$files" = 5 ] || { fail "the test of review-scope.sh under $s expected 5 changed files, not $files"; scope_ok=0; }
+	[ "$(sc "$q/d")" = "$out" ] && [ "$(cat "$q/d/scope.txt")" = "$out" ] || { fail "review-scope.sh under $s printed something else when run again, or saved other lines in scope.txt"; scope_ok=0; }
+	[ "$(cksum <"$w/.git/index")" = "$ix" ] && [ "$(cd "$w" && GIT_OPTIONAL_LOCKS=0 git status --porcelain)" = "$st" ] &&
+		[ "$(git -C "$w" rev-parse HEAD)" = "$hd" ] && [ "$(git -C "$w" for-each-ref)" = "$refs" ] ||
+		{ fail "review-scope.sh under $s changed the index, the status, HEAD or the refs"; scope_ok=0; }
+	out=$(sc --after "$q/d") && has unchanged=yes "--after with nothing changed" && cmp -s "$q/d/before.txt" "$q/d/after.txt" ||
+		{ fail "review-scope.sh --after under $s didn't find the state unchanged: $out"; scope_ok=0; }
+	out=$(sc "$q/d" trunk) && has target_source=named "given trunk" && has "base=$base" "given trunk"
+	out=$(sc "$q/d" trunk..feature) && has "snapshot=$hd" "given trunk..feature" && has "base=$base" "given trunk..feature" && has snapshot_source=range "given trunk..feature"
+	# Filters and fsmonitor: each probe leaves a file when git runs it.
+	printf '*.txt filter=probe\n' >"$w/.gitattributes"
+	git -C "$w" config filter.probe.clean "touch '$q/filter-ran'; cat"
+	out=$(sc "$q/d") && has filters=other "with a filter on the user's branch" && has state=full "with a filter on the user's branch"
+	[ -f "$q/filter-ran" ] || { fail "review-scope.sh under $s didn't build the snapshot on the user's own branch with a filter set"; scope_ok=0; }
+	rm -f "$q/filter-ran"
+	git -C "$w" config branch.feature.merge refs/pull/7/head
+	out=$(sc "$q/d") && has state=head "on a pull request's branch with a filter" && has "snapshot=$hd" "on a pull request's branch with a filter" &&
+		has snapshot_kind=commit "on a pull request's branch with a filter" && [ "$(cat "$q/d/before.txt")" = "$hd" ]
+	case $out in *"${nl}refused=uncommitted work wasn't reviewed: git config sets filter.probe.clean"*) ;; *) fail "review-scope.sh under $s gave no refused= line on a pull request's branch with a filter: $out"; scope_ok=0 ;; esac
+	[ ! -f "$q/filter-ran" ] || { fail "review-scope.sh under $s ran a filter on a pull request's branch"; scope_ok=0; }
+	out=$(sc --own "$q/d") && has state=full "given --own on a pull request's branch with a filter"
+	rm -f "$q/filter-ran" "$w/.gitattributes"
+	git -C "$w" config --unset filter.probe.clean && git -C "$w" config --unset branch.feature.merge &&
+		printf '#!/bin/sh\ntouch "%s"\n' "$q/fsmonitor-ran" >"$q/fsmonitor" && chmod +x "$q/fsmonitor" &&
+		git -C "$w" config core.fsmonitor "$q/fsmonitor" && git -C "$w" config branch.feature.remote https://example.invalid/fork.git
+	out=$(sc "$q/d") && has state=head "with fsmonitor on a branch whose remote is a URL"
+	case $out in *"${nl}refused="*"core.fsmonitor"*"a URL rather than"*) ;; *) fail "review-scope.sh under $s gave no refused= line with fsmonitor on a branch whose remote is a URL: $out"; scope_ok=0 ;; esac
+	[ ! -f "$q/fsmonitor-ran" ] || { fail "review-scope.sh under $s ran fsmonitor on a branch whose remote is a URL"; scope_ok=0; }
+	git -C "$w" config --unset core.fsmonitor && git -C "$w" config --unset branch.feature.remote && git -C "$w" config filter.lfs.clean 'git-lfs clean -- %f'
+	out=$(sc "$q/d") && has filters=git-lfs "with only Git LFS's filter" && has state=full "with only Git LFS's filter"
+	case $out in *refused=*) fail "review-scope.sh under $s refused over Git LFS's own filter"; scope_ok=0 ;; esac
+	git -C "$w" config --unset filter.lfs.clean
+	# No remote: HEAD with a note, a named local branch, or the last commit.
+	sw=$q/lone
+	git init -q "$sw" && git -C "$sw" config user.name check && git -C "$sw" config user.email check@example.com &&
+		printf '1\n' >"$sw/f" && git -C "$sw" add f && git -C "$sw" commit -q -m one && git -C "$sw" branch start &&
+		printf '2\n' >"$sw/g" && git -C "$sw" add g && git -C "$sw" commit -q -m two && printf 'x\n' >>"$sw/f" ||
+		{ fail "couldn't make a repository without a remote to try scripts/review-scope.sh in"; scope_ok=0; continue; }
+	one=$(git -C "$sw" rev-parse start) two=$(git -C "$sw" rev-parse HEAD)
+	out=$(sc "$q/d") && has target=none "with no remote" && has "base=$two" "with no remote" && has base_source=head "with no remote" && has files_changed=1 "with no remote"
+	case $out in *"${nl}note=no remote and no target named"*) ;; *) fail "review-scope.sh under $s didn't say there was no remote and no target: $out"; scope_ok=0 ;; esac
+	out=$(sc "$q/d" start) && has "base=$one" "given a local branch" && has base_source=merge-base "given a local branch" && has files_changed=2 "given a local branch"
+	git -C "$sw" checkout -q -- f
+	out=$(sc "$q/d") && has "base=$one" "with nothing to review" && has base_source=last-commit "with nothing to review"
+	# A pull request, through a gh that answers as GitHub would and a remote
+	# whose GitHub URL git rewrites to the local bare repository.
+	sw=$q/prw
+	git init -q "$sw" && git -C "$sw" symbolic-ref HEAD refs/heads/trunk && git -C "$sw" config user.name check && git -C "$sw" config user.email check@example.com &&
+		git -C "$sw" config url."$q/origin.git".insteadOf https://github.com/acme/widgets.git &&
+		git -C "$sw" remote add origin https://github.com/acme/widgets.git && git -C "$w" push -q origin feature:refs/pull/5/head ||
+		{ fail "couldn't make a pull request to try scripts/review-scope.sh with"; scope_ok=0; continue; }
+	printf '#!/bin/sh\ncase "$1 $2" in\n"pr view") echo "trunk %s %s https://github.com/acme/widgets/pull/5" ;;\n"api repos/acme/widgets") echo ;;\n*) exit 1 ;;\nesac\n' \
+		"$base" "$hd" >"$q/bin/gh" && chmod +x "$q/bin/gh"
+	out=$(PATH="$q/bin:$PATH" sc "$q/d" 5) && has pr=5 "given a pull request" && has "snapshot=$hd" "given a pull request" &&
+		has "base=$base" "given a pull request" && has snapshot_source=pull-request "given a pull request" && has files_changed=2 "given a pull request" ||
+		{ fail "review-scope.sh under $s failed on a pull request: $out"; scope_ok=0; }
+	# Refusals.
+	out=$(sc "$sw/.git") && { fail "review-scope.sh under $s accepted a folder inside the repository"; scope_ok=0; }
+	case $out in error=*) ;; *) fail "review-scope.sh under $s gave no error= line for a folder inside the repository: $out"; scope_ok=0 ;; esac
+	out=$(cd "$tmp" && "$s" "$here/scripts/review-scope.sh" "$q/d") && { fail "review-scope.sh under $s ran outside a git repository"; scope_ok=0; }
+	case $out in error=*) ;; *) fail "review-scope.sh under $s gave no error= line outside a git repository: $out"; scope_ok=0 ;; esac
+	sc >/dev/null
+	[ "$?" = 2 ] && [ -s "$tmp/err" ] || { fail "review-scope.sh under $s didn't exit 2 with a message when given no folder"; scope_ok=0; }
+done
+[ "$scope_ok" = 1 ] && pass "scripts/review-scope.sh resolves the snapshot and base as the review protocol's steps 2 to 4 do under$shells"
+
 # The context hook, under the same shells: silent on stderr, exit 0, nothing
 # below 400,000 tokens, after a compaction, for a subagent's usage, for the
 # checkpoint command and /compact, for a transcript that is a symbolic link,
