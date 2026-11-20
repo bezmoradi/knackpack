@@ -2,6 +2,10 @@
 
 Each knackpack release, newest first. Each one starts with a heading `## <version> (<date>)`, and an entry that breaks the public interface starts with **Breaking:** and says what users need to do. Installed copies of knackpack read this file at session start to tell their users what changed since their version, so keep its headings in that form. Entries before 0.37.0 are the titles of their release commits.
 
+## 0.38.1 (2026-11-20)
+
+- `/knackpack:debug-incident`'s description no longer promises ranked hypotheses. Its root-cause step lists every hypothesis and rules each out with evidence, and it never ranked them. What the command does is unchanged.
+
 ## 0.38.0 (2026-11-20)
 
 - Three commands for a production incident, so a fix never starts before its cause is shown (#89). `/knackpack:debug-incident` does one step per run, triage, then a reproduction at the deployed revision that fails, then ranked hypotheses and a test that tells them apart, and saves each to `ROOT-CAUSE.md`, whose Status ends `CONFIRMED`, `UNCONFIRMED` or `BLOCKED`. It changes no code, keeps secrets and personal data from your logs out of what it writes, and works in a separate git worktree on an `incident-<task>` branch when your checkout isn't the deployed revision or has uncommitted work. `/knackpack:fix-incident` refuses unless the diagnosis is `CONFIRMED` and approved, by you in the session or by a tool that passes the approved file's SHA-256 in `KNACKPACK_INCIDENT_APPROVED_SHA256`, then makes the smallest fix, reruns the reproduction and assesses rollback, without committing. `/knackpack:incident-review` writes a blameless `INCIDENT.md`. None of them starts on its own.
