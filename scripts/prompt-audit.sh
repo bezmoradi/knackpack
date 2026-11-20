@@ -8,10 +8,17 @@
 #       audit the files <commit> (default HEAD) changes since origin/main
 #   sh scripts/prompt-audit.sh --hook
 #       the same for each commit git is about to push, reading git's pre-push
-#       lines on standard input
+#       lines on standard input, then, when nothing blocks, run
+#       scripts/trigger-gate.sh --hook on the same lines; the hook itself is
+#       one line, so a check added here reaches it with a pull, not a reinstall
 #   sh scripts/prompt-audit.sh --install
-#       install the pre-push hook that runs --hook in this clone and, when
-#       nothing blocks, scripts/trigger-gate.sh --hook
+#       install the pre-push hook that runs --hook in this clone
+#   sh scripts/prompt-audit.sh --ensure
+#       what the repository's own SessionStart hook runs: silently install the
+#       hook, or bring knackpack's own older one up to date, only in a clone
+#       whose origin is github.com/bezmoradi/knackpack, since the hook spends
+#       on the account of whoever pushes and only the maintainer pushes there;
+#       a pre-push hook that isn't knackpack's is never touched
 #   sh scripts/prompt-audit.sh --accept <path> [<commit>]
 #       accept the findings reported for that version of the file, after
 #       reading them, so they stop blocking
@@ -38,6 +45,42 @@
 # (default 6).
 
 set -u
+
+# The pre-push hook --install and --ensure write: one line that hands git's
+# lines to --hook from the checkout, so what the push runs is this script's to
+# decide and arrives with a pull.
+stub='#!/bin/sh
+# knackpack prompt-audit hook, installed by sh scripts/prompt-audit.sh --install
+# It runs scripts/prompt-audit.sh --hook from the checkout, which runs the
+# prompt audit and then the other pre-push checks, so a check added later
+# reaches this hook with a pull.
+s=$(git rev-parse --show-toplevel)/scripts/prompt-audit.sh
+[ -f "$s" ] || exit 0 # a branch from before the script existed
+exec sh "$s" --hook'
+
+if [ "${1:-}" = --ensure ]; then
+	# Silent, and exit 0 whatever happens: it runs at every session start.
+	url=$(git config --get remote.origin.url 2>/dev/null | tr '[:upper:]' '[:lower:]')
+	case ${url%/} in
+	https://github.com/bezmoradi/knackpack | https://github.com/bezmoradi/knackpack.git | \
+		git@github.com:bezmoradi/knackpack | git@github.com:bezmoradi/knackpack.git | \
+		ssh://git@github.com/bezmoradi/knackpack | ssh://git@github.com/bezmoradi/knackpack.git) ;;
+	*) exit 0 ;;
+	esac
+	hook=$(git rev-parse --git-path hooks/pre-push 2>/dev/null) && [ -n "$hook" ] || exit 0
+	if [ -e "$hook" ] || [ -L "$hook" ]; then
+		[ -f "$hook" ] && [ ! -L "$hook" ] && grep -q 'knackpack prompt-audit hook' "$hook" 2>/dev/null || exit 0
+		[ "$(cat "$hook" 2>/dev/null)" != "$stub" ] || exit 0
+		what=updated
+	else
+		what=installed
+	fi
+	mkdir -p "$(dirname "$hook")" 2>/dev/null && printf '%s\n' "$stub" >"$hook.knackpack-tmp" 2>/dev/null &&
+		chmod +x "$hook.knackpack-tmp" 2>/dev/null && mv -f "$hook.knackpack-tmp" "$hook" 2>/dev/null ||
+		{ rm -f "$hook.knackpack-tmp" 2>/dev/null; exit 0; }
+	printf 'knackpack: %s this clone'\''s pre-push hook, which runs scripts/prompt-audit.sh --hook: the prompt audit, then the trigger gate.\n' "$what"
+	exit 0
+fi
 
 fail() {
 	printf 'prompt-audit: %s\n' "$1" >&2
@@ -168,23 +211,10 @@ case ${1:-} in
 --install)
 	hook=$(git rev-parse --git-path hooks/pre-push) || fail "can't find the hooks folder"
 	if [ -e "$hook" ] && ! grep -q 'knackpack prompt-audit hook' "$hook"; then
-		fail "$hook already exists and isn't this script's; add lines to it yourself that give git's lines on standard input to sh scripts/prompt-audit.sh --hook and, when that passes, to sh scripts/trigger-gate.sh --hook"
+		fail "$hook already exists and isn't this script's; add a line to it yourself that gives git's lines on standard input to sh scripts/prompt-audit.sh --hook"
 	fi
 	mkdir -p "$(dirname "$hook")" || fail "can't create the hooks folder"
-	cat >"$hook" <<'EOF'
-#!/bin/sh
-# knackpack prompt-audit hook, installed by sh scripts/prompt-audit.sh --install
-# It runs the prompt audit and, when nothing blocks, the trigger gate, which
-# costs nothing unless the push changes a skill's or agent's description.
-top=$(git rev-parse --show-toplevel)
-s=$top/scripts/prompt-audit.sh
-[ -f "$s" ] || exit 0 # a branch from before the script existed
-lines=$(cat)
-printf '%s\n' "$lines" | sh "$s" --hook || exit
-g=$top/scripts/trigger-gate.sh
-[ -f "$g" ] || exit 0 # a branch from before the gate existed
-printf '%s\n' "$lines" | sh "$g" --hook
-EOF
+	printf '%s\n' "$stub" >"$hook" || fail "can't write $hook"
 	chmod +x "$hook" || fail "can't make $hook executable"
 	printf 'prompt-audit: installed %s\n' "$hook"
 	;;
@@ -198,15 +228,28 @@ EOF
 	;;
 --hook)
 	in_hook=1
+	lines=$(cat)
 	worst=0
 	while read -r _ lsha _ _; do
 		case $lsha in *[!0]*) ;; *) continue ;; esac # all zeros: a branch being deleted
 		audit "$lsha"
 		s=$?
 		[ "$s" -le "$worst" ] || worst=$s
-	done
-	[ "$worst" -eq 0 ] || printf 'prompt-audit: push stopped; git push --no-verify skips this check\n' >&2
-	exit "$worst"
+	done <<EOF
+$lines
+EOF
+	if [ "$worst" -ne 0 ]; then
+		printf 'prompt-audit: push stopped; git push --no-verify skips this check\n' >&2
+		exit "$worst"
+	fi
+	# The other pre-push checks run from here rather than from the hook, so a
+	# hook installed before one existed still runs it. Only after the audit
+	# passes, so a push it stops spends nothing more.
+	cleanup
+	wt="" tmp=""
+	[ -f "$top/scripts/trigger-gate.sh" ] || exit 0
+	printf '%s\n' "$lines" | sh "$top/scripts/trigger-gate.sh" --hook
+	exit $?
 	;;
 -*)
 	fail "unknown option $1"

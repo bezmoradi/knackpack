@@ -14,7 +14,7 @@
 #       lines on standard input
 #   sh scripts/trigger-gate.sh --install
 #       install the pre-push hook, the one sh scripts/prompt-audit.sh
-#       --install writes, which runs the prompt audit and then this gate
+#       --install writes, whose --hook runs the prompt audit and then this gate
 #   sh scripts/trigger-gate.sh --accept <component> [<commit>]
 #       accept the gate's verdict on that component's description change,
 #       after reading it, so it stops blocking; <component> is its name as

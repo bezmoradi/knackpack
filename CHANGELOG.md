@@ -2,6 +2,10 @@
 
 Each knackpack release, newest first. Each one starts with a heading `## <version> (<date>)`, and an entry that breaks the public interface starts with **Breaking:** and says what users need to do. Installed copies of knackpack read this file at session start to tell their users what changed since their version, so keep its headings in that form. Entries before 0.37.0 are the titles of their release commits.
 
+## 0.39.1 (2026-11-20)
+
+- Nothing changes in the plugin. For maintainers: the pre-push hook is one line that hands over to `scripts/prompt-audit.sh --hook`, which now runs the trigger gate itself after the audit passes, so a hook installed by any release runs every pre-push check without reinstalling. In a clone of this repository, the repository's own `.claude/settings.json` installs the hook at session start, or updates knackpack's older one, and leaves a pre-push hook that isn't knackpack's alone; a fork's clone gets nothing, since the hook spends on the account of whoever pushes.
+
 ## 0.39.0 (2026-11-20)
 
 - At the end of a turn that edited a file other than a document (`.md`, `.mdx`, `.markdown`, `.rst`, `.adoc` or an intent record) after the last Bash or PowerShell command it ran, or that ran no command, Claude is sent back once to run your project's checks that cover those files, such as its tests, build, type check or linter, or to say why there are none (#95). It's on by default, in headless `claude -p` runs, CI and evals too, and with `KNACKPACK_INTENT=off`; in a headless run, a send-back costs one more model turn. It writes nothing. Set `KNACKPACK_TURN_CHECK=off` to turn it off, or `EVAL_KNACKPACK_TURN_CHECK=off` in an eval case.

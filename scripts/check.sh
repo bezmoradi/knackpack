@@ -2344,8 +2344,9 @@ done
 # even when the commit rewrites it, and passes when nothing drops; a second
 # run reuses the kept results. A drop in starts or a quiet case that fires
 # blocks, until accepted. A component with no case blocks as not measured. A
-# run that fails is an error and isn't kept. --install writes the hook that
-# runs the prompt audit and then the gate.
+# run that fails is an error and isn't kept. --install writes a one-line hook
+# that hands over to prompt-audit.sh --hook, which runs the gate after the
+# audit passes; --ensure installs that hook only where it should.
 tg_ok=1
 tgb=$tmp/tg-bin
 mkdir -p "$tgb" && cat >"$tgb/claude" <<'EOF' && chmod +x "$tgb/claude" || { fail "couldn't write a stand-in for claude to try scripts/trigger-gate.sh with"; tg_ok=0; }
@@ -2452,10 +2453,58 @@ for s in $shells; do
 	tgrun "$s" "$r" "$c"
 	[ "$tgx" = 0 ] && [ "$(tgcalls "$r")" = $((n + 2)) ] || tgfail "kept a failed run's result, or didn't measure the description once claude worked"
 	[ -z "$(git -C "$r" worktree list --porcelain | grep '^worktree ' | sed 1d)" ] || { fail "trigger-gate.sh under $s left a worktree behind"; tg_ok=0; }
-	mkdir -p "$r/scripts" && cp scripts/prompt-audit.sh "$r/scripts/" && tgrun "$s" "$r" --install
+	mkdir -p "$r/scripts" && cp scripts/prompt-audit.sh scripts/trigger-gate.sh "$r/scripts/" && tgrun "$s" "$r" --install
 	h=$r/.git/hooks/pre-push
-	[ "$tgx" = 0 ] && [ -x "$h" ] && grep -q 'scripts/prompt-audit\.sh' "$h" && grep -q 'scripts/trigger-gate\.sh' "$h" && "$s" -n "$h" ||
-		tgfail "--install didn't write a pre-push hook that runs the prompt audit and the gate"
+	[ "$tgx" = 0 ] && [ -x "$h" ] && grep -q '^exec sh "\$s" --hook$' "$h" && grep -q 'scripts/prompt-audit\.sh$' "$h" &&
+		! grep -q 'trigger-gate' "$h" && "$s" -n "$h" ||
+		tgfail "--install didn't write a one-line pre-push hook that hands over to prompt-audit.sh --hook"
+	# prompt-audit.sh --hook runs the gate itself once the audit passes, so a
+	# hook installed before the gate existed still runs it, and runs nothing
+	# more when the audit blocks. Audit results are kept per file version, so
+	# one written beforehand stands in for a model run.
+	pa=$r/.git/knackpack-prompt-audit
+	pacopy() { mkdir -p "$r/scripts" && cp scripts/prompt-audit.sh scripts/trigger-gate.sh "$r/scripts/"; } # a checkout may remove them
+	parun() { # <commit> <findings JSON>: the push of <commit> through the installed hook's prompt-audit.sh --hook
+		pacopy && mkdir -p "$pa" && printf '{"structured_output":{"audit_ran":true,"report":"","findings":%s}}\n' "$2" \
+			>"$pa/$(git -C "$r" rev-parse "$1:skills/alpha/SKILL.md")-skills_alpha_SKILL.md.json" &&
+			printf 'refs/heads/x %s refs/heads/x %s\n' "$1" 0000000000000000000000000000000000000000 |
+			(cd "$r" && PATH="$tgb:$PATH" KP_STUB_LOG="$r.log" "$s" scripts/prompt-audit.sh --hook) >"$tmp/tg-out" 2>&1
+		tgx=$?
+	}
+	n=$(tgcalls "$r")
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work, through the audit.') && parun "$c" '[]'
+	[ "$tgx" = 0 ] && grep -q '^  pass     skills/alpha/SKILL.md' "$tmp/tg-out" && grep -q '^  pass     knackpack:alpha:' "$tmp/tg-out" &&
+		[ "$(tgcalls "$r")" -gt "$n" ] || tgfail "prompt-audit.sh --hook didn't run the gate after an audit that passed"
+	n=$(tgcalls "$r")
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work, audit blocks.') &&
+		parun "$c" '[{"location":"x","confidence":"high","action":"fix","summary":"planted"}]'
+	[ "$tgx" = 1 ] && grep -q '^  BLOCKED  skills/alpha/SKILL.md' "$tmp/tg-out" && ! grep -q '^trigger-gate:' "$tmp/tg-out" &&
+		[ "$(tgcalls "$r")" = "$n" ] || tgfail "prompt-audit.sh --hook ran the gate after an audit that blocked"
+	# --ensure, which the repository's SessionStart hook runs: silent and exit 0
+	# everywhere; it installs the hook only in a clone of the canonical
+	# repository, brings knackpack's own older hook up to date, and leaves
+	# anyone else's alone.
+	git -C "$r" checkout -q --detach "$b0" && pacopy && rm -f "$h"
+	(cd "$r" && "$s" scripts/prompt-audit.sh --ensure) >"$tmp/tg-out" 2>&1
+	[ $? = 0 ] && [ ! -s "$tmp/tg-out" ] && [ ! -e "$h" ] || tgfail "--ensure did something in a clone with no origin"
+	git -C "$r" remote add origin "$(printf 'https:%s' //github.com/someone-else/knackpack.git)" # written so lychee doesn't read it as a link
+	(cd "$r" && "$s" scripts/prompt-audit.sh --ensure) >"$tmp/tg-out" 2>&1
+	[ $? = 0 ] && [ ! -s "$tmp/tg-out" ] && [ ! -e "$h" ] || tgfail "--ensure installed the hook in a fork's clone"
+	git -C "$r" remote set-url origin git@github.com:BezMoradi/knackpack.git
+	(cd "$r" && "$s" scripts/prompt-audit.sh --ensure) >"$tmp/tg-out" 2>&1
+	[ $? = 0 ] && grep -q '^knackpack: installed this clone' "$tmp/tg-out" && [ -x "$h" ] && grep -q '^exec sh "\$s" --hook$' "$h" ||
+		tgfail "--ensure didn't install the hook in a clone of the canonical repository"
+	(cd "$r" && "$s" scripts/prompt-audit.sh --ensure) >"$tmp/tg-out" 2>&1
+	[ $? = 0 ] && [ ! -s "$tmp/tg-out" ] || tgfail "--ensure wasn't silent with the hook already up to date"
+	printf '#!/bin/sh\n# knackpack prompt-audit hook, from an older release\nexec sh old\n' >"$h"
+	(cd "$r" && "$s" scripts/prompt-audit.sh --ensure) >"$tmp/tg-out" 2>&1
+	[ $? = 0 ] && grep -q '^knackpack: updated this clone' "$tmp/tg-out" && grep -q '^exec sh "\$s" --hook$' "$h" ||
+		tgfail "--ensure didn't bring knackpack's older hook up to date"
+	printf '#!/bin/sh\necho theirs\n' >"$h"
+	(cd "$r" && "$s" scripts/prompt-audit.sh --ensure) >"$tmp/tg-out" 2>&1
+	[ $? = 0 ] && [ ! -s "$tmp/tg-out" ] && [ "$(sed -n 2p "$h")" = 'echo theirs' ] || tgfail "--ensure changed a pre-push hook that isn't knackpack's"
+	(cd "$tmp" && "$s" "$here/scripts/prompt-audit.sh" --ensure) >"$tmp/tg-out" 2>&1
+	[ $? = 0 ] && [ ! -s "$tmp/tg-out" ] || tgfail "--ensure wasn't silent outside a git repository"
 done
 [ "$tg_ok" = 1 ] && pass "scripts/trigger-gate.sh skips, passes, blocks and reuses its results as it should, with a stand-in for claude, under$shells"
 
