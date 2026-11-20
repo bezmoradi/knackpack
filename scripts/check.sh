@@ -1003,6 +1003,118 @@ else
 	pass "no eval fixture's file names in agents or skills"
 fi
 
+# Trigger coverage. Claude starts an agent, or a skill without
+# disable-model-invocation: true, on its own, from its description alone, so
+# each needs a case where a request should start it and one where a similar
+# request shouldn't. A case says which by a "starts:knackpack:<name>" or
+# "quiet:knackpack:<name>" tag in prompt.md, quoted, since libyaml (PyYAML,
+# Ruby) won't read a colon inside a plain value in [...]. A grader must back
+# each tag: a tool_used or tool_order grader on the Skill tool for a skill or
+# the Agent tool for an agent, whose input_match names it, with max: 0 for
+# quiet. For quiet, an Agent grader with max: 0 that matches any knackpack
+# agent ('knackpack:' or no input_match) backs an agent's tag too. Every
+# grader that names one that way needs the case's tag, so the tags are the
+# whole of what the graders check, and scripts/trigger-gate.sh, which runs a
+# changed description's cases before a push, finds them by these tags. A
+# component still missing either kind is listed in evals/trigger-gaps.txt,
+# which may only shrink: one missing a kind and not listed fails, and so does
+# one listed that now has both.
+trig_ok=1
+gaps=evals/trigger-gaps.txt
+for f in skills/*/SKILL.md; do
+	[ "$(frontmatter "$f" | value disable-model-invocation)" = true ] && continue
+	n=${f#skills/}
+	printf 'Skill knackpack:%s\n' "${n%/SKILL.md}"
+done >"$tmp/trig-comps"
+for f in agents/*.md; do n=${f#agents/}; printf 'Agent knackpack:%s\n' "${n%.md}"; done >>"$tmp/trig-comps"
+# Each grader that checks a tool starts or stays quiet: <case> <starts|quiet> <tool> <input_match>.
+awk '
+	function uq(v, q) {
+		q = substr(v, 1, 1)
+		if (q == "\047" || q == "\"") { v = substr(v, 2); sub(q "[[:space:]]*(#.*)?$", "", v); if (q == "\047") gsub("\047\047", "\047", v); return v }
+		sub(/[[:space:]]+#.*$/, "", v); sub(/[[:space:]]+$/, "", v); return v
+	}
+	function flush(c, k, q) {
+		if (file == "") return
+		c = file; sub(/^evals\//, "", c); sub(/\/.*/, "", c)
+		if (t == "tool_order") {
+			tool = b; sub(/.*tool:[[:space:]]*/, "", tool); sub(/[^A-Za-z].*/, "", tool)
+			im = ""
+			if (b ~ /input_match:/) {
+				im = b; sub(/.*input_match:[[:space:]]*/, "", im); q = substr(im, 1, 1)
+				if (q == "\047" || q == "\"") { im = substr(im, 2); sub(q ".*", "", im) } else sub(/[[:space:]]*[,}].*/, "", im)
+			}
+			k = "starts"
+		} else if (t == "tool_used") {
+			if (mx == "0") k = "quiet"; else if (mn == "0") return; else k = "starts"
+		} else return
+		printf "%s\t%s\t%s\t%s\n", c, k, tool, im
+	}
+	FNR == 1 { flush(); file = FILENAME; n = 0; t = tool = im = mn = mx = b = "" }
+	/^---[[:space:]]*$/ { n++; next }
+	n == 1 && match($0, /^[A-Za-z_]+:/) {
+		k = substr($0, 1, RLENGTH - 1); v = substr($0, RLENGTH + 1); sub(/^[[:space:]]+/, "", v)
+		if (k == "type") t = uq(v); else if (k == "tool") tool = uq(v); else if (k == "input_match") im = uq(v)
+		else if (k == "min") mn = uq(v); else if (k == "max") mx = uq(v); else if (k == "before") b = v
+	}
+	END { flush() }' evals/*/graders/*.md >"$tmp/trig-graders"
+# What each grader checks about a component: <case> <kind> <component> <named|any>.
+awk -F '\t' '
+	NR == FNR { split($0, a, " "); tool[++n] = a[1]; comp[n] = a[2]; next }
+	{ for (i = 1; i <= n; i++) {
+		if (tool[i] != $3) continue
+		s = comp[i]; sub(/^knackpack:/, "", s)
+		if ($4 ~ ("(^|[^a-z0-9-])" s "([^a-z0-9-]|$)")) print $1, $2, comp[i], "named"
+		else if ($2 == "quiet" && $3 == "Agent" && ($4 == "" || $4 == "knackpack:")) print $1, $2, comp[i], "any"
+	} }' "$tmp/trig-comps" "$tmp/trig-graders" | sort -u >"$tmp/trig-claims"
+# The tags: <case> <kind> <component>.
+awk '
+	FNR == 1 { n = 0; c = FILENAME; sub(/^evals\//, "", c); sub(/\/.*/, "", c) }
+	/^---[[:space:]]*$/ { n++; next }
+	n == 1 && /^tags:[[:space:]]*\[.*\][[:space:]]*$/ {
+		v = $0; sub(/^tags:[[:space:]]*\[/, "", v); sub(/\][[:space:]]*$/, "", v); gsub(/[[:space:]"\047]/, "", v)
+		m = split(v, a, ",")
+		for (i = 1; i <= m; i++) if (a[i] ~ /^(starts|quiet):/) { k = a[i]; sub(/:.*/, "", k); x = a[i]; sub(/^[a-z]*:/, "", x); print c, k, x }
+	}' evals/*/prompt.md | sort -u >"$tmp/trig-tags"
+bad=$(awk 'NR == FNR { ok[$2] = 1; next } !($3 in ok) { printf "%s (%s:%s) ", $1, $2, $3 }' "$tmp/trig-comps" "$tmp/trig-tags")
+[ -z "$bad" ] || { fail "eval cases tag a component that isn't a skill or agent Claude starts on its own: ${bad% }"; trig_ok=0; }
+cut -d ' ' -f 1-3 "$tmp/trig-claims" | sort -u >"$tmp/trig-backed"
+bad=$(comm -23 "$tmp/trig-tags" "$tmp/trig-backed" | awk '{ printf "%s (%s:%s) ", $1, $2, $3 }')
+[ -z "$bad" ] || { fail "eval cases carry a starts: or quiet: tag that no grader checks, so the case can't fail on it: ${bad% }"; trig_ok=0; }
+bad=$(awk '$4 == "named" { print $1, $2, $3 }' "$tmp/trig-claims" | sort -u | comm -23 - "$tmp/trig-tags" | awk '{ printf "%s (\"%s:%s\") ", $1, $2, $3 }')
+[ -z "$bad" ] || { fail "eval cases have a grader that checks a skill or agent starts or stays quiet, without the tag that says so; add it to the case's tags: ${bad% }"; trig_ok=0; }
+bad=$(awk '{ k[$1 " " $3] = k[$1 " " $3] $2 } END { for (x in k) if (k[x] ~ /starts/ && k[x] ~ /quiet/) printf "%s ", x }' "$tmp/trig-tags")
+[ -z "$bad" ] || { fail "eval cases tag one component both starts: and quiet:, which contradict each other: ${bad% }"; trig_ok=0; }
+if [ ! -f "$gaps" ]; then
+	fail "$gaps is missing"
+	trig_ok=0
+else
+	sed -e 's/#.*//' -e 's/[[:space:]]//g' "$gaps" | grep -v '^$' | sort -u >"$tmp/trig-gaps"
+	missing='' listed='' stale='' unknown=''
+	while read -r _ comp; do
+		s=$(grep -c " starts $comp\$" "$tmp/trig-tags")
+		q=$(grep -c " quiet $comp\$" "$tmp/trig-tags")
+		if [ "$s" = 0 ] || [ "$q" = 0 ]; then
+			grep -qxF "$comp" "$tmp/trig-gaps" && { listed="$listed $comp"; continue; }
+			why=
+			[ "$s" != 0 ] || why="no starts: case"
+			[ "$q" != 0 ] || why="${why:+$why, }no quiet: case"
+			missing="$missing $comp ($why)"
+		elif grep -qxF "$comp" "$tmp/trig-gaps"; then
+			stale="$stale $comp"
+		fi
+	done <"$tmp/trig-comps"
+	while read -r comp; do awk -v c="$comp" '$2 == c { f = 1 } END { exit !f }' "$tmp/trig-comps" || unknown="$unknown $comp"; done <"$tmp/trig-gaps"
+	[ -z "$missing" ] || { fail "skills or agents Claude starts on its own lack a case for when they should start or for when they shouldn't, and $gaps doesn't list them; add the cases, tagged starts: and quiet:, rather than listing them:$missing"; trig_ok=0; }
+	[ -z "$stale" ] || { fail "$gaps lists skills or agents that now have a starts: and a quiet: case; remove them, since the list may only shrink:$stale"; trig_ok=0; }
+	[ -z "$unknown" ] || { fail "$gaps lists names that aren't a skill or agent Claude starts on its own:$unknown"; trig_ok=0; }
+fi
+if [ "$trig_ok" = 1 ]; then
+	ncomp=$(wc -l <"$tmp/trig-comps" | tr -d ' ')
+	ngap=$(printf '%s' "$listed" | wc -w | tr -d ' ')
+	pass "trigger coverage: $((ncomp - ngap)) of $ncomp skills and agents Claude starts on its own have a starts: and a quiet: case; $gaps lists the other $ngap"
+fi
+
 # The Agent Skills format (https://agentskills.io/specification) for each
 # skill: a name of 1 to 64 lowercase letters, digits and single hyphens between
 # them, the same as its folder; a description of 1 to 1,024 characters; and a
@@ -1807,6 +1919,112 @@ for s in $shells; do
 done
 [ "$hook_ok" = 1 ] && pass "hook under$shells (with a ${#plug}-character plugin root and ${#long}-character paths: rules $size bytes, state $state_size)"
 
+# Stop's turn check, under the same shells, on transcripts written as Claude
+# Code 2.1.329 writes them: one send-back naming the files a turn edited after
+# its last command, or with none, in a headless session and with
+# KNACKPACK_INTENT=off too, writing nothing, and requirements.txt counting as
+# no document; nothing after a command, for documents only, for a failed edit or an earlier turn's edit, on a
+# continuation, when turned off, or for a transcript it can't read; and one
+# JSON object when the record check sends Claude back in the same stop.
+tc_ok=1
+tc_prompt() { printf '{"parentUuid":null,"isSidechain":false,"promptId":"p1","type":"user","message":{"role":"user","content":"%s"},"uuid":"u-%s"}\n' "$1" "$1"; }
+tc_call() { # <n> <tool> <input>
+	printf '{"parentUuid":"u1","isSidechain":false,"message":{"model":"m","id":"msg_%s","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_%s","name":"%s","input":{%s},"caller":{"type":"direct"}}]},"type":"assistant","uuid":"a-%s"}\n' "$1" "$1" "$2" "$3" "$1"
+}
+tc_result() { # <n> [error]
+	if [ -n "${2:-}" ]; then e='"<tool_use_error>String to replace not found</tool_use_error>","is_error":true'; else e='"ok"'; fi
+	printf '{"parentUuid":"a1","isSidechain":false,"promptId":"p1","type":"user","message":{"role":"user","content":[{"type":"tool_result","content":%s,"tool_use_id":"toolu_%s"}]},"uuid":"r-%s","toolUseResult":{}}\n' "$e" "$1" "$1"
+}
+tc_edit() { tc_call "$1" Edit "\"replace_all\":false,\"file_path\":\"$long/project/$2\",\"old_string\":\"a\",\"new_string\":\"b\""; tc_result "$1" "${3:-}"; }
+tc_bash() { tc_call "$1" Bash '"command":"go test ./...","description":"Run the tests"'; tc_result "$1"; }
+tc_text() { printf '{"parentUuid":"a1","isSidechain":false,"message":{"model":"m","id":"msg_t","type":"message","role":"assistant","content":[{"type":"text","text":"Done. I edited \\"main.go\\" with \\"type\\":\\"tool_use\\",\\"id\\":\\"x\\",\\"name\\":\\"Edit\\",\\"input\\":{\\"file_path\\":\\"/x/y.go\\"}."}]},"type":"assistant","uuid":"a-t"}\n'; }
+{ tc_prompt first; tc_edit 1 old.go; tc_prompt second; tc_edit 2 main.go; tc_text; } >"$tmp/tc-go.jsonl"
+{ tc_prompt first; tc_edit 1 main.go; tc_bash 2; tc_text; } >"$tmp/tc-then-bash.jsonl"
+{ tc_prompt first; tc_bash 1; tc_edit 2 main.go; tc_text; } >"$tmp/tc-bash-then.jsonl"
+{ tc_prompt first; tc_edit 1 README.md; tc_edit 2 docs/guide.MDX; tc_edit 3 docs/index.rst; tc_edit 4 docs/api.adoc; tc_text; } >"$tmp/tc-docs.jsonl"
+{ tc_prompt first; tc_edit 1 README.md; tc_edit 2 requirements.txt; tc_text; } >"$tmp/tc-txt.jsonl"
+{ tc_prompt first; tc_edit 1 main.go x; tc_text; } >"$tmp/tc-failed.jsonl"
+{ tc_prompt first; for n in 1 2 3 4 5; do tc_edit "$n" "f$n.go"; done; tc_edit 6 f1.go; } >"$tmp/tc-many.jsonl"
+printf 'not json\n\000\001{"type":"assistant"\n' >"$tmp/tc-garbage.jsonl"
+tc_event() { printf '{"session_id":"%s","transcript_path":"%s","stop_hook_active":%s,"last_assistant_message":"%s"}' "${4:-$sid}" "$1" "${2:-false}" "${3:-Done.}"; }
+tc_run() { # <shell> <event> [assignment]...
+	s=$1
+	e=$2
+	shift 2
+	printf '%s' "$e" | env -u KNACKPACK_INTENT -u EVAL_KNACKPACK_INTENT -u KNACKPACK_TURN_CHECK -u EVAL_KNACKPACK_TURN_CHECK \
+		-u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=0 \
+		XDG_STATE_HOME="$tmp/tc-state" CLAUDE_PROJECT_DIR="$long/project" "$@" "$s" "$hook" stop >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	if [ "$code" != 0 ] || [ -s "$tmp/err" ]; then
+		fail "turn check under $s: exit $code, stderr: $(head -c 200 "$tmp/err")"
+		tc_ok=0
+	fi
+}
+# Sets said to the one send-back's text, or fails when the output isn't one
+# JSON object holding it.
+tc_said() { # <what the case is>
+	said=
+	if [ "$(jq -s 'length' "$tmp/out" 2>/dev/null)" != 1 ] ||
+		! said=$(jq -er '.hookSpecificOutput | select(.hookEventName == "Stop") | .additionalContext' "$tmp/out" 2>/dev/null); then
+		fail "turn check under $s, $1, printed something other than one send-back: $(head -c 200 "$tmp/out")"
+		tc_ok=0
+	fi
+}
+for s in $shells; do
+	rm -rf "$tmp/tc-state"
+	for v in CLAUDE_CODE_ENTRYPOINT=sdk-cli 'CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=1 KNACKPACK_INTENT=off' EVAL_KNACKPACK_TURN_CHECK=on; do
+		# shellcheck disable=SC2086 # $v holds the assignments
+		tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl")" $v
+		tc_said "with $v, after a turn that edited main.go and ran nothing"
+		case $said in
+		*'this turn edited files and ran no command: main.go.'*"run the project's checks that cover them"*'say so in your reply'*'once per turn'*)
+			case $said in *old.go* | *commit* | *push*) fail "turn check under $s names an earlier turn's file or asks for a commit or push: $said"; tc_ok=0 ;; esac ;;
+		*) fail "turn check under $s, with $v, doesn't send Claude back naming main.go: $said"; tc_ok=0 ;;
+		esac
+	done
+	[ -e "$tmp/tc-state" ] && { fail "turn check under $s wrote to the state folder in a headless session"; tc_ok=0; }
+	tc_run "$s" "$(tc_event "$tmp/tc-bash-then.jsonl")"
+	tc_said "after a turn that ran a command and then edited main.go"
+	case $said in *'this turn edited files after the last command you ran: main.go.'*) ;; *) false ;; esac ||
+		{ fail "turn check under $s misses an edit after the turn's last command"; tc_ok=0; }
+	tc_run "$s" "$(tc_event "$tmp/tc-many.jsonl")"
+	tc_said "after a turn that edited five files"
+	case $said in *'this turn edited files and ran no command: f1.go, f2.go, f3.go and 2 more.'*) ;; *) false ;; esac ||
+		{ fail "turn check under $s doesn't name three of five edited files, each once"; tc_ok=0; }
+	# A .txt file such as requirements.txt is an input to the build, not a
+	# document.
+	tc_run "$s" "$(tc_event "$tmp/tc-txt.jsonl")"
+	tc_said "after a turn that edited requirements.txt and ran nothing"
+	case $said in *'this turn edited files and ran no command: requirements.txt.'*) ;; *) false ;; esac ||
+		{ fail "turn check under $s counts requirements.txt as a document: $said"; tc_ok=0; }
+	for c in then-bash docs failed garbage; do
+		tc_run "$s" "$(tc_event "$tmp/tc-$c.jsonl")"
+		[ -s "$tmp/out" ] && { fail "turn check under $s sends Claude back after a turn with $c: $(head -c 200 "$tmp/out")"; tc_ok=0; }
+	done
+	for v in KNACKPACK_TURN_CHECK=off KNACKPACK_TURN_CHECK=Off EVAL_KNACKPACK_TURN_CHECK=off 'EVAL_KNACKPACK_TURN_CHECK=on KNACKPACK_TURN_CHECK=no'; do
+		# shellcheck disable=SC2086 # $v holds the assignments
+		tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl")" $v
+		[ -s "$tmp/out" ] && { fail "turn check under $s with $v still sends Claude back"; tc_ok=0; }
+	done
+	tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl" true)"
+	[ -s "$tmp/out" ] && { fail "turn check under $s sends Claude back a second time, on a Stop with stop_hook_active"; tc_ok=0; }
+	for p in "$tmp/none.jsonl" tc-go.jsonl "$tmp" "$tmp/tc-go.json" '"x'; do
+		tc_run "$s" "$(tc_event "$p")"
+		[ -s "$tmp/out" ] && { fail "turn check under $s reads a transcript path it shouldn't: $p"; tc_ok=0; }
+	done
+	# Both checks in one stop: an update claimed but not made, in an attended
+	# session of its own, and an edit no command saw.
+	tc_run "$s" "$(tc_event "$tmp/tc-go.jsonl" false 'Noted: x' 11111111-1111-1111-1111-111111111111)" CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=1
+	tc_said "when the record check fires too"
+	case $said in
+	*"the record wasn't updated"*'this turn edited files and ran no command: main.go.'*) ;;
+	*) fail "turn check under $s doesn't combine its send-back with the record check's into one: $said"; tc_ok=0 ;;
+	esac
+	rm -rf "$tmp/tc-state"
+done
+grep -q 'KNACKPACK_TURN_CHECK=off' hooks/hooks.json || { fail "hooks/hooks.json's description doesn't name KNACKPACK_TURN_CHECK=off"; tc_ok=0; }
+[ "$tc_ok" = 1 ] && pass "Stop's turn check under$shells"
+
 # The challenge hook, under the same shells: silent, exit 0, its rules in an
 # attended session and with KNACKPACK_CHALLENGE=on or, for evals,
 # EVAL_KNACKPACK_CHALLENGE=on, nothing under `claude -p`,
@@ -1914,6 +2132,33 @@ for s in $shells; do
 		{ fail "commit-docs.sh under $s committed $files or disturbed the other work, or wrote a wrong feature.json"; docs_ok=0; }
 	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
 	case $out in "already committed"*) ;; *) fail "commit-docs.sh under $s didn't report an unchanged document as already committed: $out"; docs_ok=0 ;; esac
+	# A document holding a common secret shape is refused, naming the kind and
+	# line but never the value, and one that only talks about tokens, headers
+	# and keys commits. The fake secrets are put together here, at run time,
+	# so that no file in this repository holds one for gitleaks to find.
+	for k in github aws private-key authorization; do
+		case $k in
+		github) tok=$(printf 'gh%s_%036d' p 7) what='GitHub token' ;;
+		aws) tok=$(printf 'AK%s%016d' IA 7) what='AWS access key ID' ;;
+		private-key) tok=$(printf -- '-----BEGIN %s PRIVATE KEY-----' RSA) what='private key block' ;;
+		authorization) tok=$(printf 'Authorization: %s %040d' Bearer 7) what='Authorization header credential' ;;
+		esac
+		printf '# Brief\n\nREQ-01: list orders.\n\nThe job used %s.\n' "$tok" >"$doc" || { fail "couldn't write a brief with a fake $what"; docs_ok=0; continue; }
+		head=$(git -C "$r" rev-parse HEAD) && before=$(git -C "$r" status --porcelain)
+		out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
+		case $out in "not committed: .knackpack/orders-list/REQUIREMENTS.md holds what looks like a secret: $what (line 5). Replace each with a description"*"matches only common secret shapes"*) ;;
+		*) fail "commit-docs.sh under $s didn't refuse a document holding a fake $what by its kind and line: $out"; docs_ok=0 ;;
+		esac
+		case $out in *"$tok"* | *"$(printf '%036d' 7)"* | *"$(printf '%016d' 7)"*) fail "commit-docs.sh under $s printed the fake $what it refused"; docs_ok=0 ;; esac
+		[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] ||
+			{ fail "commit-docs.sh under $s left a commit, or changed the index or the other work, for a document holding a fake $what"; docs_ok=0; }
+	done
+	printf '# Brief\n\nREQ-01: list orders.\nREQ-02: send Authorization: Bearer <token>; Basic auth is gone.\nGitHub tokens start with ghp_ or github_pat_, AWS key IDs with AKIA, and Stripe keys with sk_live_.\n-----BEGIN PUBLIC KEY----- blocks are public.\n' >"$doc"
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
+	files=$(git -C "$r" show --name-only --format= HEAD | tr '\n' ' ')
+	case $out in committed*) ;; *) fail "commit-docs.sh under $s refused a document that only talks about tokens, headers and keys: $out"; docs_ok=0 ;; esac
+	[ "$files" = '.knackpack/orders-list/REQUIREMENTS.md ' ] && [ "$(git -C "$r" diff --cached --name-only)" = a.txt ] && [ "$(git -C "$r" diff --name-only)" = b.txt ] ||
+		{ fail "commit-docs.sh under $s committed $files for a document that only talks about tokens, or disturbed the other work"; docs_ok=0; }
 	printf '# Root cause: orders list times out\n\n## Status\n\nTRIAGED\n' >"$r/.knackpack/orders-list/ROOT-CAUSE.md" ||
 		{ fail "couldn't write a root cause to try scripts/commit-docs.sh with"; docs_ok=0; continue; }
 	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-list/ROOT-CAUSE.md")
@@ -1933,6 +2178,20 @@ for s in $shells; do
 		[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] && cmp -s "$r/.knackpack/feature.json" "$tmp/feature.json" ||
 			{ fail "commit-docs.sh under $s with a pre-commit hook running '$h' left a commit, or changed the index, the other work or feature.json"; docs_ok=0; }
 	done
+	# A commit hook that puts a fake token into the document's staged text, and
+	# not into the file, gets the commit taken back, because the script checks
+	# the text committed.
+	printf '# Plan\n\nPLAN-01: export orders.\nThe export runs as gh%s_%036d.\n' p 7 >"$tmp/plan-secret.md" &&
+		printf '#!/bin/sh\nb=$(git hash-object -w -- "%s") && git update-index --cacheinfo "100644,$b,.knackpack/orders-export/PLAN.md"\n' "$tmp/plan-secret.md" >"$r/.git/hooks/pre-commit" &&
+		chmod +x "$r/.git/hooks/pre-commit" || { fail "couldn't write a pre-commit hook that adds a fake token"; docs_ok=0; continue; }
+	head=$(git -C "$r" rev-parse HEAD) && before=$(git -C "$r" status --porcelain)
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-export/PLAN.md")
+	case $out in "not committed: .knackpack/orders-export/PLAN.md as committed holds what looks like a secret, which a clean filter or commit hook added: GitHub token (line 4), so the commit was taken back. Replace each"*) ;;
+	*) fail "commit-docs.sh under $s with a pre-commit hook adding a fake token printed: $out"; docs_ok=0 ;;
+	esac
+	case $out in *"$(printf '%036d' 7)"*) fail "commit-docs.sh under $s printed the fake token a commit hook added"; docs_ok=0 ;; esac
+	[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] && cmp -s "$r/.knackpack/feature.json" "$tmp/feature.json" ||
+		{ fail "commit-docs.sh under $s with a pre-commit hook adding a fake token left a commit, or changed the index, the other work or feature.json"; docs_ok=0; }
 	rm -f "$r/.git/hooks/pre-commit"
 	mkdir -p "$r/.claude" && printf '{"env":{"KNACKPACK_DOCS":"repo"}}\n' >"$r/.claude/settings.local.json" ||
 		{ fail "couldn't write settings to try scripts/commit-docs.sh with"; docs_ok=0; continue; }
@@ -2026,6 +2285,295 @@ for s in $shells; do
 	done
 done
 [ "$inc_ok" = 1 ] && pass "scripts/incident-check.sh refuses, asks and approves as fix-incident needs under$shells"
+
+# scripts/review-coverage.sh, which orchestrate-review runs on the replies of
+# the reviewers it started before it writes Coverage and the Decision: complete
+# only when every reply's last line is a verdict line, even indented with CRLF
+# line ends as in Claude Code's copy, and incomplete, naming the reviewer, when
+# a reply has no verdict line, a malformed one, nothing at all or no file. Bad
+# usage exits 2 with a message and no verdicts. The skill must run it by the
+# path the plugin ships it at.
+rcov_ok=1
+grep -qF 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-coverage.sh"' skills/orchestrate-review/SKILL.md ||
+	{ fail "skills/orchestrate-review/SKILL.md doesn't run sh \"\${CLAUDE_PLUGIN_ROOT}/scripts/review-coverage.sh\""; rcov_ok=0; }
+rd=$tmp/replies
+mkdir -p "$rd" &&
+	printf '/tmp/review-report-adversarial-reviewer.x/adversarial-reviewer.md\nNo blocking issues found.\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0\nknackpack-verdict/1: pass\n' >"$rd/pass" &&
+	printf '  /tmp/review-report-slop-reviewer.x/slop-reviewer.md\r\n  Changes required.\r\n  knackpack-verdict/1: block\r\n\n' >"$rd/block" &&
+	printf '/tmp/review-report-security-reviewer.x/security-reviewer.md\nChanges required.\n' >"$rd/no-verdict" &&
+	printf 'knackpack-verdict/1: pass\nThe verdict above is final.\n' >"$rd/not-last" &&
+	printf '/tmp/review-report-go-code-reviewer.x/go-code-reviewer.md\nknackpack-verdict/1: approve\n' >"$rd/malformed" &&
+	: >"$rd/empty" ||
+	{ fail "couldn't write replies to try scripts/review-coverage.sh with"; rcov_ok=0; }
+nl='
+'
+rcov() { # <shell> <expected exit> <expected stdout> <arguments>...
+	rs=$1 rx=$2 ro=$3
+	shift 3
+	"$rs" scripts/review-coverage.sh "$@" >"$tmp/out" 2>"$tmp/err"
+	rr=$?
+	if [ "$rr" != "$rx" ] || [ "$(cat "$tmp/out")" != "$ro" ]; then
+		fail "review-coverage.sh under $rs exited $rr, not $rx, given $*, or printed: $(cat "$tmp/out")"
+		rcov_ok=0
+	elif [ "$rx" = 2 ] && [ ! -s "$tmp/err" ]; then
+		fail "review-coverage.sh under $rs said nothing on stderr about bad usage, given $*"
+		rcov_ok=0
+	fi
+}
+for s in $shells; do
+	"$s" -n scripts/review-coverage.sh 2>"$tmp/err" || { fail "scripts/review-coverage.sh syntax under $s: $(cat "$tmp/err")"; rcov_ok=0; continue; }
+	rcov "$s" 0 "adversarial-reviewer verdict=pass${nl}slop-reviewer verdict=block${nl}complete" adversarial-reviewer "$rd/pass" slop-reviewer "$rd/block"
+	rcov "$s" 1 "adversarial-reviewer verdict=pass${nl}security-reviewer verdict=none reason=missing${nl}incomplete: security-reviewer" adversarial-reviewer "$rd/pass" security-reviewer "$rd/no-verdict"
+	rcov "$s" 1 "architecture-reviewer verdict=none reason=missing${nl}slop-reviewer verdict=block${nl}incomplete: architecture-reviewer" architecture-reviewer "$rd/not-last" slop-reviewer "$rd/block"
+	rcov "$s" 1 "go-code-reviewer verdict=none reason=malformed${nl}adversarial-reviewer verdict=pass${nl}incomplete: go-code-reviewer" go-code-reviewer "$rd/malformed" adversarial-reviewer "$rd/pass"
+	rcov "$s" 1 "adversarial-reviewer verdict=pass${nl}python-code-reviewer verdict=none reason=empty-reply${nl}incomplete: python-code-reviewer" adversarial-reviewer "$rd/pass" python-code-reviewer "$rd/empty"
+	rcov "$s" 1 "docker-reviewer verdict=none reason=unreadable${nl}security-reviewer verdict=none reason=missing${nl}incomplete: docker-reviewer security-reviewer" docker-reviewer "$rd/absent" security-reviewer "$rd/no-verdict"
+	rcov "$s" 2 ''
+	rcov "$s" 2 '' adversarial-reviewer
+	rcov "$s" 2 '' adversarial-reviewer "$rd/pass" slop-reviewer
+	rcov "$s" 2 '' 'Adversarial reviewer' "$rd/pass"
+	rcov "$s" 2 '' adversarial-reviewer "$rd/pass" adversarial-reviewer "$rd/block"
+done
+[ "$rcov_ok" = 1 ] && pass "scripts/review-coverage.sh tells orchestrate-review which reviewers lack a valid verdict under$shells"
+
+# scripts/trigger-gate.sh, under the same shells, in a throwaway repository,
+# with a stand-in for claude that writes a result for the one case asked for,
+# so no model runs. A commit that changes no description is skipped, and so is
+# a skill that disables model invocation. A changed description is measured on
+# the base and on the commit, each time with origin/main's copy of the case
+# even when the commit rewrites it, and passes when nothing drops; a second
+# run reuses the kept results. A drop in starts or a quiet case that fires
+# blocks, until accepted. A component with no case blocks as not measured. A
+# run that fails is an error and isn't kept. --install writes the hook that
+# runs the prompt audit and then the gate.
+tg_ok=1
+tgb=$tmp/tg-bin
+mkdir -p "$tgb" && cat >"$tgb/claude" <<'EOF' && chmod +x "$tgb/claude" || { fail "couldn't write a stand-in for claude to try scripts/trigger-gate.sh with"; tg_ok=0; }
+#!/bin/sh
+# Stands in for claude: --version, and plugin eval writing a result whose one
+# grader fails when the target's skills say STUB-NO-START (a starts grader) or
+# STUB-FIRES (a max: 0 one). Each run is logged, with the prompt it was given.
+[ "${1-}" = --version ] && { echo '2.1.999 (Claude Code)'; exit 0; }
+[ "${1-} ${2-}" = 'plugin eval' ] || exit 1
+target=$3
+shift 3
+c= out=
+while [ $# -gt 0 ]; do
+	case $1 in --case) c=$2; shift ;; --json) out=$2; shift ;; esac
+	shift
+done
+[ -z "${KP_STUB_BROKEN-}" ] || { echo 'stub: broken on purpose' >&2; exit 1; }
+g=$(ls "$target/evals/$c/graders/"*.md | head -n 1)
+tool=$(sed -n 's/^tool:[[:space:]]*//p' "$g") im=$(sed -n "s/^input_match:[[:space:]]*'\\(.*\\)'/\\1/p" "$g") max=$(sed -n 's/^max:[[:space:]]*//p' "$g")
+ok=true
+if [ "$max" = 0 ]; then grep -rq STUB-FIRES "$target/skills" && ok=false
+else grep -rq STUB-NO-START "$target/skills" && ok=false; fi
+printf '%s %s %s\n' "${target##*/}" "$c" "$(sed -n '/^---$/,/^---$/!p' "$target/evals/$c/prompt.md" | grep -v '^$' | head -n 1)" >>"$KP_STUB_LOG"
+mx=
+[ -z "$max" ] || mx=",\"max\":$max"
+printf '{"schemaVersion":1,"costUsd":0.25,"partial":false,"cases":[{"name":"%s","graders":[{"name":"trig","type":"tool_used","config":{"tool":"%s","input_match":"%s"%s}}],"arms":{"with":[{"passed":%s,"error":null,"costUsd":0.25,"judgeCostUsd":0,"graders":[{"name":"trig","passed":%s}]}]}}]}\n' \
+	"$c" "$tool" "$im" "$mx" "$ok" "$ok" >"$out"
+EOF
+tgrun() { # <shell> <repository> <argument>...: runs the gate there with the stand-in first on PATH, setting tgx
+	tgs=$1 tgr=$2
+	shift 2
+	(cd "$tgr" && PATH="$tgb:$PATH" KP_STUB_LOG="$tgr.log" "$tgs" "$here/scripts/trigger-gate.sh" "$@") >"$tmp/tg-out" 2>&1
+	tgx=$?
+}
+tgcalls() { wc -l <"$1.log" | tr -d ' '; } # <repository>: how many eval runs the stand-in made
+tgskill() { # <repository> <name> <description> [<frontmatter line>]
+	{ printf -- '---\nname: %s\ndescription: %s\n' "$2" "$3" && { [ -z "${4-}" ] || printf '%s\n' "$4"; } && printf -- '---\n\nDo %s.\n' "$2"; } >"$1/skills/$2/SKILL.md"
+}
+tgmore() { printf 'More.\n' >>"$1/skills/alpha/SKILL.md"; } # <repository>: a change to a skill's body only
+tgcommit() { # <repository> <from> <command>...: runs the command on a checkout of <from>, commits what it changed and prints the commit
+	tgc=$1
+	git -C "$tgc" checkout -q --detach "$2" && shift 2 && "$@" && git -C "$tgc" add -A && git -C "$tgc" commit -q -m change && git -C "$tgc" rev-parse HEAD
+}
+tgfail() { fail "trigger-gate.sh under $s $1 (exit $tgx): $(head -c 600 "$tmp/tg-out")"; tg_ok=0; }
+for s in $shells; do
+	"$s" -n scripts/trigger-gate.sh 2>"$tmp/err" || { fail "scripts/trigger-gate.sh syntax under $s: $(cat "$tmp/err")"; tg_ok=0; continue; }
+	r=$tmp/tg-$s
+	mkdir -p "$r/.claude-plugin" "$r/skills/alpha" "$r/skills/beta" "$r/skills/gamma" "$r/evals/trigger-alpha-starts/graders" "$r/evals/trigger-alpha-quiet/graders" &&
+		printf '{"name": "knackpack", "version": "0.0.1"}\n' >"$r/.claude-plugin/plugin.json" &&
+		tgskill "$r" alpha 'Use for alpha work.' && tgskill "$r" beta 'Use for beta work.' &&
+		tgskill "$r" gamma 'Run gamma.' 'disable-model-invocation: true' &&
+		printf -- '---\ntags: [trigger, "starts:knackpack:alpha"]\n---\n\nDo the alpha thing.\n' >"$r/evals/trigger-alpha-starts/prompt.md" &&
+		printf -- "---\ntype: tool_used\ntool: Skill\ninput_match: 'alpha'\narm: with-only\n---\n" >"$r/evals/trigger-alpha-starts/graders/started.md" &&
+		printf -- '---\ntags: [trigger, "quiet:knackpack:alpha"]\n---\n\nExplain alpha.\n' >"$r/evals/trigger-alpha-quiet/prompt.md" &&
+		printf -- "---\ntype: tool_used\ntool: Skill\ninput_match: 'alpha'\nmin: 0\nmax: 0\narm: both\n---\n" >"$r/evals/trigger-alpha-quiet/graders/quiet.md" &&
+		git -C "$r" init -q && git -C "$r" config user.name check && git -C "$r" config user.email check@example.com &&
+		git -C "$r" add -A && git -C "$r" commit -q -m base && git -C "$r" update-ref refs/remotes/origin/main HEAD && : >"$r.log" &&
+		b0=$(git -C "$r" rev-parse HEAD) ||
+		{ fail "couldn't make a repository to try scripts/trigger-gate.sh in under $s"; tg_ok=0; continue; }
+	# No description changed, and one skill's that disables model invocation.
+	c=$(tgcommit "$r" "$b0" tgmore "$r") && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q "^trigger-gate: [0-9a-f]* changes no skill or agent description since origin/main\$" "$tmp/tg-out" && [ "$(tgcalls "$r")" = 0 ] ||
+		tgfail "didn't skip a commit that changes no description, or ran a case for it"
+	c=$(tgcommit "$r" "$b0" tgskill "$r" gamma 'Run gamma now.' 'disable-model-invocation: true') && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  skipped  knackpack:gamma: disable-model-invocation: true' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 0 ] ||
+		tgfail "didn't skip a skill with disable-model-invocation: true"
+	# A reworded description, with a commit that also rewrites one of its cases.
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work and alpha reports.') &&
+		printf -- '---\ntags: [trigger, "starts:knackpack:alpha"]\n---\n\nTuned alpha prompt.\n' >"$r/evals/trigger-alpha-starts/prompt.md" &&
+		git -C "$r" commit -qam tuned && c=$(git -C "$r" rev-parse HEAD) && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  pass     knackpack:alpha: started 1/1 -> 1/1, stayed quiet 1/1 -> 1/1$' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 4 ] ||
+		tgfail "didn't pass a reworded description whose cases still pass, measuring both cases on both versions"
+	grep -q '^cand trigger-alpha-starts Do the alpha thing\.$' "$r.log" && ! grep -q Tuned "$r.log" ||
+		{ fail "trigger-gate.sh under $s didn't run origin/main's copy of a case the commit rewrote: $(cat "$r.log")"; tg_ok=0; }
+	tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  pass     knackpack:alpha' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 4 ] ||
+		tgfail "ran the cases again for a description it had measured"
+	# A description that stops the skill starting, then one that starts it where it mustn't.
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work. STUB-NO-START') && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 1 ] && grep -q '^  BLOCKED  knackpack:alpha: started 1/1 -> 0/1, stayed quiet 1/1 -> 1/1$' "$tmp/tg-out" &&
+		[ -f "$(sed -n 's/^           - trigger-alpha-starts (starts): 1\/1 -> 0\/1; result: //p' "$tmp/tg-out")" ] && [ "$(tgcalls "$r")" = 6 ] ||
+		tgfail "didn't block a description that stops the skill starting, measuring only the new version"
+	tgrun "$s" "$r" --accept knackpack:alpha "$c"
+	[ "$tgx" = 0 ] || tgfail "didn't accept the verdict on a blocked description"
+	tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  accepted knackpack:alpha: started 1/1 -> 0/1' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 6 ] ||
+		tgfail "still blocked an accepted description, or ran its cases again"
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work. STUB-FIRES') && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 1 ] && grep -q '^  BLOCKED  knackpack:alpha: started 1/1 -> 1/1, stayed quiet 1/1 -> 0/1$' "$tmp/tg-out" ||
+		tgfail "didn't block a description that starts the skill where it mustn't"
+	# No case for the component, through the hook.
+	c=$(tgcommit "$r" "$b0" tgskill "$r" beta 'Use for beta work and beta reports.') &&
+		printf 'refs/heads/x %s refs/heads/x %s\n' "$c" 0000000000000000000000000000000000000000 >"$tmp/tg-push" &&
+		tgrun "$s" "$r" --hook <"$tmp/tg-push"
+	[ "$tgx" = 1 ] && grep -q '^  NOT MEASURED knackpack:beta: no case on origin/main is tagged trigger' "$tmp/tg-out" &&
+		grep -q '^trigger-gate: push stopped; git push --no-verify skips this check$' "$tmp/tg-out" ||
+		tgfail "didn't block, through the hook, a description no case measures"
+	# A run that fails, then the same description once claude works.
+	n=$(tgcalls "$r")
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work, again.') && KP_STUB_BROKEN=1 && export KP_STUB_BROKEN && tgrun "$s" "$r" "$c"
+	unset KP_STUB_BROKEN
+	[ "$tgx" = 2 ] && grep -q '^  ERROR    knackpack:alpha: a case could not be measured' "$tmp/tg-out" && grep -q 'stub: broken on purpose' "$tmp/tg-out" ||
+		tgfail "didn't report as an error a case whose run failed"
+	tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && [ "$(tgcalls "$r")" = $((n + 2)) ] || tgfail "kept a failed run's result, or didn't measure the description once claude worked"
+	[ -z "$(git -C "$r" worktree list --porcelain | grep '^worktree ' | sed 1d)" ] || { fail "trigger-gate.sh under $s left a worktree behind"; tg_ok=0; }
+	mkdir -p "$r/scripts" && cp scripts/prompt-audit.sh "$r/scripts/" && tgrun "$s" "$r" --install
+	h=$r/.git/hooks/pre-push
+	[ "$tgx" = 0 ] && [ -x "$h" ] && grep -q 'scripts/prompt-audit\.sh' "$h" && grep -q 'scripts/trigger-gate\.sh' "$h" && "$s" -n "$h" ||
+		tgfail "--install didn't write a pre-push hook that runs the prompt audit and the gate"
+done
+[ "$tg_ok" = 1 ] && pass "scripts/trigger-gate.sh skips, passes, blocks and reuses its results as it should, with a stand-in for claude, under$shells"
+
+# scripts/review-scope.sh, which every reviewer runs to resolve its review's
+# scope, so the reviewers of one combined review read the same snapshot
+# against the same base. In throwaway repositories whose origin is a local
+# bare repository, with a stand-in gh, so nothing uses the network: a branch
+# with commits and staged, unstaged, untracked and ignored files gives the
+# starting state that the protocol's own step 2 commands give, the merge base
+# with origin's default branch and the files between them, the same output
+# twice, and leaves the status, the index, HEAD and the refs as they were.
+# --after finds the state unchanged. With no remote and no target it compares
+# with HEAD and says so, with a named local branch it uses that, and with
+# nothing to review it takes the last commit. A filter or fsmonitor that isn't
+# Git LFS's is noted and run on the user's own branch, but on a pull request's
+# branch, or one whose remote is a URL, it runs nothing and pins HEAD with a
+# refused= line, unless --own is given. A pull request number gives its head
+# and its merge base with its base branch. It refuses a folder inside the
+# repository, a folder outside one and bad usage.
+scope_ok=1
+grep -qF 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-scope.sh" <dir> <target>' scripts/review-protocol.md ||
+	{ fail "scripts/review-protocol.md doesn't run sh \"\${CLAUDE_PLUGIN_ROOT}/scripts/review-scope.sh\" <dir> <target>"; scope_ok=0; }
+manual=$(grep -E '^(cp "\$\(git rev-parse --git-path index\)" <dir>/index |\{ git rev-parse -q --verify HEAD; )' scripts/review-protocol.md)
+[ "$(printf '%s\n' "$manual" | grep -c .)" = 2 ] || { fail "couldn't find step 2's two commands in scripts/review-protocol.md to compare review-scope.sh with"; scope_ok=0; }
+for s in $shells; do
+	"$s" -n scripts/review-scope.sh 2>"$tmp/err" || { fail "scripts/review-scope.sh syntax under $s: $(cat "$tmp/err")"; scope_ok=0; continue; }
+	q=$tmp/scope-$s
+	w=$q/work
+	mkdir -p "$q/d" "$q/m" "$q/bin" && git init -q --bare "$q/origin.git" && git -C "$q/origin.git" symbolic-ref HEAD refs/heads/trunk &&
+		git init -q "$w" && git -C "$w" symbolic-ref HEAD refs/heads/trunk && git -C "$w" config user.name check && git -C "$w" config user.email check@example.com &&
+		printf 'a\n' >"$w/a.txt" && printf 'secret.env\n' >"$w/.gitignore" && printf 'KEY=1\n' >"$w/secret.env" &&
+		git -C "$w" add -A && git -C "$w" commit -q -m one && git -C "$w" remote add origin "$q/origin.git" &&
+		git -C "$w" push -q origin trunk && git -C "$w" fetch -q origin && git -C "$w" remote set-head origin trunk >/dev/null &&
+		git -C "$w" checkout -q -b feature && printf 'b\n' >"$w/b.txt" && git -C "$w" add b.txt && git -C "$w" commit -q -m two &&
+		printf 'c\n' >"$w/c.txt" && git -C "$w" add c.txt && git -C "$w" commit -q -m three &&
+		printf 'staged\n' >"$w/s.txt" && git -C "$w" add s.txt && printf 'unstaged\n' >>"$w/a.txt" && printf 'untracked\n' >"$w/u.txt" ||
+		{ fail "couldn't make a repository to try scripts/review-scope.sh in"; scope_ok=0; continue; }
+	sc() { (cd "$sw" && "$s" "$here/scripts/review-scope.sh" "$@" 2>"$tmp/err"); } # with $sw the repository
+	has() { printf '%s\n' "$out" | grep -qxF -- "$1" || { fail "review-scope.sh under $s $2 printed no line $1: $out"; scope_ok=0; }; }
+	sw=$w
+	ix=$(cksum <"$w/.git/index") st=$(cd "$w" && GIT_OPTIONAL_LOCKS=0 git status --porcelain) hd=$(git -C "$w" rev-parse HEAD) refs=$(git -C "$w" for-each-ref)
+	out=$(sc "$q/d") || { fail "review-scope.sh under $s failed on a branch with work: $out $(cat "$tmp/err")"; scope_ok=0; continue; }
+	(cd "$w" && printf '%s\n' "$manual" | sed "s|<dir>|$q/m|g" | "$s") || { fail "step 2's commands from scripts/review-protocol.md failed under $s"; scope_ok=0; }
+	cmp -s "$q/d/before.txt" "$q/m/before.txt" || { fail "review-scope.sh under $s recorded a starting state other than step 2's commands in scripts/review-protocol.md"; scope_ok=0; }
+	tree=$(tail -n 1 "$q/m/before.txt") base=$(git -C "$w" merge-base refs/remotes/origin/trunk HEAD)
+	files=$(git -C "$w" diff --no-ext-diff --no-textconv --name-only -z "$base" "$tree" | tr -cd '\000' | wc -c | tr -d ' ')
+	git -C "$w" cat-file -e "$tree:u.txt" && ! git -C "$w" cat-file -e "$tree:secret.env" 2>/dev/null ||
+		{ fail "step 2's snapshot under $s left out an untracked file or took in an ignored one"; scope_ok=0; }
+	for l in "snapshot=$tree" snapshot_kind=tree snapshot_source=working-tree "base=$base" base_source=merge-base target=trunk \
+		target_source=origin-head remote=origin refreshed=yes state=full filters=none "files_changed=$files" "state_file=$(cd -P "$q/d" && pwd -P)/before.txt"; do
+		has "$l" "on a branch with work"
+	done
+	[ "$files" = 5 ] || { fail "the test of review-scope.sh under $s expected 5 changed files, not $files"; scope_ok=0; }
+	[ "$(sc "$q/d")" = "$out" ] && [ "$(cat "$q/d/scope.txt")" = "$out" ] || { fail "review-scope.sh under $s printed something else when run again, or saved other lines in scope.txt"; scope_ok=0; }
+	[ "$(cksum <"$w/.git/index")" = "$ix" ] && [ "$(cd "$w" && GIT_OPTIONAL_LOCKS=0 git status --porcelain)" = "$st" ] &&
+		[ "$(git -C "$w" rev-parse HEAD)" = "$hd" ] && [ "$(git -C "$w" for-each-ref)" = "$refs" ] ||
+		{ fail "review-scope.sh under $s changed the index, the status, HEAD or the refs"; scope_ok=0; }
+	out=$(sc --after "$q/d") && has unchanged=yes "--after with nothing changed" && cmp -s "$q/d/before.txt" "$q/d/after.txt" ||
+		{ fail "review-scope.sh --after under $s didn't find the state unchanged: $out"; scope_ok=0; }
+	out=$(sc "$q/d" trunk) && has target_source=named "given trunk" && has "base=$base" "given trunk"
+	out=$(sc "$q/d" trunk..feature) && has "snapshot=$hd" "given trunk..feature" && has "base=$base" "given trunk..feature" && has snapshot_source=range "given trunk..feature"
+	# Filters and fsmonitor: each probe leaves a file when git runs it.
+	printf '*.txt filter=probe\n' >"$w/.gitattributes"
+	git -C "$w" config filter.probe.clean "touch '$q/filter-ran'; cat"
+	out=$(sc "$q/d") && has filters=other "with a filter on the user's branch" && has state=full "with a filter on the user's branch"
+	[ -f "$q/filter-ran" ] || { fail "review-scope.sh under $s didn't build the snapshot on the user's own branch with a filter set"; scope_ok=0; }
+	rm -f "$q/filter-ran"
+	git -C "$w" config branch.feature.merge refs/pull/7/head
+	out=$(sc "$q/d") && has state=head "on a pull request's branch with a filter" && has "snapshot=$hd" "on a pull request's branch with a filter" &&
+		has snapshot_kind=commit "on a pull request's branch with a filter" && [ "$(cat "$q/d/before.txt")" = "$hd" ]
+	case $out in *"${nl}refused=uncommitted work wasn't reviewed: git config sets filter.probe.clean"*) ;; *) fail "review-scope.sh under $s gave no refused= line on a pull request's branch with a filter: $out"; scope_ok=0 ;; esac
+	[ ! -f "$q/filter-ran" ] || { fail "review-scope.sh under $s ran a filter on a pull request's branch"; scope_ok=0; }
+	out=$(sc --own "$q/d") && has state=full "given --own on a pull request's branch with a filter"
+	rm -f "$q/filter-ran" "$w/.gitattributes"
+	git -C "$w" config --unset filter.probe.clean && git -C "$w" config --unset branch.feature.merge &&
+		printf '#!/bin/sh\ntouch "%s"\n' "$q/fsmonitor-ran" >"$q/fsmonitor" && chmod +x "$q/fsmonitor" &&
+		git -C "$w" config core.fsmonitor "$q/fsmonitor" && git -C "$w" config branch.feature.remote https://example.invalid/fork.git
+	out=$(sc "$q/d") && has state=head "with fsmonitor on a branch whose remote is a URL"
+	case $out in *"${nl}refused="*"core.fsmonitor"*"a URL rather than"*) ;; *) fail "review-scope.sh under $s gave no refused= line with fsmonitor on a branch whose remote is a URL: $out"; scope_ok=0 ;; esac
+	[ ! -f "$q/fsmonitor-ran" ] || { fail "review-scope.sh under $s ran fsmonitor on a branch whose remote is a URL"; scope_ok=0; }
+	git -C "$w" config --unset core.fsmonitor && git -C "$w" config --unset branch.feature.remote && git -C "$w" config filter.lfs.clean 'git-lfs clean -- %f'
+	out=$(sc "$q/d") && has filters=git-lfs "with only Git LFS's filter" && has state=full "with only Git LFS's filter"
+	case $out in *refused=*) fail "review-scope.sh under $s refused over Git LFS's own filter"; scope_ok=0 ;; esac
+	git -C "$w" config --unset filter.lfs.clean
+	# No remote: HEAD with a note, a named local branch, or the last commit.
+	sw=$q/lone
+	git init -q "$sw" && git -C "$sw" config user.name check && git -C "$sw" config user.email check@example.com &&
+		printf '1\n' >"$sw/f" && git -C "$sw" add f && git -C "$sw" commit -q -m one && git -C "$sw" branch start &&
+		printf '2\n' >"$sw/g" && git -C "$sw" add g && git -C "$sw" commit -q -m two && printf 'x\n' >>"$sw/f" ||
+		{ fail "couldn't make a repository without a remote to try scripts/review-scope.sh in"; scope_ok=0; continue; }
+	one=$(git -C "$sw" rev-parse start) two=$(git -C "$sw" rev-parse HEAD)
+	out=$(sc "$q/d") && has target=none "with no remote" && has "base=$two" "with no remote" && has base_source=head "with no remote" && has files_changed=1 "with no remote"
+	case $out in *"${nl}note=no remote and no target named"*) ;; *) fail "review-scope.sh under $s didn't say there was no remote and no target: $out"; scope_ok=0 ;; esac
+	out=$(sc "$q/d" start) && has "base=$one" "given a local branch" && has base_source=merge-base "given a local branch" && has files_changed=2 "given a local branch"
+	git -C "$sw" checkout -q -- f
+	out=$(sc "$q/d") && has "base=$one" "with nothing to review" && has base_source=last-commit "with nothing to review"
+	# A pull request, through a gh that answers as GitHub would and a remote
+	# whose GitHub URL git rewrites to the local bare repository.
+	sw=$q/prw
+	gurl=$(printf 'https:%s' //github.com/acme/widgets) # the remote's URL, written so lychee doesn't read it as a link
+	git init -q "$sw" && git -C "$sw" symbolic-ref HEAD refs/heads/trunk && git -C "$sw" config user.name check && git -C "$sw" config user.email check@example.com &&
+		git -C "$sw" config url."$q/origin.git".insteadOf "$gurl.git" &&
+		git -C "$sw" remote add origin "$gurl.git" && git -C "$w" push -q origin feature:refs/pull/5/head ||
+		{ fail "couldn't make a pull request to try scripts/review-scope.sh with"; scope_ok=0; continue; }
+	printf '#!/bin/sh\ncase "$1 $2" in\n"pr view") echo "trunk %s %s %s/pull/5" ;;\n"api repos/acme/widgets") echo ;;\n*) exit 1 ;;\nesac\n' \
+		"$base" "$hd" "$gurl" >"$q/bin/gh" && chmod +x "$q/bin/gh"
+	out=$(PATH="$q/bin:$PATH" sc "$q/d" 5) && has pr=5 "given a pull request" && has "snapshot=$hd" "given a pull request" &&
+		has "base=$base" "given a pull request" && has snapshot_source=pull-request "given a pull request" && has files_changed=2 "given a pull request" ||
+		{ fail "review-scope.sh under $s failed on a pull request: $out"; scope_ok=0; }
+	# Refusals.
+	out=$(sc "$sw/.git") && { fail "review-scope.sh under $s accepted a folder inside the repository"; scope_ok=0; }
+	case $out in error=*) ;; *) fail "review-scope.sh under $s gave no error= line for a folder inside the repository: $out"; scope_ok=0 ;; esac
+	out=$(cd "$tmp" && "$s" "$here/scripts/review-scope.sh" "$q/d") && { fail "review-scope.sh under $s ran outside a git repository"; scope_ok=0; }
+	case $out in error=*) ;; *) fail "review-scope.sh under $s gave no error= line outside a git repository: $out"; scope_ok=0 ;; esac
+	sc >/dev/null
+	[ "$?" = 2 ] && [ -s "$tmp/err" ] || { fail "review-scope.sh under $s didn't exit 2 with a message when given no folder"; scope_ok=0; }
+done
+[ "$scope_ok" = 1 ] && pass "scripts/review-scope.sh resolves the snapshot and base as the review protocol's steps 2 to 4 do under$shells"
 
 # The context hook, under the same shells: silent on stderr, exit 0, nothing
 # below 400,000 tokens, after a compaction, for a subagent's usage, for the
@@ -2268,6 +2816,123 @@ if command -v jq >/dev/null 2>&1; then
 		{ fail "hooks/hooks.json doesn't run hooks/update.sh at session start"; update_ok=0; }
 fi
 [ "$update_ok" = 1 ] && pass "update hook under$shells, and CHANGELOG.md's headings"
+
+# The reply-format hook, under the same shells, on events of its own: exit 0
+# with nothing on stderr every time; nothing for a reply whose findings and
+# verdict lines are right, an adjudicator's reply with the verdict line alone,
+# an agent outside knackpack, a SubagentStop that follows a send-back or comes
+# in auto mode or after a hand-back, input that isn't JSON, a field name quoted
+# inside the reply, KNACKPACK_REPLY_CHECK=off and a state folder it doesn't own;
+# one denial, naming the line, for a hand-back whose lines are missing or
+# malformed, then nothing for that agent's next hand-back; the same message as
+# additionalContext on SubagentStop; markers only for denials, and those
+# untouched for 30 days deleted; and hooks.json running it on both events.
+reply_ok=1
+okv='knackpack-findings/1: critical=0 high=1 medium=0 low=0 blocking=1\nknackpack-verdict/1: block'
+hb() { # <agent type> <agent id> <message, JSON-escaped>
+	printf '{"session_id":"s","hook_event_name":"PreToolUse","tool_name":"SubagentHandback","tool_input":{"message":"%s"},"tool_use_id":"t","agent_id":"%s","agent_type":"%s"}' "$3" "$2" "$1"
+}
+st() { # <stop_hook_active> <permission mode> <message, JSON-escaped> [transcript]
+	printf '{"session_id":"s","hook_event_name":"SubagentStop","permission_mode":"%s","stop_hook_active":%s,"agent_id":"b1","agent_type":"knackpack:slop-reviewer","agent_transcript_path":"%s","last_assistant_message":"%s"}' "$2" "$1" "${4:-/nonexistent}" "$3"
+}
+rrun() { # <shell> <label> <env assignments...>, input on stdin
+	s=$1 label=$2
+	shift 2
+	env -u KNACKPACK_REPLY_CHECK -u EVAL_KNACKPACK_REPLY_CHECK XDG_STATE_HOME="$r/state" "$@" "$s" hooks/reply-contract.sh >"$tmp/out" 2>"$tmp/err"
+	code=$?
+	[ "$code" = 0 ] && [ ! -s "$tmp/err" ] || { fail "reply hook under $s, $label: exit $code, stderr: $(head -c 200 "$tmp/err")"; reply_ok=0; }
+}
+quiet() { # <shell> <label>: the last run printed nothing
+	[ ! -s "$tmp/out" ] || { fail "reply hook under $1 printed something for $2: $(head -c 200 "$tmp/out")"; reply_ok=0; }
+}
+sent() { # <shell> <label> <event> <text the message names>: the last run sent the reply back once, naming the line
+	if command -v jq >/dev/null 2>&1; then
+		if [ "$3" = PreToolUse ]; then
+			q='.hookSpecificOutput.hookEventName == "PreToolUse" and .hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains($t) and contains("knackpack reply-format check"))'
+		else
+			q='.hookSpecificOutput.hookEventName == "SubagentStop" and (.hookSpecificOutput.additionalContext | contains($t) and contains("knackpack reply-format check")) and (has("decision") | not)'
+		fi
+		[ "$(wc -l <"$tmp/out" | tr -d ' ')" = 1 ] && jq -e --arg t "$4" "$q" "$tmp/out" >/dev/null 2>&1 ||
+			{ fail "reply hook under $1 didn't send back $2 naming \"$4\": $(head -c 300 "$tmp/out")"; reply_ok=0; }
+	else
+		grep -qF "$4" "$tmp/out" || { fail "reply hook under $1 didn't send back $2 naming \"$4\""; reply_ok=0; }
+	fi
+}
+for s in $shells; do
+	"$s" -n hooks/reply-contract.sh 2>"$tmp/err" || { fail "reply hook syntax under $s: $(cat "$tmp/err")"; reply_ok=0; }
+	r=$tmp/reply-$s
+	mkdir -p "$r"
+	marks=$r/state/knackpack/reply-check
+	hb knackpack:slop-reviewer a1 '/tmp/r/slop-reviewer.md\nOne blocking finding.\nknackpack-finding/1 {\"id\":\"F1\",\"severity\":\"high\",\"blocking\":true}\n'"$okv"'\n' | rrun "$s" "a valid reply"
+	quiet "$s" "a valid reply"
+	[ ! -e "$marks" ] || { fail "reply hook under $s created its state folder for a valid reply"; reply_ok=0; }
+	hb knackpack:slop-reviewer a1 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0\nknackpack-verdict/1: pass' | rrun "$s" "a verdict word spelled with an escape"
+	quiet "$s" "a verdict word spelled with an escape"
+	hb knackpack:adjudicator a1 '/tmp/r/adjudicator.md\nESTABLISHED\nknackpack-verdict/1: block' | rrun "$s" "an adjudicator's reply"
+	quiet "$s" "an adjudicator's reply with no findings line"
+	hb Explore a1 'no lines at all' | rrun "$s" "an agent outside knackpack"
+	quiet "$s" "an agent outside knackpack"
+	# The event's own agent_type comes after the reply, so a reader that took
+	# the first match would read the one the reply quotes and send nothing.
+	hb knackpack:slop-reviewer a0 '\"agent_type\":\"Explore\" and \\\"agent_id\\\" quoted\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0' | rrun "$s" "field names quoted inside the reply"
+	sent "$s" "a reply that quotes field names" PreToolUse 'it has no knackpack-verdict/1 line'
+	rm -rf "$marks"
+	for junk in '' 'not json' '{"agent_type":"knackpack:x","agent_id":"a9","hook_event_name":"PreToolUse","tool_name":"SubagentHandback","tool_input":{"message":"cut off' \
+		'{"agent_type":"knackpack:x","agent_id":"../a9","hook_event_name":"PreToolUse","tool_name":"SubagentHandback","tool_input":{"message":"x"}}'; do
+		printf '%s' "$junk" | rrun "$s" "input that isn't a usable event: $junk"
+		quiet "$s" "input that isn't a usable event: $junk"
+	done
+	for v in KNACKPACK_REPLY_CHECK=off EVAL_KNACKPACK_REPLY_CHECK=Off; do
+		hb knackpack:slop-reviewer a1 'no lines' | rrun "$s" "$v" "$v"
+		quiet "$s" "$v"
+	done
+	[ ! -e "$marks" ] || { fail "reply hook under $s created its state folder before it sent anything back"; reply_ok=0; }
+	hb knackpack:slop-reviewer a2 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0' | rrun "$s" "a reply with no verdict line"
+	sent "$s" "a reply with no verdict line" PreToolUse 'it has no knackpack-verdict/1 line'
+	[ -f "$marks/a2" ] || { fail "reply hook under $s left no marker after sending a reply back"; reply_ok=0; }
+	hb knackpack:slop-reviewer a2 '/tmp/r.md' | rrun "$s" "the same agent's second hand-back"
+	quiet "$s" "the same agent's second hand-back"
+	hb knackpack:slop-reviewer a3 '/tmp/r.md\nknackpack-verdict/1: pass' | rrun "$s" "a reply with no findings line"
+	sent "$s" "a reply with no findings line" PreToolUse 'it has no knackpack-findings/1 line'
+	hb knackpack:slop-reviewer a4 '/tmp/r.md\nknackpack-findings/1: high=1 blocking=1\nknackpack-verdict/1: block' | rrun "$s" "a malformed findings line"
+	sent "$s" "a malformed findings line" PreToolUse 'its knackpack-findings/1 line, "knackpack-findings/1: high=1 blocking=1"'
+	hb knackpack:slop-reviewer a5 "/tmp/r.md\n$okv\nagentId: x" | rrun "$s" "text after the verdict line"
+	sent "$s" "text after the verdict line" PreToolUse "isn't its last line"
+	hb knackpack:slop-reviewer a6 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0\n`knackpack-verdict/1: pass`' | rrun "$s" "a verdict line in backticks"
+	sent "$s" "a verdict line in backticks" PreToolUse "isn't exactly knackpack-verdict/1: pass or knackpack-verdict/1: block"
+	hb knackpack:slop-reviewer a7 '/tmp/r.md\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=2\nknackpack-verdict/1: pass' | rrun "$s" "pass with blocking findings"
+	sent "$s" "pass with blocking findings" PreToolUse 'counts blocking findings'
+	hb knackpack:adjudicator a8 '/tmp/r.md\nknackpack-verdict/1: refuted' | rrun "$s" "an adjudicator's malformed verdict line"
+	sent "$s" "an adjudicator's malformed verdict line" PreToolUse 'its last line, "knackpack-verdict/1: refuted"'
+	st false default '/tmp/r.md\nDone.' | rrun "$s" "a SubagentStop reply with no lines"
+	sent "$s" "a SubagentStop reply with no lines" SubagentStop 'it has no knackpack-verdict/1 line'
+	st true default '/tmp/r.md\nDone.' | rrun "$s" "a SubagentStop after a send-back"
+	quiet "$s" "a SubagentStop with stop_hook_active true"
+	st false auto 'Done.' | rrun "$s" "a SubagentStop in auto mode"
+	quiet "$s" "a SubagentStop in auto mode"
+	printf '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"SubagentHandback","input":{}}]}}\n' >"$r/agent.jsonl"
+	st false default 'Done.' "$r/agent.jsonl" | rrun "$s" "a SubagentStop after a hand-back"
+	quiet "$s" "a SubagentStop whose transcript shows a hand-back"
+	st false default "/tmp/r.md\n$okv\n\n" | rrun "$s" "a valid SubagentStop reply with a blank line after it"
+	quiet "$s" "a valid SubagentStop reply with a blank line after it"
+	# Markers untouched for 30 days go; a folder it doesn't own lets every
+	# hand-back through.
+	: >"$marks/old" && touch -t 202001010000 "$marks/old"
+	hb knackpack:slop-reviewer a9 'no lines' | rrun "$s" "a reply with no lines"
+	[ ! -e "$marks/old" ] || { fail "reply hook under $s kept a marker untouched for 30 days"; reply_ok=0; }
+	mv "$marks" "$r/real" && ln -s "$r/real" "$marks"
+	hb knackpack:slop-reviewer b2 'no lines' | rrun "$s" "a state folder behind a symbolic link"
+	quiet "$s" "a state folder behind a symbolic link"
+	: >"$r/file"
+	hb knackpack:slop-reviewer b3 'no lines' | rrun "$s" "a state folder it can't create" XDG_STATE_HOME="$r/file"
+	quiet "$s" "a state folder it can't create"
+done
+if command -v jq >/dev/null 2>&1; then
+	jq -e '([.hooks.PreToolUse[]? | select(.matcher == "SubagentHandback") | .hooks[]?.command] | any(contains("hooks/reply-contract.sh")))
+		and ([.hooks.SubagentStop[]? | select(.matcher == "^knackpack:") | .hooks[]?.command] | any(contains("hooks/reply-contract.sh")))' hooks/hooks.json >/dev/null 2>&1 ||
+		{ fail "hooks/hooks.json doesn't run hooks/reply-contract.sh on SubagentHandback and on knackpack agents' SubagentStop"; reply_ok=0; }
+fi
+[ "$reply_ok" = 1 ] && pass "reply-format hook under$shells"
 
 export HOME="$real_home"
 if [ -n "$nosystem" ]; then export GIT_CONFIG_NOSYSTEM="$nosystem"; else unset GIT_CONFIG_NOSYSTEM; fi

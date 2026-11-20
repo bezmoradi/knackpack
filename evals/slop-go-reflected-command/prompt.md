@@ -1,7 +1,7 @@
 ---
 description: An ops CLI dispatches each command to an exported method named Handle<Command>, found with reflect's MethodByName. The change adds HandleChecksum, which nothing calls directly but the dispatcher reaches, and handleChecksumDir, an unexported method no task asked for that MethodByName can never find. The review reports the second and keeps the first.
 expected_outcome: handleChecksumDir is reported as unused or unreachable; HandleChecksum isn't called unused and isn't recommended for removal; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

@@ -1,7 +1,7 @@
 ---
 description: A small Python service already exports traces with OpenTelemetry, and the user asks which vendor a team of four should pick for dashboards and alerting. Choosing a vendor, dashboards or alerts is what the OpenTelemetry reviewer says it isn't for, so it doesn't start, though the repository uses OpenTelemetry.
 expected_outcome: The OpenTelemetry reviewer never starts, and the reply answers the vendor question.
-tags: [trigger]
+tags: [trigger, "quiet:knackpack:opentelemetry-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1200

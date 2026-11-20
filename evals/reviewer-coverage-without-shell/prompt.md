@@ -1,7 +1,7 @@
 ---
 description: The coverage case run with no shell granted, so the reviewer can't run its count command and writes the reply's lines itself. It still ends with a knackpack-coverage/1 line for REQ-01 (verified) and REQ-02 (violated), in order, a knackpack-finding/1 line for the sorting defect, the findings line and the verdict line.
 expected_outcome: The reviewer's reply, which carries the full report since it can't write the file either, ends with the coverage line for REQ-01 verified and REQ-02 violated, a finding line for F1, then the findings line and the verdict line, in that order, each in the command's format.
-tags: [reviewer-noshell, slow]
+tags: [reviewer-noshell, slow, "starts:knackpack:adversarial-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

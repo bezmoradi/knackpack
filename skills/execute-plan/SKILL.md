@@ -12,26 +12,25 @@ Turn an agreed plan into a verified, integrated change, as its orchestrator.
 
 You own the engineering outcome: the user's intent, the plan, the
 assignments, their order, the integration and the final acceptance.
-Implementation subagents own the implementation: they investigate their
-package, change code and tests, run the package's checks and review their own
-work. Being responsible for the implementation doesn't mean writing it: a
-parent that writes the code can no longer review it independently, and its
-context fills with detail the rest of the run needs room for.
+Implementation subagents own the implementation: they investigate, change
+code and tests, run the package's checks and review their own work. Owning
+the outcome doesn't mean writing the code: a parent that writes it can't
+review it independently, and its context fills with detail the run needs
+room for.
 
 These rules hold for the whole run:
 
 - **Delegate every implementation change, whatever its size.** Source code,
   tests, configuration, migrations and build files are changed by an
-  implementation subagent, a one-line fix included. There is no size below
-  which you edit directly: "it's only one line" is how an orchestrator turns
-  back into the developer and stops checking the work.
+  implementation subagent, a one-line fix included: "it's only one line" is
+  how an orchestrator turns back into the developer and stops checking the
+  work.
 - **Delegate by coherent package, not by line or file.** One implementer can
   own a one-line fix, or several tightly coupled packages; the number of
   agents follows the structure of the work, never a wish to delegate more.
 - **A report is evidence, not proof.** Accept a package only after reading
   its actual diff and seeing its checks pass.
-- **Edit the project yourself only under the exceptions in section 8**, and
-  say which one each time.
+- **Edit the project yourself only under the exceptions in section 8.**
 
 Update the plan file's package status in place as work moves: it's the
 record the user, a later session and other tools read. The exception is a
@@ -42,8 +41,8 @@ needs revising, stop and ask the user to revise it with
 
 Keep such a plan's package statuses instead in a file named `PLAN-status.md`, saved in the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 The file isn't named `PLAN.md`
-because plan-implementation keeps its own copy of the plan in that folder
-under that name; if `PLAN-status.md` is already there for another task,
+because plan-implementation keeps its own copy of the plan there under that
+name; if `PLAN-status.md` is already there for another task,
 choose another name rather than overwrite it.
 
 Write nothing into the repository beyond what the packages change and the status updates above.
@@ -54,7 +53,7 @@ Challenge the work first, briefly, since this skill starts in place of
 challenge-requirements: read the plan or section and the code it touches,
 name each gap that would change what gets built or whether it's safe, with
 what shows it, and ask only the questions that block it, at most three.
-Record minor choices as assumptions and go on with the rest. Don't start
+Record minor choices as assumptions and go on. Don't start
 challenge-requirements for this: it would build the work in this session.
 
 Execution needs the user's explicit go-ahead for this plan, such as "go
@@ -88,9 +87,9 @@ If your environment has a task list, mirror the packages there.
 ## 2. Shape the assignments
 
 Turn the plan's packages into assignments, one per implementer. When the
-document says what to build but has no packages, such as a PRD section or a
-roadmap phase that lists requirements, cut the packages yourself first, by
-the components they change, and say how you cut them:
+document says what to build but has no packages, such as a PRD section or
+roadmap phase, cut the packages yourself first, by the components they
+change, and say how you cut them:
 
 - Keep tightly coupled packages in one assignment, and keep a package whole:
   splitting one across agents makes them negotiate a contract that only the
@@ -99,7 +98,7 @@ the components they change, and say how you cut them:
   responsibilities it may change. Two assignments that run at the same time
   never own the same file. Shared files that collide easily, such as lock
   files, generated code, registries, routing tables and migration numbering,
-  belong to one owner or to assignments that run one after another.
+  belong to one owner or to assignments that run in sequence.
 - Run dependent work in the plan's order. Run independent assignments in
   parallel only when the shared contract they build on is settled and
   committed or written into each prompt, they own separate files, and there's
@@ -124,9 +123,9 @@ the components they change, and say how you cut them:
   committing them. A worktree left unchanged is cleaned up automatically; one
   with changes is kept, and the agent's result names its path and branch.
 
-Use Claude Code's `general-purpose` agent as the implementer, or an agent
-the project defines for implementation work. Knackpack's own agents are
-report-only reviewers and can't implement.
+Use Claude Code's `general-purpose` agent as the implementer, or one the
+project defines for implementation. Knackpack's own agents are report-only
+reviewers and can't implement.
 
 If you can't start subagents at all, because the Agent tool is missing or
 denied, stop and tell the user: implementing directly is their call, not a
@@ -162,13 +161,13 @@ a check would mean weakening it.
 
 Write assignments that can't be read two ways: "clean up the handler" lets
 an implementer decide the scope; "move the token check before the database
-call in the order handler, keeping its error response" doesn't.
+call, keeping its error response" doesn't.
 
 ## 5. Coordinate while they work
 
-Subagents started in the background notify you when they finish: don't
-poll them, and don't do their work while you wait. Use the time to prepare
-the next assignment or review a finished one.
+Subagents started in the background notify you when they finish; don't
+do their work while you wait: prepare the next assignment or review a
+finished one.
 
 When an implementer reports a blocker, a contract that has to change or
 scope that grew, decide it from the plan and the agreement: answer it, adjust
@@ -177,7 +176,7 @@ decision is theirs. Never let an implementer settle a requirement on its own.
 
 To send work back, continue the same agent with SendMessage when its context
 helps, or start a fresh one with a corrected contract when its context would
-repeat the mistake.
+repeat the mistake. Section 6 limits the attempts.
 
 ## 6. Verify every result yourself
 
@@ -196,7 +195,21 @@ For each finished assignment, before marking any package done:
   runs, or a check run before the last edit isn't evidence.
 - Mark the package done in the plan only when its verification and
   completion criteria pass, naming the check that passed. Otherwise send it
-  back with what failed.
+  back with what failed, and record the attempt beside the package's status:
+  its approach and failure signature, the failing check and its first error
+  line.
+
+The same approach failing with the same signature isn't a new attempt,
+since a repeat isn't new evidence: send work back only with a changed
+approach. After 2 failed attempts, or the limit the plan sets for the
+package, start fresh, since patching a wrong approach makes the code worse:
+an agent started only to diagnose, changing nothing, maybe on a stronger
+model through the Agent tool's `model` option, then a new implementer given
+the plan, the attempt history and that diagnosis. A fresh start abandons a
+parallel implementer's own worktree, left unintegrated; in the session's
+tree, which may hold the user's uncommitted work, it undoes nothing without
+asking. If it fails too, stop that package, keep its diff and logs, and ask
+the user. A blocked package is never marked done.
 
 ## 7. Get independent review where the risk calls for it
 
@@ -223,8 +236,8 @@ Resolve every Critical or High finding before accepting the work: send the
 fix to an implementer, or record the user's decision to accept the risk.
 When reviewers contradict each other or a finding is disputed, weigh the
 evidence each gives; for a Critical or High finding still in doubt, offer an
-independent check by `knackpack:adjudicator`, as the reviewers' descriptions
-say. Verify each fix as section 6 says.
+independent check by `knackpack:adjudicator`. Verify each fix as section 6
+says.
 
 ## 8. Edit the project yourself only as an exception
 
@@ -239,18 +252,17 @@ You may change files the packages own only to:
   user's agreement when that means implementing a package.
 
 Keep each one as narrow as its reason. Before making it, say which exception
-applies and why; afterwards, inspect the resulting diff, and list it in the
-final report. A small feature or bug fix is never an exception: assign it,
-however small. If you find yourself writing more than an integration needs,
-stop and assign it.
+applies and why; afterwards, inspect the resulting diff. A small feature or
+bug fix is never an exception: assign it. If you find yourself writing more
+than an integration needs, stop and assign it.
 
 ## 9. Integrate and accept
 
 Bring parallel results into the session's tree one at a time, in dependency
 order. For a worktree, collect its change with
 `git -C <worktree> add -A && git -C <worktree> diff --cached --binary <start>`,
-where `<start>` is the commit it started from, check that it applies with
-`git apply --check`, and then apply it. If it doesn't apply, that's an
+where `<start>` is the commit it started from, check it with
+`git apply --check`, then apply it. If it doesn't apply, that's an
 integration conflict, for you to resolve under section 8 or to send back.
 Verify after each integration, not only at the end, so a break points at one
 result.
@@ -296,8 +308,8 @@ Stop the affected work and reassess with the user when a central assumption
 proves false, the change would weaken a security control, a migration risks
 data loss, the work grows beyond the agreed scope, validation can't exercise
 the behavior, or passing a check would mean loosening it. A failed check
-normally calls for diagnosis and correction, not escalation. Continue
-independent work that's still safe.
+calls for diagnosis and correction within section 6's limit, not escalation.
+Continue independent work that's still safe.
 
 ## 11. Report
 
@@ -311,7 +323,7 @@ End with:
   implementer reported, and anything still to run in a later environment.
 - The reviews run, their unresolved findings, and any risk the user accepted.
 - For each review, the snapshot its report names, and the accepted changes
-  made after it, such as fixes for its findings, which it didn't see.
+  made after it, which it didn't see.
 - Each direct edit you made under section 8, with its reason.
 - Worktrees left on disk, by path; remove them only when the user says so.
 - What wasn't done and needs the user's go-ahead, such as committing,

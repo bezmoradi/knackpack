@@ -1,7 +1,7 @@
 ---
 description: "The change adds a recursive template-literal Paths<T> type so getConfigValue(config, \"a.b.c\") checks its path against AppConfig. AppConfig's navigation holds MenuItem, whose children are MenuItem[], so Paths never bottoms out and tsc 5.9 fails with TS2589 (type instantiation is excessively deep and possibly infinite) at getConfigValue's signature, breaking the build. The reviewer reports the recursive type explosion and its cause."
 expected_outcome: "The review reports that Paths<AppConfig> recurses without end through MenuItem.children, citing the TS2589 error from tsc (or equivalent evidence that tsc fails), recommends bounding the depth, excluding the navigation subtree, or a simpler signature, and grades it Medium or higher; with the plugin, the reviewer ran."
-tags: [ts-dev, slow]
+tags: [ts-dev, slow, "starts:knackpack:typescript-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

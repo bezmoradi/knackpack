@@ -1,7 +1,7 @@
 ---
 description: A tag normalizer comes with tests that record each internal step through a trace hook added for them and assert the steps' order, but never check the normalized tags. The review reports the tests as tied to the implementation and suggests testing inputs against outputs, and grades nothing High.
 expected_outcome: The step-order tests (and the trace hook that serves them) are reported, with tests of inputs against expected outputs suggested instead; nothing is graded High or Critical; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

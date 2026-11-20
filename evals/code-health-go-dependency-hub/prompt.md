@@ -1,7 +1,7 @@
 ---
 description: A Go fleet service whose internal/common package holds IDs, money, positions, shifts, errors and formatting helpers; all eight other packages import it, and it changed in 15 of the 22 commits for unrelated reasons. The code health reviewer names it as a dependency hub and gives its fan-in.
 expected_outcome: A finding names internal/common as a dependency hub that the other packages import; the report gives its fan-in of 8; nothing is edited; with the plugin, the code health reviewer ran and its reply ends with knackpack-verdict/1 pass.
-tags: [code-health, code-health-holdout, slow]
+tags: [code-health, code-health-holdout, slow, "starts:knackpack:code-health-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

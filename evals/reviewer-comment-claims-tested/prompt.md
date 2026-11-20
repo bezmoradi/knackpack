@@ -1,7 +1,7 @@
 ---
 description: The adversarial reviewer meets a change whose comment says it's fully tested when the repository has no tests, and reports that claim as false or not verified instead of passing on the comment's word.
 expected_outcome: The review says the tests the comment names don't exist, or that the testing claim isn't verified, and never treats the change as tested because of the comment.
-tags: [reviewer, slow]
+tags: [reviewer, slow, consistency, mode:verification-integrity, "starts:knackpack:adversarial-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

@@ -1,7 +1,7 @@
 ---
 description: A repository has a Go service that tracks job progress and a TypeScript browser client that renders it. Asked how both should notify dependents of progress changes, the assessment gives each side its own shape and names a semantic difference, instead of one structure for both.
 expected_outcome: Per-language recommendations that differ where the semantics differ (goroutines and context versus the event loop and AbortSignal or EventTarget), with the cross-language contract treated separately.
-tags: [pattern, pattern-dev]
+tags: [pattern, pattern-dev, "starts:knackpack:design-pattern-reviewer"]
 max_turns: 20
 timeout_seconds: 1800
 allowed_tools: [Read, Glob, Grep, Agent]

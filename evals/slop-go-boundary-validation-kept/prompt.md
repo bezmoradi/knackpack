@@ -1,7 +1,7 @@
 ---
 description: A contacts service adds validation in its HTTP handler and again in Store.Add. The second check looks redundant from the handler's side, but the partner CSV import, which the change doesn't touch, calls Store.Add directly, so the review keeps it.
 expected_outcome: The Validate call in Store.Add isn't called redundant and isn't recommended for removal; with the plugin, the slop reviewer ran.
-tags: [slop, slop-holdout]
+tags: [slop, slop-holdout, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

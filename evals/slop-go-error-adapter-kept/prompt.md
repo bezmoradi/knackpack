@@ -1,7 +1,7 @@
 ---
 description: A shop service switches from an in-memory order map to the ledger service through a small LedgerSource adapter. The adapter looks thin, but it turns the ledger's 404 into orders.ErrNotFound, which the handler maps to a 404 response, and maps ledger entries to orders, so the review keeps it.
 expected_outcome: LedgerSource isn't called a pass-through or unneeded, and the handler isn't told to call the ledger client directly; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

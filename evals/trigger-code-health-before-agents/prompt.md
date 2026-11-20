@@ -1,7 +1,7 @@
 ---
 description: The user is about to let coding agents work on a repository and asks which parts are hardest or riskiest to change, without saying "code health". That's the code health reviewer's request, so it starts.
 expected_outcome: The knackpack code health reviewer runs.
-tags: [trigger]
+tags: [trigger, "starts:knackpack:code-health-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

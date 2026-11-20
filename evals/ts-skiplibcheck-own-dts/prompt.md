@@ -1,7 +1,7 @@
 ---
 description: "The change moves checkout to a carrier's v2 quotes, edits the project's own global declaration file src/types/parcelway.d.ts so Quote.price is Money, a name that isn't in scope there, and adds skipLibCheck: true to tsconfig. skipLibCheck skips the project's own .d.ts files too, so the TS2304 disappears and price becomes an error type that behaves as any; shippingChargeCents then reads quote.price.cents, which doesn't exist, and every checkout shows shipping and total as $NaN. The reviewer reports what skipLibCheck hides here and the any it lets through."
 expected_outcome: "The review reports that skipLibCheck also skips the project's own src/types/parcelway.d.ts, hiding a real error there (Money isn't defined or imported in that global declaration file), so Quote.price silently becomes any and the compiler no longer checks its uses, letting quote.price.cents (the field is amountCents) produce NaN shipping and totals; it recommends fixing the declaration (import the type) instead of turning on skipLibCheck, and grades it Medium or higher; with the plugin, the reviewer ran."
-tags: [ts-holdout, slow]
+tags: [ts-holdout, slow, "starts:knackpack:typescript-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

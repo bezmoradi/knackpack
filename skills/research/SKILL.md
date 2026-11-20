@@ -64,7 +64,7 @@ Label each claim that drives the decision:
 - **Inferred:** reasoned from evidence, not shown directly.
 - **Unresolved:** the evidence is missing or contradictory.
 
-These describe the kind of evidence, not a probability, so don't attach confidence percentages. Say exactly what's uncertain instead: "documented for version 4.2, not tested behind the project's proxy." When sources disagree, compare their dates, versions, configurations and definitions, explain the disagreement, look for decisive evidence, and leave the claim unresolved if there is none.
+These describe the kind of evidence, not a probability, so say in words exactly what's uncertain: "documented for version 4.2, not tested behind the project's proxy." When sources disagree, compare their dates, versions, configurations and definitions, explain the disagreement, look for decisive evidence, and leave the claim unresolved if there is none.
 
 ## 5. Compare fairly
 
@@ -77,7 +77,7 @@ These describe the kind of evidence, not a probability, so don't attach confiden
 
 ## 6. Experiment when reading isn't enough
 
-Experiment when the documentation doesn't settle the behavior, this project's setup could change the outcome, performance decides the question, a failure needs reproducing, or explanations can't be separated by inspection. Before running anything, write down the question and the decision it informs, the baseline, the environment and inputs, the one variable you change, what you'll measure, and what counts as success, failure or inconclusive. Choose the smallest experiment that can tell the possible answers apart; don't build an application to answer a narrow question.
+Experiment when the documentation doesn't settle the behavior, this project's setup could change the outcome, performance decides the question, a failure needs reproducing, or explanations can't be separated by inspection. Before running anything, write down the question and the decision it informs, the baseline, the environment and inputs, the one variable you change, what you'll measure, and what counts as success, failure or inconclusive. Choose the smallest experiment that can tell the possible answers apart.
 
 - Work in a folder beside the brief (see Where to save), never in the working tree, and keep prototype code out of the product.
 - Use synthetic data and bounded resources. Never use production credentials, test destructively against shared or live systems, or create paid cloud resources without the user's go-ahead.

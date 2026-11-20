@@ -1,7 +1,7 @@
 ---
 description: The same invoicing service fixes the cross-tenant invoice leak by making InvoiceRepository.get take the tenant id and filter on it in SQL, and both callers, get_invoice and the accounting CSV export, now pass the user's tenant. The adversarial reviewer doesn't claim the leak stays open through another path and finds nothing High or Critical.
 expected_outcome: The review doesn't report that any invoice route still lets a user read, download or send another tenant's invoice, and raises nothing High, Critical or blocking; with the plugin, the adversarial reviewer ran.
-tags: [reviewer, slow]
+tags: [reviewer, slow, consistency, mode:evidence-quality, "starts:knackpack:adversarial-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

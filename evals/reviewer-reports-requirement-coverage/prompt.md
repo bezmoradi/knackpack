@@ -1,7 +1,7 @@
 ---
 description: The adversarial reviewer, given two requirements with IDs, ends its reply with one knackpack-coverage/1 line for each, REQ-01 verified and REQ-02 violated, before its finding lines and the unchanged findings and verdict lines.
 expected_outcome: The reviewer's reply has a coverage line for REQ-01 with status verified and one for REQ-02 with status violated, then the finding lines, the findings line and the verdict line, in that order.
-tags: [reviewer, slow]
+tags: [reviewer, slow, consistency, mode:alignment, "starts:knackpack:adversarial-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

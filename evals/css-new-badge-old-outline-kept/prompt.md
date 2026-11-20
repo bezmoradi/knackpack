@@ -1,7 +1,7 @@
 ---
 description: "A stylesheet that has long removed focus outlines in a legacy rule gets an uncommitted, correct change adding a status badge. The CSS reviewer reviews the diff, lists the old outline removal only as pre-existing if at all, and reports nothing High against the change."
 expected_outcome: "The review attributes no High or Critical finding to the change, and doesn't present the legacy outline removal as a defect the change introduced; with the plugin, the CSS reviewer ran."
-tags: [css-dev, slow]
+tags: [css-dev, slow, "starts:knackpack:css-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

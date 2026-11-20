@@ -1,7 +1,7 @@
 ---
 description: An invoicing package gets the 30-day due date its task asked for, plus an unexported business-day helper that nothing calls, in a module whose CI runs golangci-lint with its default linters, which include unused. The review reports the helper as a finding that blocks, and grades nothing High.
 expected_outcome: businessDaysAfter is reported as unused and has to go before the change merges, because the CI linter fails on it; nothing is graded High or Critical; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

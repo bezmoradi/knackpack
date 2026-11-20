@@ -1,7 +1,7 @@
 ---
 description: A shop makes shipping free from $50 by copying the same threshold check, with the literal 5000, into the cart preview and the checkout, although a pricing package already holds the shipping charge both use. The review reports the copied rule and suggests one shared definition, and grades nothing High.
 expected_outcome: The free-shipping rule duplicated in cart/preview.go and checkout/checkout.go is reported, with one shared function or constant (such as in pricing) suggested; nothing is graded High or Critical; with the plugin, the slop reviewer ran.
-tags: [slop, slop-holdout]
+tags: [slop, slop-holdout, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

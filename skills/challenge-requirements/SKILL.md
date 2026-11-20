@@ -128,8 +128,8 @@ Investigate these dimensions where relevant.
 - Is the request treating a symptom while preserving the underlying cause?
 - What evidence would show that the change helped?
 
-Do not demand numerical business metrics for every small improvement.
-Require an observable outcome that fits the task.
+Require an observable outcome that fits the task, and a number only where the
+task needs one.
 
 ### Actors and authority
 
@@ -267,8 +267,7 @@ For each question:
 For example: "If 7 of 10 resources are created before one operation fails,
 should we keep the successful resources and report partial completion, or
 attempt cleanup? This changes retry behavior, recovery work, and what the user
-is charged for." Avoid broad questions such as "Can you provide more details?"
-or "What are all the edge cases?"
+is charged for." Ask each question about one concrete case, as this one does.
 
 When a decision has a few discrete options and the AskUserQuestion tool is
 available, use it and put your recommended option first. Otherwise, ask in plain text.
@@ -297,7 +296,7 @@ For each requirement, state:
 - Important failure or boundary cases.
 - The verification method.
 
-Use Given/When/Then when it improves clarity; do not force it onto every item.
+Use Given/When/Then only where it improves clarity.
 
 Acceptance criteria should describe externally meaningful behavior rather
 than mandate implementation details without justification.

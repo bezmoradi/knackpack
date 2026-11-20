@@ -28,7 +28,10 @@
 #   track-intent.sh stop     (Stop) mark the turn finished, note project files
 #                            the turn changed by other means, such as a shell
 #                            command, and make Claude update the record if it
-#                            wrote "Noted:" without updating it
+#                            wrote "Noted:" without updating it; and, as a
+#                            check of its own, send Claude back once to run
+#                            the project's checks when the turn edited a file
+#                            that isn't a document after its last command
 #   track-intent.sh manual <session-id> [project-dir]
 #                            print the paths, glossary and records without
 #                            the rules (the skill's fallback when hooks
@@ -50,6 +53,10 @@
 # in sessions nobody attends, such as `claude -p`, which they skip by default.
 # `claude plugin eval` passes a case only variables named EVAL_*, so
 # EVAL_KNACKPACK_INTENT stands in for it there, letting an eval run the hooks.
+# Stop's turn check is a feature of its own: it reads the end of the session's
+# transcript, writes nothing, runs in headless sessions and with
+# KNACKPACK_INTENT=off too, and KNACKPACK_TURN_CHECK=off, or
+# EVAL_KNACKPACK_TURN_CHECK=off in an eval, turns it off.
 
 # test -O isn't POSIX, but dash and bash both have it. Before the first
 # command, this directive covers the whole script.
@@ -77,6 +84,153 @@ field() {
 	}'
 }
 
+# Stop's turn check: when the turn edited a file that isn't a document after
+# the last command it ran, or ran no command at all, it prints what to tell
+# Claude, naming up to three of those files. An edit no check has seen isn't
+# verified, and a model that ends the turn there leaves that to the developer.
+# It reads only the transcript's last 4,000,000 bytes, where the turn starts
+# at the last prompt: one from the developer, a background-task notification
+# or a subagent's hand-back, not a tool result or text Claude Code adds within
+# the turn. A longer turn is read from where that window starts, which still
+# finds an edit after the last command in it. The transcript's format isn't
+# documented: Claude Code 2.1.329 writes one JSON object per line, a tool call
+# as "type":"tool_use","id":...,"name":...,"input":{...} in a line of type
+# assistant, and its result in a line of type user, with "is_error":true when
+# it failed. A failed edit doesn't count, when its result names only its own
+# call. A command is a Bash or PowerShell call, failed or not, since a check
+# that fails has still seen the edit. Documents are paths ending .md, .mdx,
+# .markdown, .rst or .adoc, and anything in the intent records' folder; a
+# .txt file isn't one, since requirements.txt or CMakeLists.txt is an input
+# to the build that a check should see.
+# Subagents' calls are in transcripts of their own. Anything it can't read
+# prints nothing.
+turn_check() {
+	printf '%s' "$input" | grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true' && return 0
+	tp=$(field transcript_path)
+	case $tp in /*.jsonl) ;; *) return 0 ;; esac
+	[ -f "$tp" ] && [ ! -L "$tp" ] && [ -r "$tp" ] || return 0
+	docs=${XDG_STATE_HOME:-}
+	case $docs in /*) ;; *) docs=${HOME:-}/.local/state ;; esac
+	docs=${docs%"${docs##*[!/]}"}/knackpack/intent/
+	# The window's first line is cut when the file is longer than it.
+	cut=0
+	size=$(wc -c <"$tp" 2>/dev/null | tr -d ' ')
+	case $size in '' | *[!0-9]*) return 0 ;; esac
+	[ "$size" -le 4000000 ] || cut=1
+	list=$(tail -c 4000000 "$tp" 2>/dev/null | LC_ALL=C awk -v cut="$cut" -v docs="$docs" '
+	function reset() { k = 0; split("", I); split("", P); split("", F) }
+	# A JSON string body: \" \\ \/ decoded, any other escape shown as "?".
+	function dec(s,   o, i, c) {
+		o = ""
+		while ((i = index(s, "\\")) > 0) {
+			o = o substr(s, 1, i - 1)
+			c = substr(s, i + 1, 1)
+			if (c == "u") { o = o "?"; s = substr(s, i + 6) }
+			else { o = o (c == "\"" || c == "\\" || c == "/" ? c : "?"); s = substr(s, i + 2) }
+		}
+		return o s
+	}
+	NR == 1 && cut { next }
+	index($0, "{\"type\":\"api-request") == 1 || index($0, "\"isSidechain\":true") { next }
+	index($0, "\"type\":\"user\"") {
+		if (index($0, "\"type\":\"tool_result\"")) {
+			if (!index($0, "\"is_error\":true")) next
+			s = $0
+			c = 0
+			while (match(s, /"tool_use_id":"[^"]*"/)) {
+				id = substr(s, RSTART + 15, RLENGTH - 16)
+				c++
+				s = substr(s, RSTART + RLENGTH)
+			}
+			if (c == 1) for (j = 1; j <= k; j++) if (I[j] == id) F[j] = 1
+			next
+		}
+		# Text Claude Code adds within a turn, such as a skill it loaded, is
+		# marked isMeta; a subagent hand-back is too, but starts a turn.
+		if (index($0, "\"isCompactSummary\":true")) next
+		if (index($0, "\"isMeta\":true") && !index($0, "\"origin\":{\"kind\":\"peer\"")) next
+		reset()
+		ran = 0
+		next
+	}
+	index($0, "\"type\":\"assistant\"") && index($0, "\"type\":\"tool_use\"") {
+		s = $0
+		while (match(s, /"type":"tool_use","id":"[^"]*","name":"[^"]*","input":[{]/)) {
+			m = substr(s, RSTART, RLENGTH)
+			s = substr(s, RSTART + RLENGTH)
+			match(m, /"id":"[^"]*"/)
+			id = substr(m, RSTART + 6, RLENGTH - 7)
+			match(m, /"name":"[^"]*"/)
+			name = substr(m, RSTART + 8, RLENGTH - 9)
+			if (name == "Bash" || name == "PowerShell") { reset(); ran = 1; continue }
+			if (name != "Write" && name != "Edit" && name != "MultiEdit" && name != "NotebookEdit") continue
+			# The path is in this call input, before the next call.
+			t = s
+			if ((e = index(t, "\"type\":\"tool_use\"")) > 0) t = substr(t, 1, e - 1)
+			if (!match(t, /"(file|notebook)_path":"([^"\\]|\\.)*"/)) continue
+			p = substr(t, RSTART, RLENGTH)
+			sub(/^"[a-z]*_path":"/, "", p)
+			I[++k] = id
+			P[k] = dec(substr(p, 1, length(p) - 1))
+			F[k] = 0
+		}
+	}
+	END {
+		for (j = 1; j <= k; j++) {
+			p = P[j]
+			if (F[j] || p == "" || index(p, docs) == 1 || (p in seen)) continue
+			if (tolower(p) ~ /\.(md|mdx|markdown|rst|adoc)$/) continue
+			seen[p] = 1
+			b = p
+			sub(/.*[\/\\]/, "", b)
+			if (length(b) > 80) {
+				b = substr(b, 1, 80)
+				sub(/[\300-\377][\200-\277]*$/, "", b)
+				b = b "..."
+			}
+			if (++n <= 3) l = l (n == 1 ? "" : ", ") b
+		}
+		if (!n) exit
+		if (n > 3) l = l " and " (n - 3) " more"
+		printf "%s\t%s", ran, l
+	}' 2>/dev/null) || return 0
+	case $list in 0"	"?* | 1"	"?*) ;; *) return 0 ;; esac
+	if [ "${list%%"	"*}" = 1 ]; then since='after the last command you ran'; else since='and ran no command'; fi
+	printf '%s' "knackpack turn check, from a hook in the knackpack plugin: this turn edited files $since: ${list#*"	"}. No check has seen those edits, and an edit no check has seen isn't verified. Before you finish, run the project's checks that cover them, such as its tests, build, type check or linter. If it has none, or they can't run here, say so in your reply instead. This comes once per turn; the next stop ends the turn as it is."
+}
+
+# Stop prints one JSON object at most: Claude Code ignores output holding two,
+# so the record check and the turn check share it, and it's printed on the way
+# out, whichever exit the script takes.
+turn_msg=
+rec_msg=
+stop_reply() {
+	msg=$rec_msg
+	if [ -n "$turn_msg" ] && [ -n "$msg" ]; then
+		msg="$msg
+
+$turn_msg"
+	elif [ -n "$turn_msg" ]; then
+		msg=$turn_msg
+	fi
+	[ -n "$msg" ] || return 0
+	# Escape it for JSON: backslashes, quotes, tabs and line breaks, and drop
+	# the other control characters, which a path can hold.
+	msg=$(printf '%s' "$msg" | tr -d '\001-\010\013-\037' | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' |
+		awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')
+	printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$msg"
+}
+# The turn check runs in headless sessions and with KNACKPACK_INTENT=off too,
+# so it reads the event before the setting below can end the script.
+# KNACKPACK_TURN_CHECK=off turns it off, and EVAL_KNACKPACK_TURN_CHECK stands
+# in for it in evals.
+if [ "$mode" = stop ]; then
+	input=$(cat)
+	tc=$(printf '%s' "${KNACKPACK_TURN_CHECK:-${EVAL_KNACKPACK_TURN_CHECK:-}}" | tr '[:upper:]' '[:lower:]')
+	case $tc in off | 0 | false | no) ;; *) turn_msg=$(turn_check) ;; esac
+	trap 'stop_reply; exit 0' EXIT
+fi
+
 src=
 if [ "$mode" = manual ]; then
 	sid=${2:-}
@@ -99,7 +253,7 @@ else
 		esac
 		;;
 	esac
-	input=$(cat)
+	[ "$mode" = stop ] || input=$(cat)
 	sid=$(field session_id)
 	src=$(field source)
 	dir=${CLAUDE_PROJECT_DIR:-}
@@ -1067,12 +1221,8 @@ stop)
 	[ -f "$turn" ] && [ ! -L "$turn" ] && grep -qx record "$turn" && exit 0
 	# Or a change to the records' content since the turn began, by any means.
 	[ -f "$turn" ] && [ ! -L "$turn" ] && grep -q '^sum ' "$turn" && ! grep -qxF "sum $(records_sum)" "$turn" && exit 0
-	msg="Your reply this turn says the intent record was updated, but the record wasn't updated. Update $record now, or tell the developer it wasn't recorded."
-	# Escape it for JSON: backslashes, quotes, tabs and line breaks, and drop
-	# the other control characters, which a path can hold.
-	msg=$(printf '%s' "$msg" | tr -d '\001-\010\013-\037' | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' |
-		awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')
-	printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"%s"}}\n' "$msg"
+	# stop_reply prints it, with the turn check's message if there is one.
+	rec_msg="Your reply this turn says the intent record was updated, but the record wasn't updated. Update $record now, or tell the developer it wasn't recorded."
 	;;
 manual)
 	mkdir -p "$repo_dir" 2>/dev/null

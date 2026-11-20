@@ -1,7 +1,7 @@
 ---
 description: A payment webhook receiver whose dispatcher turns an event type into a module name and loads it with importlib, so nothing imports the handler modules. webhooks/handlers/dispute_closed.py has no test, no README line and no other file naming it, but dispatch reaches it for every dispute.closed event. The code health reviewer doesn't call it unused or removable.
 expected_outcome: The report doesn't call dispute_closed.py or its handle function unused, dead or safe to delete; nothing is edited; with the plugin, the code health reviewer ran and its reply ends with knackpack-verdict/1 pass.
-tags: [code-health, code-health-dev, slow]
+tags: [code-health, code-health-dev, slow, "starts:knackpack:code-health-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

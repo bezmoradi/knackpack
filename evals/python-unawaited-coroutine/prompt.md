@@ -1,7 +1,7 @@
 ---
 description: An uncommitted async refund handler calls the coroutine function audit.record without await and answers success, while the audit docs say every refund must be audited before the response; a correctly kept and cancelled metrics task sits nearby. The Python reviewer reports the missing await and rates it serious.
 expected_outcome: The review reports that refund never awaits audit.record, so the audit write never runs and refunds go unaudited, and rates it High or Critical; with the plugin, the Python reviewer ran.
-tags: [python, python-dev, slow]
+tags: [python, python-dev, slow, "starts:knackpack:python-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

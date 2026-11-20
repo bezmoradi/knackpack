@@ -1,5 +1,5 @@
 {
-  "description": "Knackpack's intent tracking: loads the rules and record at session start, reminds Claude to update the record with each message, repeating how the developer asked the work to be done and, once after a compaction, to read the checkpoint, and checks each turn for a missed update. Set KNACKPACK_INTENT=off to turn it off. Also prints knackpack's rules for challenging the developer instead of agreeing with them at session start; set KNACKPACK_CHALLENGE=off to turn that off. With KNACKPACK_DOCS=repo set, that hook also prints the rules for committing the requirements brief and the plan to .knackpack/ in the repository, in headless sessions too, or a note instead when the repository's own settings may set the variable. At session start, also fetches knackpack's CHANGELOG.md from GitHub, its only network request, and when a newer version is released tells the developer and asks Claude to open its first reply with what changed and how to update; set KNACKPACK_UPDATE_CHECK=off to turn that off. At each message, warns when the conversation's context passes 400,000 tokens and asks Claude to stop for a checkpoint and compaction past 500,000; set KNACKPACK_CONTEXT=off to turn that off. Before each compaction, in headless sessions too, asks the summary to keep what Claude found out itself, with exact values, how the developer asked the work to be done, and its last numbered questions word for word; set KNACKPACK_COMPACT=off to turn that off. With KNACKPACK_COMPACT_GATE=on, it also stops a manual /compact in an attended session that has no checkpoint saved since its last compaction; /compact skip-checkpoint goes ahead without one.",
+  "description": "Knackpack's intent tracking: loads the rules and record at session start, reminds Claude to update the record with each message, repeating how the developer asked the work to be done and, once after a compaction, to read the checkpoint, and checks each turn for a missed update. Set KNACKPACK_INTENT=off to turn it off. At the end of each turn, in headless sessions and with KNACKPACK_INTENT=off too, when the turn edited a file other than a document after the last command it ran, or ran none, it reads the end of the session's transcript and sends Claude back once to run the project's checks that cover the file, or to say why there are none; set KNACKPACK_TURN_CHECK=off to turn that off. Also prints knackpack's rules for challenging the developer instead of agreeing with them at session start; set KNACKPACK_CHALLENGE=off to turn that off. With KNACKPACK_DOCS=repo set, that hook also prints the rules for committing the requirements brief and the plan to .knackpack/ in the repository, in headless sessions too, or a note instead when the repository's own settings may set the variable. At session start, also fetches knackpack's CHANGELOG.md from GitHub, its only network request, and when a newer version is released tells the developer and asks Claude to open its first reply with what changed and how to update; set KNACKPACK_UPDATE_CHECK=off to turn that off. At each message, warns when the conversation's context passes 400,000 tokens and asks Claude to stop for a checkpoint and compaction past 500,000; set KNACKPACK_CONTEXT=off to turn that off. Before each compaction, in headless sessions too, asks the summary to keep what Claude found out itself, with exact values, how the developer asked the work to be done, and its last numbered questions word for word; set KNACKPACK_COMPACT=off to turn that off. With KNACKPACK_COMPACT_GATE=on, it also stops a manual /compact in an attended session that has no checkpoint saved since its last compaction; /compact skip-checkpoint goes ahead without one. When a knackpack agent replies, in headless sessions too, checks that its reply ends with the findings and verdict lines programs read, and sends it back once to fix them when they are missing or malformed, keeping one empty marker per agent sent back in its own state folder; set KNACKPACK_REPLY_CHECK=off to turn that off.",
   "hooks": {
     "SessionStart": [
       {
@@ -55,6 +55,18 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "SubagentHandback",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/reply-contract.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
@@ -73,6 +85,18 @@
           {
             "type": "command",
             "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/track-intent.sh\" stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^knackpack:",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/reply-contract.sh\"",
             "timeout": 10
           }
         ]

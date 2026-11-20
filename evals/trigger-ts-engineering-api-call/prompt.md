@@ -1,7 +1,7 @@
 ---
 description: A small TypeScript library-catalog client asks for a new function that fetches a book's availability from the catalog API, whose sample response is in docs/. Writing TypeScript starts the TypeScript engineering skill on its own, and the new function checks the response's shape before using it rather than casting the JSON to a type.
 expected_outcome: The typescript-engineering skill loads, src/catalog.ts exports getAvailability, and the function validates the parsed response (checks the fields it uses) instead of only asserting or annotating its type.
-tags: [trigger]
+tags: [trigger, "starts:knackpack:typescript-engineering"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1200

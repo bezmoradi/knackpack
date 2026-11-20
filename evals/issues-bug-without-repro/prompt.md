@@ -1,7 +1,7 @@
 ---
 description: The user asks for a bug report about invoice PDFs that sometimes show the wrong currency, which the team can't reproduce yet, and guesses at the exchange-rate cache. The create-issues skill's draft says the reproduction is unknown and treats the cache as a hypothesis, not the cause.
 expected_outcome: The draft says the reproduction steps are unknown and invents none, presents the exchange-rate cache as a suspected cause to investigate, and doesn't make fixing the cache the acceptance criterion.
-tags: [create-issues, issues-dev]
+tags: [create-issues, issues-dev, "starts:knackpack:create-issues"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

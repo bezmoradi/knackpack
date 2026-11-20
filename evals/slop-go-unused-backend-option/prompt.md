@@ -1,7 +1,7 @@
 ---
 description: A catalog service gets the one-minute in-memory product cache its task asked for, plus a Backend option with a "redis" mode and a RedisAddr setting that nothing selects and nothing implements. The review reports the backend option as unneeded and grades nothing High.
 expected_outcome: The redis mode, RedisAddr and the switch that picks a backend are reported as unneeded, with the in-memory cache built directly instead; nothing is graded High or Critical; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

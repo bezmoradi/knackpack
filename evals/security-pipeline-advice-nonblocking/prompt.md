@@ -1,7 +1,7 @@
 ---
 description: A new lint workflow that runs only on pull_request with read-only permissions and no secrets, but references actions by tag rather than commit, is treated as hardening advice at most and not as a blocker.
 expected_outcome: The review either leaves the tag-referenced actions out or raises them as Low, advisory or nonblocking, and its release recommendation isn't BLOCKED.
-tags: [security, security-dev, slow]
+tags: [security, security-dev, slow, "starts:knackpack:security-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

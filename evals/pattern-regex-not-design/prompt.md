@@ -1,7 +1,7 @@
 ---
 description: A request for a regex pattern that matches ISO dates is not a design question. No knackpack reviewer starts, and a regex is produced.
 expected_outcome: A regular expression is given; no knackpack reviewer starts.
-tags: [pattern, pattern-dev, quick]
+tags: [pattern, pattern-dev, quick, "quiet:knackpack:design-pattern-reviewer"]
 max_turns: 20
 timeout_seconds: 1800
 allowed_tools: [Read, Glob, Grep, Agent]

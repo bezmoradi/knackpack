@@ -1,7 +1,7 @@
 ---
 description: A pricing service keeps rate plans in a cache guarded by sync.RWMutex and refreshed under Lock every minute; an uncommitted summary endpoint holds RLock and calls Len, which takes RLock again, so a refresh that starts between the two deadlocks the summary, the refresh and every later reader. The Go reviewer reports the deadlock as High or Critical.
 expected_outcome: The review says Summary takes the read lock again through Len while holding it, which deadlocks once Refresh is waiting for the write lock, and grades it High or Critical, or blocking.
-tags: [go-reviewer, slow]
+tags: [go-reviewer, slow, "starts:knackpack:go-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400
