@@ -4,7 +4,7 @@ knackpack is a Claude Code plugin made of Markdown plus four hook scripts and th
 
 ## Rules
 
-- **Edit the review protocol in one place.** All eighteen agent files end with the same "Review protocol" section, copied from `scripts/review-protocol.md`. Edit that file and run `sh scripts/sync-protocol.sh`; never edit an agent's copy, which `scripts/check.sh` reports.
+- **Edit the review protocol in one place.** All nineteen agent files end with the same "Review protocol" section, copied from `scripts/review-protocol.md`. Edit that file and run `sh scripts/sync-protocol.sh`; never edit an agent's copy, which `scripts/check.sh` reports.
 - **Keep each agent's instructions in its own file.** Don't move rules into files an agent reads while it works: a plugin's files sit outside the user's project, so reading them needs permission, which Manual mode asks for and headless runs deny, and the rules would silently go missing. That includes the name of the file an agent saves its report to (`<name>.md`): a subagent never sees its own frontmatter, so its instructions have to name the file, and the review protocol asks for the name they give.
 - **Keep the agents report-only.** Every agent lists its tools in `tools:` and never gets Edit, Write or NotebookEdit. Only the adversarial, security and architecture reviewers get `Agent`, and they use it only to start `knackpack:adjudicator`; Claude Code ignores a type list such as `Agent(knackpack:adjudicator)` in a subagent's `tools`, so only their instructions hold them to that. Keep `omitClaudeMd: true` on every agent.
 - **Write everything yourself.** Don't copy text from other projects, even MIT-licensed ones, and don't include the text of ASVS requirements or of the other OWASP sources the security reviewer uses, which are licensed CC BY-SA; the reviewer downloads them at pinned commits instead, and checks the ASVS file's checksum. Their IDs, titles and file names are fine.
@@ -67,6 +67,7 @@ These cover what a skill or agent says and the eval cases that check it.
    | Terraform reviewer | `terraform-dev`, then `terraform-holdout` | `Bash` |
    | Database reviewer | `database-dev`, then `database-holdout` | `Bash` |
    | OpenTelemetry reviewer | `otel-dev`, then `otel-holdout` | `Bash Edit`, granting Edit so the case that forbids edits can catch one |
+   | Code health reviewer | `code-health-dev`, then `code-health-holdout` | `Bash Edit`, granting Edit so the case that forbids edits can catch one |
    | Create issues | `issues-dev`, then `issues-holdout` | `Bash Write` |
    | Write docs | `docs-dev` | `Write Edit Bash`, since the changelog case edits a file and reads the git history |
    | Challenge rules hook | `challenge` | none; its cases set `EVAL_KNACKPACK_CHALLENGE`, since an eval passes only `EVAL_*` variables |
