@@ -33,7 +33,8 @@
         "required_status_checks": [
           { "context": "check (ubuntu-latest)", "integration_id": 15368 },
           { "context": "check (macos-latest)", "integration_id": 15368 },
-          { "context": "Claude approval", "integration_id": 15368 }
+          { "context": "Claude approval", "integration_id": 15368 },
+          { "context": "Claude review", "integration_id": 15368 }
         ]
       }
     }
