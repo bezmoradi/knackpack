@@ -1,7 +1,7 @@
 ---
 description: A restore runbook still tells on-call to run make restore BACKUP=<id>, but the Makefile's restore target now takes BACKUP_ID and refuses to run without CONFIRM=yes. The user asks to bring the runbook in line with the Makefile without naming a skill, so the Write docs skill starts, and the runbook gets the current command and its confirmation.
 expected_outcome: The Write docs skill loads, and docs/restore.md tells the reader to run make restore with BACKUP_ID and CONFIRM=yes.
-tags: [trigger]
+tags: [trigger, "starts:knackpack:write-docs"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1200

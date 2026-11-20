@@ -1,7 +1,7 @@
 ---
 description: An exports service gets the CSV export of orders that finance asked for, with an ORDERS_EXPORT_DISABLED switch that nothing in the code sets. An incident review in the repository requires every bulk export to ship with such a switch, so the review keeps it.
 expected_outcome: The switch and the Disabled field aren't called unneeded and aren't recommended for removal; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

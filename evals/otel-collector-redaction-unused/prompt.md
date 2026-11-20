@@ -1,7 +1,7 @@
 ---
 description: An uncommitted change to an agent Collector's configuration adds a redaction processor that masks email addresses, under a comment saying customer emails must be stripped before telemetry leaves the network, but the traces pipeline still lists only memory_limiter and batch. The processor never runs, so emails still reach the hosted backend, and the OpenTelemetry reviewer reports that as High, Critical or blocking.
 expected_outcome: The review says the redaction processor isn't in any pipeline, so it does nothing and emails are still exported, and rates it High, Critical or blocking; with the plugin, the OpenTelemetry reviewer ran.
-tags: [opentelemetry, opentelemetry-reviewer, otel-holdout, slow]
+tags: [opentelemetry, opentelemetry-reviewer, otel-holdout, slow, "starts:knackpack:opentelemetry-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

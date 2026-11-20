@@ -1,7 +1,7 @@
 ---
 description: "An uncommitted change restyles focus rings as a box-shadow with outline: none on :focus-visible; Windows forced-colors mode removes box-shadow, so keyboard focus becomes invisible there. The CSS reviewer reports the forced-colors failure and the transparent-outline fix."
 expected_outcome: "The review says the shadow-only focus ring disappears in forced-colors (high contrast) mode because box-shadow is removed, leaving no visible focus, recommends keeping a transparent outline, and grades it Medium or higher."
-tags: [css-holdout, slow]
+tags: [css-holdout, slow, "starts:knackpack:css-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

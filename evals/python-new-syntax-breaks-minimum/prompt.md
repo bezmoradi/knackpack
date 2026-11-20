@@ -1,7 +1,7 @@
 ---
 description: A library that declares and tests Python 3.9 adds a function using a match statement, which is a syntax error before 3.10. The review should catch the mismatch with the declared minimum.
 expected_outcome: The review reports that the new match statement will not parse on Python 3.9, which the package still supports and runs in CI, without demanding a jump to the newest Python.
-tags: [python, python-dev, slow]
+tags: [python, python-dev, slow, "starts:knackpack:python-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

@@ -1003,6 +1003,118 @@ else
 	pass "no eval fixture's file names in agents or skills"
 fi
 
+# Trigger coverage. Claude starts an agent, or a skill without
+# disable-model-invocation: true, on its own, from its description alone, so
+# each needs a case where a request should start it and one where a similar
+# request shouldn't. A case says which by a "starts:knackpack:<name>" or
+# "quiet:knackpack:<name>" tag in prompt.md, quoted, since libyaml (PyYAML,
+# Ruby) won't read a colon inside a plain value in [...]. A grader must back
+# each tag: a tool_used or tool_order grader on the Skill tool for a skill or
+# the Agent tool for an agent, whose input_match names it, with max: 0 for
+# quiet. For quiet, an Agent grader with max: 0 that matches any knackpack
+# agent ('knackpack:' or no input_match) backs an agent's tag too. Every
+# grader that names one that way needs the case's tag, so the tags are the
+# whole of what the graders check, and scripts/trigger-gate.sh, which runs a
+# changed description's cases before a push, finds them by these tags. A
+# component still missing either kind is listed in evals/trigger-gaps.txt,
+# which may only shrink: one missing a kind and not listed fails, and so does
+# one listed that now has both.
+trig_ok=1
+gaps=evals/trigger-gaps.txt
+for f in skills/*/SKILL.md; do
+	[ "$(frontmatter "$f" | value disable-model-invocation)" = true ] && continue
+	n=${f#skills/}
+	printf 'Skill knackpack:%s\n' "${n%/SKILL.md}"
+done >"$tmp/trig-comps"
+for f in agents/*.md; do n=${f#agents/}; printf 'Agent knackpack:%s\n' "${n%.md}"; done >>"$tmp/trig-comps"
+# Each grader that checks a tool starts or stays quiet: <case> <starts|quiet> <tool> <input_match>.
+awk '
+	function uq(v, q) {
+		q = substr(v, 1, 1)
+		if (q == "\047" || q == "\"") { v = substr(v, 2); sub(q "[[:space:]]*(#.*)?$", "", v); if (q == "\047") gsub("\047\047", "\047", v); return v }
+		sub(/[[:space:]]+#.*$/, "", v); sub(/[[:space:]]+$/, "", v); return v
+	}
+	function flush(c, k, q) {
+		if (file == "") return
+		c = file; sub(/^evals\//, "", c); sub(/\/.*/, "", c)
+		if (t == "tool_order") {
+			tool = b; sub(/.*tool:[[:space:]]*/, "", tool); sub(/[^A-Za-z].*/, "", tool)
+			im = ""
+			if (b ~ /input_match:/) {
+				im = b; sub(/.*input_match:[[:space:]]*/, "", im); q = substr(im, 1, 1)
+				if (q == "\047" || q == "\"") { im = substr(im, 2); sub(q ".*", "", im) } else sub(/[[:space:]]*[,}].*/, "", im)
+			}
+			k = "starts"
+		} else if (t == "tool_used") {
+			if (mx == "0") k = "quiet"; else if (mn == "0") return; else k = "starts"
+		} else return
+		printf "%s\t%s\t%s\t%s\n", c, k, tool, im
+	}
+	FNR == 1 { flush(); file = FILENAME; n = 0; t = tool = im = mn = mx = b = "" }
+	/^---[[:space:]]*$/ { n++; next }
+	n == 1 && match($0, /^[A-Za-z_]+:/) {
+		k = substr($0, 1, RLENGTH - 1); v = substr($0, RLENGTH + 1); sub(/^[[:space:]]+/, "", v)
+		if (k == "type") t = uq(v); else if (k == "tool") tool = uq(v); else if (k == "input_match") im = uq(v)
+		else if (k == "min") mn = uq(v); else if (k == "max") mx = uq(v); else if (k == "before") b = v
+	}
+	END { flush() }' evals/*/graders/*.md >"$tmp/trig-graders"
+# What each grader checks about a component: <case> <kind> <component> <named|any>.
+awk -F '\t' '
+	NR == FNR { split($0, a, " "); tool[++n] = a[1]; comp[n] = a[2]; next }
+	{ for (i = 1; i <= n; i++) {
+		if (tool[i] != $3) continue
+		s = comp[i]; sub(/^knackpack:/, "", s)
+		if ($4 ~ ("(^|[^a-z0-9-])" s "([^a-z0-9-]|$)")) print $1, $2, comp[i], "named"
+		else if ($2 == "quiet" && $3 == "Agent" && ($4 == "" || $4 == "knackpack:")) print $1, $2, comp[i], "any"
+	} }' "$tmp/trig-comps" "$tmp/trig-graders" | sort -u >"$tmp/trig-claims"
+# The tags: <case> <kind> <component>.
+awk '
+	FNR == 1 { n = 0; c = FILENAME; sub(/^evals\//, "", c); sub(/\/.*/, "", c) }
+	/^---[[:space:]]*$/ { n++; next }
+	n == 1 && /^tags:[[:space:]]*\[.*\][[:space:]]*$/ {
+		v = $0; sub(/^tags:[[:space:]]*\[/, "", v); sub(/\][[:space:]]*$/, "", v); gsub(/[[:space:]"\047]/, "", v)
+		m = split(v, a, ",")
+		for (i = 1; i <= m; i++) if (a[i] ~ /^(starts|quiet):/) { k = a[i]; sub(/:.*/, "", k); x = a[i]; sub(/^[a-z]*:/, "", x); print c, k, x }
+	}' evals/*/prompt.md | sort -u >"$tmp/trig-tags"
+bad=$(awk 'NR == FNR { ok[$2] = 1; next } !($3 in ok) { printf "%s (%s:%s) ", $1, $2, $3 }' "$tmp/trig-comps" "$tmp/trig-tags")
+[ -z "$bad" ] || { fail "eval cases tag a component that isn't a skill or agent Claude starts on its own: ${bad% }"; trig_ok=0; }
+cut -d ' ' -f 1-3 "$tmp/trig-claims" | sort -u >"$tmp/trig-backed"
+bad=$(comm -23 "$tmp/trig-tags" "$tmp/trig-backed" | awk '{ printf "%s (%s:%s) ", $1, $2, $3 }')
+[ -z "$bad" ] || { fail "eval cases carry a starts: or quiet: tag that no grader checks, so the case can't fail on it: ${bad% }"; trig_ok=0; }
+bad=$(awk '$4 == "named" { print $1, $2, $3 }' "$tmp/trig-claims" | sort -u | comm -23 - "$tmp/trig-tags" | awk '{ printf "%s (\"%s:%s\") ", $1, $2, $3 }')
+[ -z "$bad" ] || { fail "eval cases have a grader that checks a skill or agent starts or stays quiet, without the tag that says so; add it to the case's tags: ${bad% }"; trig_ok=0; }
+bad=$(awk '{ k[$1 " " $3] = k[$1 " " $3] $2 } END { for (x in k) if (k[x] ~ /starts/ && k[x] ~ /quiet/) printf "%s ", x }' "$tmp/trig-tags")
+[ -z "$bad" ] || { fail "eval cases tag one component both starts: and quiet:, which contradict each other: ${bad% }"; trig_ok=0; }
+if [ ! -f "$gaps" ]; then
+	fail "$gaps is missing"
+	trig_ok=0
+else
+	sed -e 's/#.*//' -e 's/[[:space:]]//g' "$gaps" | grep -v '^$' | sort -u >"$tmp/trig-gaps"
+	missing= listed= stale= unknown=
+	while read -r _ comp; do
+		s=$(grep -c " starts $comp\$" "$tmp/trig-tags")
+		q=$(grep -c " quiet $comp\$" "$tmp/trig-tags")
+		if [ "$s" = 0 ] || [ "$q" = 0 ]; then
+			grep -qxF "$comp" "$tmp/trig-gaps" && { listed="$listed $comp"; continue; }
+			why=
+			[ "$s" != 0 ] || why="no starts: case"
+			[ "$q" != 0 ] || why="${why:+$why, }no quiet: case"
+			missing="$missing $comp ($why)"
+		elif grep -qxF "$comp" "$tmp/trig-gaps"; then
+			stale="$stale $comp"
+		fi
+	done <"$tmp/trig-comps"
+	while read -r comp; do awk -v c="$comp" '$2 == c { f = 1 } END { exit !f }' "$tmp/trig-comps" || unknown="$unknown $comp"; done <"$tmp/trig-gaps"
+	[ -z "$missing" ] || { fail "skills or agents Claude starts on its own lack a case for when they should start or for when they shouldn't, and $gaps doesn't list them; add the cases, tagged starts: and quiet:, rather than listing them:$missing"; trig_ok=0; }
+	[ -z "$stale" ] || { fail "$gaps lists skills or agents that now have a starts: and a quiet: case; remove them, since the list may only shrink:$stale"; trig_ok=0; }
+	[ -z "$unknown" ] || { fail "$gaps lists names that aren't a skill or agent Claude starts on its own:$unknown"; trig_ok=0; }
+fi
+if [ "$trig_ok" = 1 ]; then
+	ncomp=$(wc -l <"$tmp/trig-comps" | tr -d ' ')
+	ngap=$(printf '%s' "$listed" | wc -w | tr -d ' ')
+	pass "trigger coverage: $((ncomp - ngap)) of $ncomp skills and agents Claude starts on its own have a starts: and a quiet: case; $gaps lists the other $ngap"
+fi
+
 # The Agent Skills format (https://agentskills.io/specification) for each
 # skill: a name of 1 to 64 lowercase letters, digits and single hyphens between
 # them, the same as its folder; a description of 1 to 1,024 characters; and a
@@ -2223,6 +2335,129 @@ for s in $shells; do
 	rcov "$s" 2 '' adversarial-reviewer "$rd/pass" adversarial-reviewer "$rd/block"
 done
 [ "$rcov_ok" = 1 ] && pass "scripts/review-coverage.sh tells orchestrate-review which reviewers lack a valid verdict under$shells"
+
+# scripts/trigger-gate.sh, under the same shells, in a throwaway repository,
+# with a stand-in for claude that writes a result for the one case asked for,
+# so no model runs. A commit that changes no description is skipped, and so is
+# a skill that disables model invocation. A changed description is measured on
+# the base and on the commit, each time with origin/main's copy of the case
+# even when the commit rewrites it, and passes when nothing drops; a second
+# run reuses the kept results. A drop in starts or a quiet case that fires
+# blocks, until accepted. A component with no case blocks as not measured. A
+# run that fails is an error and isn't kept. --install writes the hook that
+# runs the prompt audit and then the gate.
+tg_ok=1
+tgb=$tmp/tg-bin
+mkdir -p "$tgb" && cat >"$tgb/claude" <<'EOF' && chmod +x "$tgb/claude" || { fail "couldn't write a stand-in for claude to try scripts/trigger-gate.sh with"; tg_ok=0; }
+#!/bin/sh
+# Stands in for claude: --version, and plugin eval writing a result whose one
+# grader fails when the target's skills say STUB-NO-START (a starts grader) or
+# STUB-FIRES (a max: 0 one). Each run is logged, with the prompt it was given.
+[ "${1-}" = --version ] && { echo '2.1.999 (Claude Code)'; exit 0; }
+[ "${1-} ${2-}" = 'plugin eval' ] || exit 1
+target=$3
+shift 3
+c= out=
+while [ $# -gt 0 ]; do
+	case $1 in --case) c=$2; shift ;; --json) out=$2; shift ;; esac
+	shift
+done
+[ -z "${KP_STUB_BROKEN-}" ] || { echo 'stub: broken on purpose' >&2; exit 1; }
+g=$(ls "$target/evals/$c/graders/"*.md | head -n 1)
+tool=$(sed -n 's/^tool:[[:space:]]*//p' "$g") im=$(sed -n "s/^input_match:[[:space:]]*'\\(.*\\)'/\\1/p" "$g") max=$(sed -n 's/^max:[[:space:]]*//p' "$g")
+ok=true
+if [ "$max" = 0 ]; then grep -rq STUB-FIRES "$target/skills" && ok=false
+else grep -rq STUB-NO-START "$target/skills" && ok=false; fi
+printf '%s %s %s\n' "${target##*/}" "$c" "$(sed -n '/^---$/,/^---$/!p' "$target/evals/$c/prompt.md" | grep -v '^$' | head -n 1)" >>"$KP_STUB_LOG"
+mx=
+[ -z "$max" ] || mx=",\"max\":$max"
+printf '{"schemaVersion":1,"costUsd":0.25,"partial":false,"cases":[{"name":"%s","graders":[{"name":"trig","type":"tool_used","config":{"tool":"%s","input_match":"%s"%s}}],"arms":{"with":[{"passed":%s,"error":null,"costUsd":0.25,"judgeCostUsd":0,"graders":[{"name":"trig","passed":%s}]}]}}]}\n' \
+	"$c" "$tool" "$im" "$mx" "$ok" "$ok" >"$out"
+EOF
+tgrun() { # <shell> <repository> <argument>...: runs the gate there with the stand-in first on PATH, setting tgx
+	tgs=$1 tgr=$2
+	shift 2
+	(cd "$tgr" && PATH="$tgb:$PATH" KP_STUB_LOG="$tgr.log" "$tgs" "$here/scripts/trigger-gate.sh" "$@") >"$tmp/tg-out" 2>&1
+	tgx=$?
+}
+tgcalls() { wc -l <"$1.log" | tr -d ' '; } # <repository>: how many eval runs the stand-in made
+tgskill() { # <repository> <name> <description> [<frontmatter line>]
+	{ printf -- '---\nname: %s\ndescription: %s\n' "$2" "$3" && { [ -z "${4-}" ] || printf '%s\n' "$4"; } && printf -- '---\n\nDo %s.\n' "$2"; } >"$1/skills/$2/SKILL.md"
+}
+tgmore() { printf 'More.\n' >>"$1/skills/alpha/SKILL.md"; } # <repository>: a change to a skill's body only
+tgcommit() { # <repository> <from> <command>...: runs the command on a checkout of <from>, commits what it changed and prints the commit
+	tgc=$1
+	git -C "$tgc" checkout -q --detach "$2" && shift 2 && "$@" && git -C "$tgc" add -A && git -C "$tgc" commit -q -m change && git -C "$tgc" rev-parse HEAD
+}
+tgfail() { fail "trigger-gate.sh under $s $1 (exit $tgx): $(head -c 600 "$tmp/tg-out")"; tg_ok=0; }
+for s in $shells; do
+	"$s" -n scripts/trigger-gate.sh 2>"$tmp/err" || { fail "scripts/trigger-gate.sh syntax under $s: $(cat "$tmp/err")"; tg_ok=0; continue; }
+	r=$tmp/tg-$s
+	mkdir -p "$r/.claude-plugin" "$r/skills/alpha" "$r/skills/beta" "$r/skills/gamma" "$r/evals/trigger-alpha-starts/graders" "$r/evals/trigger-alpha-quiet/graders" &&
+		printf '{"name": "knackpack", "version": "0.0.1"}\n' >"$r/.claude-plugin/plugin.json" &&
+		tgskill "$r" alpha 'Use for alpha work.' && tgskill "$r" beta 'Use for beta work.' &&
+		tgskill "$r" gamma 'Run gamma.' 'disable-model-invocation: true' &&
+		printf -- '---\ntags: [trigger, "starts:knackpack:alpha"]\n---\n\nDo the alpha thing.\n' >"$r/evals/trigger-alpha-starts/prompt.md" &&
+		printf -- "---\ntype: tool_used\ntool: Skill\ninput_match: 'alpha'\narm: with-only\n---\n" >"$r/evals/trigger-alpha-starts/graders/started.md" &&
+		printf -- '---\ntags: [trigger, "quiet:knackpack:alpha"]\n---\n\nExplain alpha.\n' >"$r/evals/trigger-alpha-quiet/prompt.md" &&
+		printf -- "---\ntype: tool_used\ntool: Skill\ninput_match: 'alpha'\nmin: 0\nmax: 0\narm: both\n---\n" >"$r/evals/trigger-alpha-quiet/graders/quiet.md" &&
+		git -C "$r" init -q && git -C "$r" config user.name check && git -C "$r" config user.email check@example.com &&
+		git -C "$r" add -A && git -C "$r" commit -q -m base && git -C "$r" update-ref refs/remotes/origin/main HEAD && : >"$r.log" &&
+		b0=$(git -C "$r" rev-parse HEAD) ||
+		{ fail "couldn't make a repository to try scripts/trigger-gate.sh in under $s"; tg_ok=0; continue; }
+	# No description changed, and one skill's that disables model invocation.
+	c=$(tgcommit "$r" "$b0" tgmore "$r") && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q "^trigger-gate: [0-9a-f]* changes no skill or agent description since origin/main\$" "$tmp/tg-out" && [ "$(tgcalls "$r")" = 0 ] ||
+		tgfail "didn't skip a commit that changes no description, or ran a case for it"
+	c=$(tgcommit "$r" "$b0" tgskill "$r" gamma 'Run gamma now.' 'disable-model-invocation: true') && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  skipped  knackpack:gamma: disable-model-invocation: true' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 0 ] ||
+		tgfail "didn't skip a skill with disable-model-invocation: true"
+	# A reworded description, with a commit that also rewrites one of its cases.
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work and alpha reports.') &&
+		printf -- '---\ntags: [trigger, "starts:knackpack:alpha"]\n---\n\nTuned alpha prompt.\n' >"$r/evals/trigger-alpha-starts/prompt.md" &&
+		git -C "$r" commit -qam tuned && c=$(git -C "$r" rev-parse HEAD) && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  pass     knackpack:alpha: started 1/1 -> 1/1, stayed quiet 1/1 -> 1/1$' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 4 ] ||
+		tgfail "didn't pass a reworded description whose cases still pass, measuring both cases on both versions"
+	grep -q '^cand trigger-alpha-starts Do the alpha thing\.$' "$r.log" && ! grep -q Tuned "$r.log" ||
+		{ fail "trigger-gate.sh under $s didn't run origin/main's copy of a case the commit rewrote: $(cat "$r.log")"; tg_ok=0; }
+	tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  pass     knackpack:alpha' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 4 ] ||
+		tgfail "ran the cases again for a description it had measured"
+	# A description that stops the skill starting, then one that starts it where it mustn't.
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work. STUB-NO-START') && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 1 ] && grep -q '^  BLOCKED  knackpack:alpha: started 1/1 -> 0/1, stayed quiet 1/1 -> 1/1$' "$tmp/tg-out" &&
+		[ -f "$(sed -n 's/^           - trigger-alpha-starts (starts): 1\/1 -> 0\/1; result: //p' "$tmp/tg-out")" ] && [ "$(tgcalls "$r")" = 6 ] ||
+		tgfail "didn't block a description that stops the skill starting, measuring only the new version"
+	tgrun "$s" "$r" --accept knackpack:alpha "$c"
+	[ "$tgx" = 0 ] || tgfail "didn't accept the verdict on a blocked description"
+	tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && grep -q '^  accepted knackpack:alpha: started 1/1 -> 0/1' "$tmp/tg-out" && [ "$(tgcalls "$r")" = 6 ] ||
+		tgfail "still blocked an accepted description, or ran its cases again"
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work. STUB-FIRES') && tgrun "$s" "$r" "$c"
+	[ "$tgx" = 1 ] && grep -q '^  BLOCKED  knackpack:alpha: started 1/1 -> 1/1, stayed quiet 1/1 -> 0/1$' "$tmp/tg-out" ||
+		tgfail "didn't block a description that starts the skill where it mustn't"
+	# No case for the component, through the hook.
+	c=$(tgcommit "$r" "$b0" tgskill "$r" beta 'Use for beta work and beta reports.') &&
+		printf 'refs/heads/x %s refs/heads/x %s\n' "$c" 0000000000000000000000000000000000000000 >"$tmp/tg-push" &&
+		tgrun "$s" "$r" --hook <"$tmp/tg-push"
+	[ "$tgx" = 1 ] && grep -q '^  NOT MEASURED knackpack:beta: no case on origin/main is tagged trigger' "$tmp/tg-out" &&
+		grep -q '^trigger-gate: push stopped; git push --no-verify skips this check$' "$tmp/tg-out" ||
+		tgfail "didn't block, through the hook, a description no case measures"
+	# A run that fails, then the same description once claude works.
+	n=$(tgcalls "$r")
+	c=$(tgcommit "$r" "$b0" tgskill "$r" alpha 'Use for alpha work, again.') && KP_STUB_BROKEN=1 && export KP_STUB_BROKEN && tgrun "$s" "$r" "$c"
+	unset KP_STUB_BROKEN
+	[ "$tgx" = 2 ] && grep -q '^  ERROR    knackpack:alpha: a case could not be measured' "$tmp/tg-out" && grep -q 'stub: broken on purpose' "$tmp/tg-out" ||
+		tgfail "didn't report as an error a case whose run failed"
+	tgrun "$s" "$r" "$c"
+	[ "$tgx" = 0 ] && [ "$(tgcalls "$r")" = $((n + 2)) ] || tgfail "kept a failed run's result, or didn't measure the description once claude worked"
+	[ -z "$(git -C "$r" worktree list --porcelain | grep '^worktree ' | sed 1d)" ] || { fail "trigger-gate.sh under $s left a worktree behind"; tg_ok=0; }
+	mkdir -p "$r/scripts" && cp scripts/prompt-audit.sh "$r/scripts/" && tgrun "$s" "$r" --install
+	h=$r/.git/hooks/pre-push
+	[ "$tgx" = 0 ] && [ -x "$h" ] && grep -q 'scripts/prompt-audit\.sh' "$h" && grep -q 'scripts/trigger-gate\.sh' "$h" && "$s" -n "$h" ||
+		tgfail "--install didn't write a pre-push hook that runs the prompt audit and the gate"
+done
+[ "$tg_ok" = 1 ] && pass "scripts/trigger-gate.sh skips, passes, blocks and reuses its results as it should, with a stand-in for claude, under$shells"
 
 # The context hook, under the same shells: silent on stderr, exit 0, nothing
 # below 400,000 tokens, after a compaction, for a subagent's usage, for the

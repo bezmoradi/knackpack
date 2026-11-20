@@ -1,7 +1,7 @@
 ---
 description: The task was one flag, -dry-run, for a Go backup-pruning CLI. The uncommitted change adds it, and also renames internal/store to internal/archive, splits its file into three, renames every exported function, type and field and their callers, and rewrites the README, so the flag is a few lines of a large diff. The slop reviewer reports the rename and split as work outside the task that hides the flag from review, and keeps the flag.
 expected_outcome: The review reports the package rename, file split and renamed identifiers as outside the -dry-run task, big enough to hide the real change, and suggests a separate change for them; it doesn't recommend removing the -dry-run flag or its test; with the plugin, the slop reviewer ran.
-tags: [consistency, mode:scope-discipline]
+tags: [consistency, mode:scope-discipline, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

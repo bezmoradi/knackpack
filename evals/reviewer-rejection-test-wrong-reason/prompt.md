@@ -1,7 +1,7 @@
 ---
 description: An uncommitted fix rejects transfer amounts below 1 cent or above 1,000,000 cents, and adds two tests for it. Neither test reaches the new rule. The negative-amount test sends no session, so the sign-in check raises PermissionDenied first, and pytest.raises(Exception) accepts that. The over-the-limit test sends money to the sender's own account, so the same-account check raises InvalidTransfer first. Both tests still pass with the new check deleted. The adversarial reviewer reports it.
 expected_outcome: The review reports that test_rejects_negative_amount is rejected by the missing session (PermissionDenied) before the amount rule, so it proves nothing about negative amounts, and that test_rejects_amount_over_the_limit is rejected by the same-account rule first; with the plugin, the adversarial reviewer ran.
-tags: [reviewer, slow]
+tags: [reviewer, slow, "starts:knackpack:adversarial-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

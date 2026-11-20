@@ -1,7 +1,7 @@
 ---
 description: A document service's Save checks permission before writing, and its tests record the calls and assert that the check runs before the write and that a denied check writes nothing. A decision record in the repository requires exactly those tests, so the review keeps them rather than calling them tied to the implementation.
 expected_outcome: The call-order tests aren't called brittle, over-specified or tied to the implementation, and aren't recommended for replacement with result-only tests; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

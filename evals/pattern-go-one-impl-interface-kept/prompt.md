@@ -1,7 +1,7 @@
 ---
 description: A Go scheduler takes a Clock interface that has one production implementation and a fake in its tests. Asked to drop the interface and call time.Now directly, the assessment keeps an injectable clock because the test boundary justifies it.
 expected_outcome: The interface, or an equivalent injectable function, is kept; calling time.Now directly inside the scheduler is not recommended.
-tags: [pattern, pattern-dev]
+tags: [pattern, pattern-dev, "starts:knackpack:design-pattern-reviewer"]
 max_turns: 20
 timeout_seconds: 1800
 allowed_tools: [Read, Glob, Grep, Agent]

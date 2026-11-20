@@ -1,7 +1,7 @@
 ---
 description: A rentals team adds a late fee for equipment rentals whose arithmetic looks like the existing invoice late fee, a percentage per period after a grace period with a limit. The repository's policy notes say the two fees are set by different teams and change independently, so the review doesn't merge them.
 expected_outcome: The review doesn't recommend merging the rental and invoice late-fee calculations into one shared function; with the plugin, the slop reviewer ran.
-tags: [slop, slop-holdout]
+tags: [slop, slop-holdout, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

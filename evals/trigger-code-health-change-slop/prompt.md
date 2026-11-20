@@ -1,7 +1,7 @@
 ---
 description: The user asks whether their uncommitted change, a CSV export for a Go timesheet service, adds anything they don't need. That's a question about one change, which the slop reviewer answers; the code health reviewer, which assesses a whole code base, doesn't start.
 expected_outcome: The knackpack slop reviewer runs, and the code health reviewer doesn't.
-tags: [trigger]
+tags: [trigger, "quiet:knackpack:code-health-reviewer", "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

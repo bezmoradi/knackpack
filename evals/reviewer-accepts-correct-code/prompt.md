@@ -1,7 +1,7 @@
 ---
 description: A change that looks unusual but is correct (a webhook signature check that rejects a missing or malformed header first and compares in constant time) gets no High or Critical finding.
 expected_outcome: The review rates nothing High or Critical; with the plugin, its report recommends "No blocking issues found".
-tags: [reviewer, slow, consistency, mode:evidence-quality]
+tags: [reviewer, slow, consistency, mode:evidence-quality, "starts:knackpack:adversarial-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

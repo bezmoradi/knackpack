@@ -1,7 +1,7 @@
 ---
 description: The user asks whether to move a Python app's sessions from Postgres to Redis, or try something simpler first, without saying "research". The question is an open decision between alternatives, so the Research skill starts. The app looks every session up by a token column that has no index and rewrites the session's last_seen on every request, so the simpler options are in the code.
 expected_outcome: The Research skill loads. The reply's recommendation rests on how the app uses sessions, naming the missing index on the token column or the write on every request as something to fix or check before moving to Redis.
-tags: [trigger]
+tags: [trigger, "starts:knackpack:research"]
 runs: 1
 max_turns: 30
 timeout_seconds: 1800

@@ -1,7 +1,7 @@
 ---
 description: "ListProps declares onSelect(item: ListItem): void with method shorthand. The new product picker passes (item: ProductItem) => cart.add(item.sku) while the list also contains selectable section headings that have no sku, so selecting a heading adds undefined to the cart. tsc accepts it because method parameters are checked bivariantly even under strictFunctionTypes. The reviewer reports the variance hole."
 expected_outcome: "The review reports that the onSelect handler assumes every item is a ProductItem while headings (plain ListItems) also reach it, so cart.add receives undefined, explains that the method-shorthand declaration is why tsc accepts the narrower parameter, recommends declaring onSelect as a function-typed property (which makes tsc reject it) or narrowing the item in the handler, and grades it Medium or higher; with the plugin, the reviewer ran."
-tags: [ts-dev, slow]
+tags: [ts-dev, slow, "starts:knackpack:typescript-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

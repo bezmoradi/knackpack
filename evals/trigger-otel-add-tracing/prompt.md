@@ -1,7 +1,7 @@
 ---
 description: A Python thumbnail worker already sets up OpenTelemetry tracing in otel_setup.py, and the user asks for one span per job in jobs.py with the image's width and height on it. Adding instrumentation is what the OpenTelemetry reviewer says it isn't for, since it never edits code, so it doesn't start, and jobs.py gets the span.
 expected_outcome: The OpenTelemetry reviewer never starts, and jobs.py starts a span for each job.
-tags: [trigger]
+tags: [trigger, "quiet:knackpack:opentelemetry-reviewer"]
 runs: 1
 max_turns: 15
 timeout_seconds: 900

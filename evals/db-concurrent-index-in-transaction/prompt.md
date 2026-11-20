@@ -1,7 +1,7 @@
 ---
 description: An Alembic revision builds an index on a busy 200-million-row orders table with postgresql_concurrently=True but without autocommit_block(), while env.py runs every revision inside the transaction context.begin_transaction() opens. PostgreSQL rejects CREATE INDEX CONCURRENTLY inside a transaction block, so the migration fails at deploy. The review should catch that.
 expected_outcome: The review reports that the concurrent index build runs inside Alembic's migration transaction, which PostgreSQL rejects, and suggests op.get_context().autocommit_block() or an equivalent step outside the transaction.
-tags: [database, database-reviewer, database-holdout, slow]
+tags: [database, database-reviewer, database-holdout, slow, "starts:knackpack:database-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

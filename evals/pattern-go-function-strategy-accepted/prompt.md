@@ -1,7 +1,7 @@
 ---
 description: A Go cart computes its total with a discount passed as a function value. Asked whether that is a legitimate Strategy or should become an interface with one type per discount, the assessment accepts the function and demands no hierarchy.
 expected_outcome: The function-valued Discount is judged appropriate; no conversion to an interface or a type per discount is recommended.
-tags: [pattern, pattern-dev]
+tags: [pattern, pattern-dev, "starts:knackpack:design-pattern-reviewer"]
 max_turns: 20
 timeout_seconds: 1800
 allowed_tools: [Read, Glob, Grep, Agent]

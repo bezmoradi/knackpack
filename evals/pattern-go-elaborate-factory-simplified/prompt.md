@@ -1,7 +1,7 @@
 ---
 description: A Go module builds two greeting formatters through a factory interface, a registry and a builder, although both formats are known at compile time and chosen by one flag. The assessment proposes a simpler mechanism with a concrete benefit, without calling the design a defect.
 expected_outcome: A simplification such as a switch, a map of functions or two plain constructors is proposed, with the benefit named and the limits of the simplification acknowledged.
-tags: [pattern, pattern-dev]
+tags: [pattern, pattern-dev, "starts:knackpack:design-pattern-reviewer"]
 max_turns: 20
 timeout_seconds: 1800
 allowed_tools: [Read, Glob, Grep, Agent]

@@ -1,7 +1,7 @@
 ---
 description: A shop service adds order endpoints next to its customer endpoints, which call their store directly. The new orders.Service only passes each call to the store and returns its result unchanged. The review reports it as a layer that adds nothing and grades nothing High.
 expected_outcome: The forwarding service is reported, with the handler using the store directly instead; no service layer is recommended for customers; nothing is graded High or Critical; with the plugin, the slop reviewer ran.
-tags: [slop, slop-dev]
+tags: [slop, slop-dev, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

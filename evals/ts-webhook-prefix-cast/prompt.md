@@ -1,7 +1,7 @@
 ---
 description: "A billing webhook handler checks event.type.startsWith(\"invoice.\") and then asserts the event is InvoicePaid before calling markInvoicePaid. The provider also sends invoice.voided and invoice.payment_failed, listed in events.ts, so voided and failed invoices are recorded as paid. The reviewer reports the assertion the check doesn't support."
 expected_outcome: "The review reports that the startsWith(\"invoice.\") check doesn't establish that the event is InvoicePaid, so the `as InvoicePaid` assertion lets invoice.voided and invoice.payment_failed mark invoices paid (with no amount), and grades it High or higher; with the plugin, the reviewer ran."
-tags: [ts-dev, slow]
+tags: [ts-dev, slow, "starts:knackpack:typescript-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

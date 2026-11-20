@@ -1,7 +1,7 @@
 ---
 description: An uncommitted change adds omitempty to every field of a notification-preferences response to shrink it; the web client reads a missing email_enabled as true and sends the whole object back on save, so a user who turned email off has it shown as on and switched back on by the next save. The Go reviewer reports it as Medium or higher and blocking, or High.
 expected_outcome: The review says omitempty drops email_enabled when it is false, the client then treats it as enabled and writes true back on the next save, and grades it blocking or High.
-tags: [go-reviewer, slow]
+tags: [go-reviewer, slow, "starts:knackpack:go-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

@@ -1,7 +1,7 @@
 ---
 description: An uncommitted FastAPI async def endpoint, export_report, calls a new blocking helper that uses requests with a 30-second timeout and time.sleep backoff, while the existing plain def get_report endpoint calls a blocking helper from FastAPI's threadpool. The Python reviewer reports that export_report blocks the event loop and doesn't report get_report.
 expected_outcome: The review reports that export_report runs the blocking fetch_export on the event loop, stalling every other request, and doesn't report the plain def get_report as blocking it; with the plugin, the Python reviewer ran.
-tags: [python, python-dev, slow]
+tags: [python, python-dev, slow, "starts:knackpack:python-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

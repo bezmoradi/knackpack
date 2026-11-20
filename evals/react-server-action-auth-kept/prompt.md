@@ -1,7 +1,7 @@
 ---
 description: The same Next.js app adds a deleteProject Server Action that checks the session, validates the id and deletes with deleteMany scoped to the signed-in owner, failing when nothing matched, as renameProject does. The React reviewer doesn't report missing authentication or authorization and finds nothing High or Critical.
 expected_outcome: The review doesn't claim deleteProject lacks an authentication or ownership check and raises nothing High, Critical or blocking; with the plugin, the React reviewer ran.
-tags: [react, react-dev, slow]
+tags: [react, react-dev, slow, "starts:knackpack:react-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

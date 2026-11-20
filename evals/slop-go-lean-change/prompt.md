@@ -1,7 +1,7 @@
 ---
 description: A small service gets the -addr flag its task asked for, with the old address as the default and a README line, and nothing else. The review finds nothing to remove and grades nothing High.
 expected_outcome: No part of the change is reported as unneeded and no restructuring is recommended; nothing is graded High or Critical; with the plugin, the slop reviewer ran.
-tags: [slop, slop-holdout]
+tags: [slop, slop-holdout, "starts:knackpack:slop-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 1800

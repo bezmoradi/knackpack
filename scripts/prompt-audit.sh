@@ -10,7 +10,8 @@
 #       the same for each commit git is about to push, reading git's pre-push
 #       lines on standard input
 #   sh scripts/prompt-audit.sh --install
-#       install the pre-push hook that runs --hook in this clone
+#       install the pre-push hook that runs --hook in this clone and, when
+#       nothing blocks, scripts/trigger-gate.sh --hook
 #   sh scripts/prompt-audit.sh --accept <path> [<commit>]
 #       accept the findings reported for that version of the file, after
 #       reading them, so they stop blocking
@@ -167,15 +168,22 @@ case ${1:-} in
 --install)
 	hook=$(git rev-parse --git-path hooks/pre-push) || fail "can't find the hooks folder"
 	if [ -e "$hook" ] && ! grep -q 'knackpack prompt-audit hook' "$hook"; then
-		fail "$hook already exists and isn't this script's; add a line running sh scripts/prompt-audit.sh --hook to it yourself"
+		fail "$hook already exists and isn't this script's; add lines to it yourself that give git's lines on standard input to sh scripts/prompt-audit.sh --hook and, when that passes, to sh scripts/trigger-gate.sh --hook"
 	fi
 	mkdir -p "$(dirname "$hook")" || fail "can't create the hooks folder"
 	cat >"$hook" <<'EOF'
 #!/bin/sh
 # knackpack prompt-audit hook, installed by sh scripts/prompt-audit.sh --install
-s=$(git rev-parse --show-toplevel)/scripts/prompt-audit.sh
+# It runs the prompt audit and, when nothing blocks, the trigger gate, which
+# costs nothing unless the push changes a skill's or agent's description.
+top=$(git rev-parse --show-toplevel)
+s=$top/scripts/prompt-audit.sh
 [ -f "$s" ] || exit 0 # a branch from before the script existed
-exec sh "$s" --hook
+lines=$(cat)
+printf '%s\n' "$lines" | sh "$s" --hook || exit
+g=$top/scripts/trigger-gate.sh
+[ -f "$g" ] || exit 0 # a branch from before the gate existed
+printf '%s\n' "$lines" | sh "$g" --hook
 EOF
 	chmod +x "$hook" || fail "can't make $hook executable"
 	printf 'prompt-audit: installed %s\n' "$hook"

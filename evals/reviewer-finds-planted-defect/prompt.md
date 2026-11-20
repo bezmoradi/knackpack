@@ -1,7 +1,7 @@
 ---
 description: The adversarial reviewer finds a missing tenant check that the uncommitted change adds, grades it High or Critical, and ends with the findings table.
 expected_outcome: The report names update_order_status, says it lets a caller change another tenant's order, and lists it in the findings table as High or Critical.
-tags: [reviewer, slow, consistency, mode:evidence-quality]
+tags: [reviewer, slow, consistency, mode:evidence-quality, "starts:knackpack:adversarial-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

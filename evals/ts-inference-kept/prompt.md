@@ -1,7 +1,7 @@
 ---
 description: "A control. The change adds a parcel rate calculator that leaves locals and internal helpers to inference, uses as const for its weight bands and satisfies for its multiplier table and config, and gives every exported function an explicit return type, as the project's CONTRIBUTING.md asks. It type-checks under strict and noUncheckedIndexedAccess and prices correctly. The reviewer finds nothing at Medium or higher and doesn't ask for redundant annotations."
 expected_outcome: "The review reports no finding at Medium or higher about the change and doesn't ask to annotate inferred locals or internal helpers; with the plugin, the TypeScript reviewer ran."
-tags: [ts-dev, slow]
+tags: [ts-dev, slow, "starts:knackpack:typescript-code-reviewer"]
 runs: 1
 max_turns: 20
 timeout_seconds: 2400

@@ -1,0 +1,23 @@
+# Skills and agents Claude may start on its own that still lack a case where they should start (a "starts:" tag) or one where they shouldn't (a "quiet:" tag); scripts/check.sh fails on any other, and on one listed here that has both, so this list may only shrink.
+knackpack:adjudicator
+knackpack:adversarial-reviewer
+knackpack:architecture-reviewer
+knackpack:checkpoint
+knackpack:css-code-reviewer
+knackpack:css-engineering
+knackpack:database-reviewer
+knackpack:docker-reviewer
+knackpack:explain
+knackpack:go-code-reviewer
+knackpack:handoff
+knackpack:kubernetes-reviewer
+knackpack:orchestrate-review
+knackpack:python-code-reviewer
+knackpack:react-code-reviewer
+knackpack:security-reviewer
+knackpack:slop-reviewer
+knackpack:terraform-reviewer
+knackpack:typescript-code-reviewer
+knackpack:ui-code-reviewer
+knackpack:web-components-code-reviewer
+knackpack:web-components-engineering
