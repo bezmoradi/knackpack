@@ -2068,6 +2068,56 @@ for s in $shells; do
 done
 [ "$inc_ok" = 1 ] && pass "scripts/incident-check.sh refuses, asks and approves as fix-incident needs under$shells"
 
+# scripts/review-coverage.sh, which orchestrate-review runs on the replies of
+# the reviewers it started before it writes Coverage and the Decision: complete
+# only when every reply's last line is a verdict line, even indented with CRLF
+# line ends as in Claude Code's copy, and incomplete, naming the reviewer, when
+# a reply has no verdict line, a malformed one, nothing at all or no file. Bad
+# usage exits 2 with a message and no verdicts. The skill must run it by the
+# path the plugin ships it at.
+rcov_ok=1
+grep -qF 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-coverage.sh"' skills/orchestrate-review/SKILL.md ||
+	{ fail 'skills/orchestrate-review/SKILL.md doesn'\''t run sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-coverage.sh"'; rcov_ok=0; }
+rd=$tmp/replies
+mkdir -p "$rd" &&
+	printf '/tmp/review-report-adversarial-reviewer.x/adversarial-reviewer.md\nNo blocking issues found.\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0\nknackpack-verdict/1: pass\n' >"$rd/pass" &&
+	printf '  /tmp/review-report-slop-reviewer.x/slop-reviewer.md\r\n  Changes required.\r\n  knackpack-verdict/1: block\r\n\n' >"$rd/block" &&
+	printf '/tmp/review-report-security-reviewer.x/security-reviewer.md\nChanges required.\n' >"$rd/no-verdict" &&
+	printf 'knackpack-verdict/1: pass\nThe verdict above is final.\n' >"$rd/not-last" &&
+	printf '/tmp/review-report-go-code-reviewer.x/go-code-reviewer.md\nknackpack-verdict/1: approve\n' >"$rd/malformed" &&
+	: >"$rd/empty" ||
+	{ fail "couldn't write replies to try scripts/review-coverage.sh with"; rcov_ok=0; }
+nl='
+'
+rcov() { # <shell> <expected exit> <expected stdout> <arguments>...
+	rs=$1 rx=$2 ro=$3
+	shift 3
+	"$rs" scripts/review-coverage.sh "$@" >"$tmp/out" 2>"$tmp/err"
+	rr=$?
+	if [ "$rr" != "$rx" ] || [ "$(cat "$tmp/out")" != "$ro" ]; then
+		fail "review-coverage.sh under $rs exited $rr, not $rx, given $*, or printed: $(cat "$tmp/out")"
+		rcov_ok=0
+	elif [ "$rx" = 2 ] && [ ! -s "$tmp/err" ]; then
+		fail "review-coverage.sh under $rs said nothing on stderr about bad usage, given $*"
+		rcov_ok=0
+	fi
+}
+for s in $shells; do
+	"$s" -n scripts/review-coverage.sh 2>"$tmp/err" || { fail "scripts/review-coverage.sh syntax under $s: $(cat "$tmp/err")"; rcov_ok=0; continue; }
+	rcov "$s" 0 "adversarial-reviewer verdict=pass${nl}slop-reviewer verdict=block${nl}complete" adversarial-reviewer "$rd/pass" slop-reviewer "$rd/block"
+	rcov "$s" 1 "adversarial-reviewer verdict=pass${nl}security-reviewer verdict=none reason=missing${nl}incomplete: security-reviewer" adversarial-reviewer "$rd/pass" security-reviewer "$rd/no-verdict"
+	rcov "$s" 1 "architecture-reviewer verdict=none reason=missing${nl}slop-reviewer verdict=block${nl}incomplete: architecture-reviewer" architecture-reviewer "$rd/not-last" slop-reviewer "$rd/block"
+	rcov "$s" 1 "go-code-reviewer verdict=none reason=malformed${nl}adversarial-reviewer verdict=pass${nl}incomplete: go-code-reviewer" go-code-reviewer "$rd/malformed" adversarial-reviewer "$rd/pass"
+	rcov "$s" 1 "adversarial-reviewer verdict=pass${nl}python-code-reviewer verdict=none reason=empty-reply${nl}incomplete: python-code-reviewer" adversarial-reviewer "$rd/pass" python-code-reviewer "$rd/empty"
+	rcov "$s" 1 "docker-reviewer verdict=none reason=unreadable${nl}security-reviewer verdict=none reason=missing${nl}incomplete: docker-reviewer security-reviewer" docker-reviewer "$rd/absent" security-reviewer "$rd/no-verdict"
+	rcov "$s" 2 ''
+	rcov "$s" 2 '' adversarial-reviewer
+	rcov "$s" 2 '' adversarial-reviewer "$rd/pass" slop-reviewer
+	rcov "$s" 2 '' 'Adversarial reviewer' "$rd/pass"
+	rcov "$s" 2 '' adversarial-reviewer "$rd/pass" adversarial-reviewer "$rd/block"
+done
+[ "$rcov_ok" = 1 ] && pass "scripts/review-coverage.sh tells orchestrate-review which reviewers lack a valid verdict under$shells"
+
 # The context hook, under the same shells: silent on stderr, exit 0, nothing
 # below 400,000 tokens, after a compaction, for a subagent's usage, for the
 # checkpoint command and /compact, for a transcript that is a symbolic link,
