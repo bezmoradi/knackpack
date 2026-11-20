@@ -18,7 +18,7 @@ Save the review as `INCIDENT.md` in the session scratchpad named in your system 
 ## Gather what happened
 
 - **The diagnosis:** ROOT-CAUSE.md's incident, evidence, reproduction, hypotheses and cause. When its Status isn't `CONFIRMED`, there's no confirmed cause to review: say so, and write the review only if the user asks, as a draft that says the cause is unknown.
-- **The fix:** `git diff <deployed SHA>` in the incident's checkout, including uncommitted work, and the commits on the branch since the deployed revision. Read what it changes; don't take a commit message's word for it.
+- **The fix:** `git diff <deployed SHA>` in the incident's checkout, which shows committed and uncommitted changes to tracked files, `git status --porcelain` for untracked ones, such as a regression test not yet added, and the commits on the branch since the deployed revision. Read what it changes; don't take a commit message's word for it.
 - **The verification:** run the reproduction again as the diagnosis gives it, and record the result as `PASS`, `FAIL`, `NOT RUN`, `BLOCKED` or `SKIPPED`, with why for the last three. Add any other results the user or the fix's session reported, labeled with where they came from and not rerun.
 - **What the user adds:** detection, response, communication, follow-up owners. Ask for what the review needs and the evidence doesn't hold, such as when the fix shipped, rather than guessing.
 
@@ -60,6 +60,6 @@ Status: draft | final
 - **Follow-ups:** actions that would reduce recurrence or detect it sooner, each concrete enough to file, with an owning team or role only where the user named one.
 - **Open questions:** what nobody knows yet.
 
-No names of people as causes, and no "human error": write what the system allowed, such as "the deploy script accepted an empty region". Quote only redacted evidence: no tokens, passwords, keys, personal or customer data, and no raw logs or screenshots. Then follow knackpack's write-docs habits: the reader's next action first, no filler, nothing the evidence doesn't support.
+No names of people as causes, and no "human error": write what the system allowed, such as "the deploy script accepted an empty region". Quote only redacted evidence: no tokens, passwords, keys, personal or customer data, and no raw logs or screenshots. Put what the reader must do or decide first, leave out filler, and write nothing the evidence doesn't support.
 
 Reply with where the review is saved, or what commit-docs.sh printed, its Status, and the follow-ups. Offer `/knackpack:create-issues` to file the follow-ups; filing them publishes, so only on request.
