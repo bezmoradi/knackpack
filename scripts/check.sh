@@ -1061,7 +1061,7 @@ contract_ok=1
 IFS= read -r save_folder <<'EOF'
 the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 EOF
-for name in challenge-requirements checkpoint create-issues execute-plan handoff orchestrate-review plan-implementation research; do
+for name in challenge-requirements checkpoint create-issues debug-incident execute-plan handoff incident-review orchestrate-review plan-implementation research; do
 	grep -qF -- "$save_folder" "skills/$name/SKILL.md" ||
 		{ fail "skills/$name/SKILL.md doesn't name its save folder in the words check.sh holds, which the hook relies on"; contract_ok=0; }
 done
@@ -1914,6 +1914,15 @@ for s in $shells; do
 		{ fail "commit-docs.sh under $s committed $files or disturbed the other work, or wrote a wrong feature.json"; docs_ok=0; }
 	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
 	case $out in "already committed"*) ;; *) fail "commit-docs.sh under $s didn't report an unchanged document as already committed: $out"; docs_ok=0 ;; esac
+	printf '# Root cause: orders list times out\n\n## Status\n\nTRIAGED\n' >"$r/.knackpack/orders-list/ROOT-CAUSE.md" ||
+		{ fail "couldn't write a root cause to try scripts/commit-docs.sh with"; docs_ok=0; continue; }
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-list/ROOT-CAUSE.md")
+	files=$(git -C "$r" show --name-only --format= HEAD | tr '\n' ' ')
+	case $out in committed*) ;; *) fail "commit-docs.sh under $s didn't commit a ROOT-CAUSE.md: $out"; docs_ok=0 ;; esac
+	[ "$files" = '.knackpack/orders-list/ROOT-CAUSE.md ' ] && [ "$(git -C "$r" diff --cached --name-only)" = a.txt ] && [ "$(git -C "$r" diff --name-only)" = b.txt ] ||
+		{ fail "commit-docs.sh under $s committed $files for a ROOT-CAUSE.md, or disturbed the other work"; docs_ok=0; }
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-list/NOTES.md")
+	case $out in "not committed: "*"isn't .knackpack/<task>/ followed by"*) ;; *) fail "commit-docs.sh under $s didn't refuse a document it doesn't know: $out"; docs_ok=0 ;; esac
 	mkdir -p "$r/.knackpack/orders-export" && printf '# Plan\n\nPLAN-01: export orders.\n' >"$r/.knackpack/orders-export/PLAN.md" &&
 		cp "$r/.knackpack/feature.json" "$tmp/feature.json" || { fail "couldn't write a plan to try a failed commit with"; docs_ok=0; continue; }
 	for h in 'exit 1' 'git add -u'; do
@@ -1966,6 +1975,57 @@ for s in $shells; do
 		{ fail "commit-docs.sh --check under $s refused outside a git repository: $out"; docs_ok=0; }
 done
 [ "$docs_ok" = 1 ] && pass "KNACKPACK_DOCS=repo: the challenge hook's rules and scripts/commit-docs.sh under$shells"
+
+# scripts/incident-check.sh, which fix-incident runs before it changes code,
+# in a throwaway repository: it refuses a diagnosis that isn't CONFIRMED, asks
+# in an attended session and refuses a headless one when no hash is passed,
+# and accepts only the matching hash. With KNACKPACK_DOCS=repo it refuses a
+# diagnosis that isn't committed or differs from its committed text, and
+# hashes the committed text. It refuses a hash when the repository's tracked
+# settings name the variable, plainly or with a JSON escape. It changes
+# nothing in the repository.
+inc_ok=1
+for s in $shells; do
+	"$s" -n scripts/incident-check.sh 2>"$tmp/err" || { fail "scripts/incident-check.sh syntax under $s: $(cat "$tmp/err")"; inc_ok=0; continue; }
+	r=$tmp/incident-$s
+	rc=$r/.knackpack/orders-timeout/ROOT-CAUSE.md
+	mkdir -p "$r/.knackpack/orders-timeout" && git -C "$r" init -q && git -C "$r" config user.name check && git -C "$r" config user.email check@example.com &&
+		printf '# Root cause: orders time out\n\n## Status\n\nREPRODUCED\n\n## Cause\n' >"$rc" ||
+		{ fail "couldn't make a repository to try scripts/incident-check.sh in"; inc_ok=0; continue; }
+	ic() { (cd "$r" && env -u KNACKPACK_INCIDENT_APPROVED_SHA256 -u EVAL_KNACKPACK_INCIDENT_APPROVED_SHA256 -u KNACKPACK_DOCS -u CLAUDE_PROJECT_DIR CLAUDE_CODE_ENTRYPOINT=cli CLAUDE_CODE_SESSION_ATTENDED=1 "$@" "$s" "$here/scripts/incident-check.sh" "$rc"); }
+	out=$(ic) && inc_ok=0
+	case $out in "refused: its Status is REPRODUCED"*) ;; *) fail "incident-check.sh under $s didn't refuse a diagnosis that isn't CONFIRMED: $out"; inc_ok=0 ;; esac
+	printf '# Root cause: orders time out\n\n## Status\n\nCONFIRMED\n\n## Cause\n\nThe page size is unbounded.\n' >"$rc"
+	h=$(ic | sed -n 's/^ask //p')
+	[ "${#h}" = 64 ] || { fail "incident-check.sh under $s didn't ask for approval of a CONFIRMED diagnosis with its hash"; inc_ok=0; }
+	out=$(ic CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=) && inc_ok=0
+	case $out in "refused: no approval was passed"*) ;; *) fail "incident-check.sh under $s didn't refuse a headless run with no approval: $out"; inc_ok=0 ;; esac
+	out=$(ic CLAUDE_CODE_SESSION_ATTENDED=0)
+	case $out in "refused: no approval was passed"*) ;; *) fail "incident-check.sh under $s didn't refuse a background session with no approval: $out"; inc_ok=0 ;; esac
+	out=$(ic "KNACKPACK_INCIDENT_APPROVED_SHA256=$h" CLAUDE_CODE_ENTRYPOINT=sdk-cli CLAUDE_CODE_SESSION_ATTENDED=)
+	[ "$out" = "approved $h" ] || { fail "incident-check.sh under $s didn't accept the matching hash in a headless run: $out"; inc_ok=0; }
+	out=$(ic KNACKPACK_INCIDENT_APPROVED_SHA256=0000) && inc_ok=0
+	case $out in "refused: the approved SHA-256 is 0000"*) ;; *) fail "incident-check.sh under $s didn't refuse a hash that doesn't match: $out"; inc_ok=0 ;; esac
+	out=$(ic KNACKPACK_DOCS=repo) && inc_ok=0
+	case $out in "refused: "*"isn't committed at HEAD"*) ;; *) fail "incident-check.sh under $s didn't refuse an uncommitted diagnosis with KNACKPACK_DOCS=repo: $out"; inc_ok=0 ;; esac
+	git -C "$r" add -A && git -C "$r" commit -q -m diagnosis || { fail "couldn't commit a diagnosis to try scripts/incident-check.sh with"; inc_ok=0; continue; }
+	out=$(ic KNACKPACK_DOCS=repo "KNACKPACK_INCIDENT_APPROVED_SHA256=$(printf '%s' "$h" | tr '[:lower:]' '[:upper:]')")
+	[ "$out" = "approved $h" ] || { fail "incident-check.sh under $s didn't accept the committed diagnosis's hash in capitals: $out"; inc_ok=0; }
+	printf 'Edited after approval.\n' >>"$rc"
+	out=$(ic KNACKPACK_DOCS=repo "KNACKPACK_INCIDENT_APPROVED_SHA256=$h") && inc_ok=0
+	case $out in "refused: "*"differs from its committed text"*) ;; *) fail "incident-check.sh under $s didn't refuse a diagnosis edited after its commit: $out"; inc_ok=0 ;; esac
+	git -C "$r" checkout -q -- . || { fail "couldn't restore the diagnosis to try scripts/incident-check.sh with"; inc_ok=0; continue; }
+	for v in KNACKPACK_INCIDENT_APPROVED_SHA256 'KNACKPACK_INCIDENT_APPROVED_SHA\u0032\u0035\u0036'; do
+		mkdir -p "$r/sub/.claude" && printf '{"env":{"%s":"%s"}}\n' "$v" "$h" >"$r/sub/.claude/settings.json" &&
+			git -C "$r" add -- sub/.claude/settings.json && git -C "$r" commit -q -m settings || { fail "couldn't commit settings to try scripts/incident-check.sh with"; inc_ok=0; continue; }
+		before=$(git -C "$r" status --porcelain) && head=$(git -C "$r" rev-parse HEAD)
+		out=$(ic "KNACKPACK_INCIDENT_APPROVED_SHA256=$h") && inc_ok=0
+		case $out in "refused: sub/.claude/settings.json names KNACKPACK_INCIDENT_APPROVED_SHA256"*) ;; *) fail "incident-check.sh under $s accepted a hash while tracked settings name the variable as $v: $out"; inc_ok=0 ;; esac
+		[ "$(git -C "$r" status --porcelain)" = "$before" ] && [ "$(git -C "$r" rev-parse HEAD)" = "$head" ] || { fail "incident-check.sh under $s changed the repository"; inc_ok=0; }
+		git -C "$r" rm -q -- sub/.claude/settings.json && git -C "$r" commit -q -m "no settings" || { fail "couldn't remove settings to try scripts/incident-check.sh with"; inc_ok=0; }
+	done
+done
+[ "$inc_ok" = 1 ] && pass "scripts/incident-check.sh refuses, asks and approves as fix-incident needs under$shells"
 
 # The context hook, under the same shells: silent on stderr, exit 0, nothing
 # below 400,000 tokens, after a compaction, for a subagent's usage, for the

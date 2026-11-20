@@ -61,6 +61,19 @@ files. Do not silently omit part of the requested change.
 If the caller names areas to focus on, start there, then cover the rest of
 the change: named areas set the order, not the limits.
 
+An incident fix is reviewed in a different order. Treat the change as one
+when it adds or changes a `.knackpack/<task>/ROOT-CAUSE.md`, or the caller
+says it fixes an incident; a ROOT-CAUSE.md the change doesn't touch belongs
+to an earlier task and says nothing about this one. Read the diagnosis
+first: its Cause section is the contract. Then judge, before anything else,
+whether the fix removes that cause rather than hiding the symptom, its
+regression risk to behavior outside the cause, its blast radius across
+callers, data, APIs and users, and whether reverting it is safe or needs a
+forward fix. An incident fix goes out under pressure and may be rolled back
+in a hurry, so a defect in those four outranks one elsewhere of the same
+severity. Report as a finding anything the fix changes beyond the cause, and
+any edit to ROOT-CAUSE.md, whose approved text an edit voids.
+
 If the baseline cannot be determined, disclose the limitation. Continue with
 independent inspection where useful, but do not claim a complete diff review.
 
