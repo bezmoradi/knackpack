@@ -80,6 +80,7 @@ fi
 if [ -n "${approved+x}" ]; then
 	lib=$(dirname -- "$0")/repo-settings.sh
 	[ -f "$lib" ] || refuse "can't find repo-settings.sh beside this script"
+	# shellcheck source=scripts/repo-settings.sh
 	. "$lib"
 	for where in "${CLAUDE_PROJECT_DIR:-.}" "$d"; do
 		hit=$(cd -- "$where" 2>/dev/null && settings_naming KNACKPACK_INCIDENT_APPROVED_SHA256) ||

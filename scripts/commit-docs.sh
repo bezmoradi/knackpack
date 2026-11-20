@@ -57,6 +57,7 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) && top=$(cd -P -- "$top" && pwd
 # says which files count.
 lib=$(dirname -- "$0")/repo-settings.sh
 [ -f "$lib" ] || fail "can't find repo-settings.sh beside this script"
+# shellcheck source=scripts/repo-settings.sh
 . "$lib"
 hit=$(settings_naming KNACKPACK_DOCS) || fail "can't list the repository's settings files"
 [ -z "$hit" ] ||
