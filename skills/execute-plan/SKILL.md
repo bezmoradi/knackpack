@@ -165,9 +165,9 @@ call, keeping its error response" doesn't.
 
 ## 5. Coordinate while they work
 
-Subagents started in the background notify you when they finish: don't
-poll them, and don't do their work while you wait; prepare the next
-assignment or review a finished one.
+Subagents started in the background notify you when they finish; don't
+do their work while you wait: prepare the next assignment or review a
+finished one.
 
 When an implementer reports a blocker, a contract that has to change or
 scope that grew, decide it from the plan and the agreement: answer it, adjust
