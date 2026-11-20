@@ -51,11 +51,11 @@
 # fetches, in FETCH_HEAD and remote-tracking refs; it fetches no tags. Every
 # network step is bounded: a minute for a fetch, 20 seconds for a lookup.
 
-export LC_ALL=C
-unset CDPATH
 # test -O isn't POSIX, but dash and bash both have it. Before the first
 # command, this directive covers the whole script.
 # shellcheck disable=SC3067
+export LC_ALL=C
+unset CDPATH
 umask 077
 
 usage() {
@@ -206,8 +206,8 @@ elif [ "$(git remote | wc -l | tr -d ' ')" = 1 ]; then
 	remote=$(git remote)
 fi
 
-target= tsrc=none tremote= tcommit= refreshed=not-applicable
-base= bsrc= snap= kind= ssrc= pr= refused=
+target='' tsrc=none tremote='' tcommit='' refreshed=not-applicable
+base='' bsrc='' snap='' kind='' ssrc='' pr='' refused=''
 
 # Fetches <branch> from $tremote and sets tcommit and refreshed.
 fetch_branch() { # <branch>
@@ -296,7 +296,7 @@ else
 			tb=${s#"$remote"/} tsrc=origin-head
 		elif s=$(net 20 git ls-remote --symref "$remote" HEAD 2>/dev/null) &&
 			tb=$(printf '%s\n' "$s" | sed -n "s|^ref: refs/heads/\\(.*\\)${tab}HEAD\$|\\1|p" | head -n 1) && [ -n "$tb" ]; then
-			tsrc=remote-head
+			tsrc='remote-head'
 		elif command -v gh >/dev/null 2>&1 && tb=$(net 20 gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null) && [ -n "$tb" ]; then
 			tsrc=gh
 		else
@@ -380,7 +380,7 @@ fi
 
 # Step 2: the starting state and the snapshot.
 if [ -n "$others" ]; then
-	state=head
+	state='head'
 	printf '%s\n' "$head" >"$dir/before.txt" || die "can't write $dir/before.txt"
 else
 	state=full

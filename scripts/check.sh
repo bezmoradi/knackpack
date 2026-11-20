@@ -1090,7 +1090,7 @@ if [ ! -f "$gaps" ]; then
 	trig_ok=0
 else
 	sed -e 's/#.*//' -e 's/[[:space:]]//g' "$gaps" | grep -v '^$' | sort -u >"$tmp/trig-gaps"
-	missing= listed= stale= unknown=
+	missing='' listed='' stale='' unknown=''
 	while read -r _ comp; do
 		s=$(grep -c " starts $comp\$" "$tmp/trig-tags")
 		q=$(grep -c " quiet $comp\$" "$tmp/trig-tags")
@@ -2295,7 +2295,7 @@ done
 # path the plugin ships it at.
 rcov_ok=1
 grep -qF 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-coverage.sh"' skills/orchestrate-review/SKILL.md ||
-	{ fail 'skills/orchestrate-review/SKILL.md doesn'\''t run sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-coverage.sh"'; rcov_ok=0; }
+	{ fail "skills/orchestrate-review/SKILL.md doesn't run sh \"\${CLAUDE_PLUGIN_ROOT}/scripts/review-coverage.sh\""; rcov_ok=0; }
 rd=$tmp/replies
 mkdir -p "$rd" &&
 	printf '/tmp/review-report-adversarial-reviewer.x/adversarial-reviewer.md\nNo blocking issues found.\nknackpack-findings/1: critical=0 high=0 medium=0 low=0 blocking=0\nknackpack-verdict/1: pass\n' >"$rd/pass" &&
@@ -2477,7 +2477,7 @@ done
 # repository, a folder outside one and bad usage.
 scope_ok=1
 grep -qF 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-scope.sh" <dir> <target>' scripts/review-protocol.md ||
-	{ fail 'scripts/review-protocol.md doesn'\''t run sh "${CLAUDE_PLUGIN_ROOT}/scripts/review-scope.sh" <dir> <target>'; scope_ok=0; }
+	{ fail "scripts/review-protocol.md doesn't run sh \"\${CLAUDE_PLUGIN_ROOT}/scripts/review-scope.sh\" <dir> <target>"; scope_ok=0; }
 manual=$(grep -E '^(cp "\$\(git rev-parse --git-path index\)" <dir>/index |\{ git rev-parse -q --verify HEAD; )' scripts/review-protocol.md)
 [ "$(printf '%s\n' "$manual" | grep -c .)" = 2 ] || { fail "couldn't find step 2's two commands in scripts/review-protocol.md to compare review-scope.sh with"; scope_ok=0; }
 for s in $shells; do
@@ -2555,12 +2555,13 @@ for s in $shells; do
 	# A pull request, through a gh that answers as GitHub would and a remote
 	# whose GitHub URL git rewrites to the local bare repository.
 	sw=$q/prw
+	gurl=$(printf 'https:%s' //github.com/acme/widgets) # the remote's URL, written so lychee doesn't read it as a link
 	git init -q "$sw" && git -C "$sw" symbolic-ref HEAD refs/heads/trunk && git -C "$sw" config user.name check && git -C "$sw" config user.email check@example.com &&
-		git -C "$sw" config url."$q/origin.git".insteadOf https://github.com/acme/widgets.git &&
-		git -C "$sw" remote add origin https://github.com/acme/widgets.git && git -C "$w" push -q origin feature:refs/pull/5/head ||
+		git -C "$sw" config url."$q/origin.git".insteadOf "$gurl.git" &&
+		git -C "$sw" remote add origin "$gurl.git" && git -C "$w" push -q origin feature:refs/pull/5/head ||
 		{ fail "couldn't make a pull request to try scripts/review-scope.sh with"; scope_ok=0; continue; }
-	printf '#!/bin/sh\ncase "$1 $2" in\n"pr view") echo "trunk %s %s https://github.com/acme/widgets/pull/5" ;;\n"api repos/acme/widgets") echo ;;\n*) exit 1 ;;\nesac\n' \
-		"$base" "$hd" >"$q/bin/gh" && chmod +x "$q/bin/gh"
+	printf '#!/bin/sh\ncase "$1 $2" in\n"pr view") echo "trunk %s %s %s/pull/5" ;;\n"api repos/acme/widgets") echo ;;\n*) exit 1 ;;\nesac\n' \
+		"$base" "$hd" "$gurl" >"$q/bin/gh" && chmod +x "$q/bin/gh"
 	out=$(PATH="$q/bin:$PATH" sc "$q/d" 5) && has pr=5 "given a pull request" && has "snapshot=$hd" "given a pull request" &&
 		has "base=$base" "given a pull request" && has snapshot_source=pull-request "given a pull request" && has files_changed=2 "given a pull request" ||
 		{ fail "review-scope.sh under $s failed on a pull request: $out"; scope_ok=0; }

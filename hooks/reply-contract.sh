@@ -168,7 +168,7 @@ END {
 		for (k = vi - 1; k >= 1; k--) if (index(L[k], "knackpack-findings/1")) { xi = k; break }
 		q = ""
 		if (!xi) q = "it has no knackpack-findings/1 line"
-		else if (L[xi] !~ F) q = "its knackpack-findings/1 line, \"" clean(L[xi], 120) "\", doesn'"'"'t read knackpack-findings/1: critical=N high=N medium=N low=N blocking=N with a number for each N"
+		else if (L[xi] !~ F) q = "its knackpack-findings/1 line, \"" clean(L[xi], 120) "\", doesn\047t read knackpack-findings/1: critical=N high=N medium=N low=N blocking=N with a number for each N"
 		else if (xi != vi - 1) q = "its knackpack-findings/1 line isn'"'"'t the line just before the verdict line"
 		else if (p == "" && L[vi] ~ /: pass$/ && L[xi] !~ / blocking=0+$/) q = "it ends with knackpack-verdict/1: pass though its findings line counts blocking findings, and a reply with blocking above 0 ends with knackpack-verdict/1: block"
 		if (q != "") p = (p == "" ? q : p "; and " q)
