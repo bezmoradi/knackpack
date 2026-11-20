@@ -1,10 +1,10 @@
 # Claude reviews every push to a pull request, and a ruleset on main requires
-# the "Claude approval" check that this workflow reports. The review job runs
-# Claude Code on the pull request, holding it to .claude/CLAUDE.md, which the
-# action restores from the base branch. Every problem Claude finds in the
-# change blocks, however minor: it comments on the lines involved and returns
-# a verdict, and the job posts a summary comment. The approval job passes on
-# an approve verdict with nothing blocking.
+# the "Claude review" and "Claude approval" checks that this workflow reports.
+# The review job runs Claude Code on the pull request, holding it to
+# .claude/CLAUDE.md, which the action restores from the base branch. Every
+# problem Claude finds in the change blocks, however minor: it comments on the
+# lines involved and returns a verdict, and the job posts a summary comment.
+# The approval job passes on an approve verdict with nothing blocking.
 #
 # The review only reviews: the job's token can't push and Claude has no tool
 # that edits files. .claude/CLAUDE.md says which settings keep it that way,

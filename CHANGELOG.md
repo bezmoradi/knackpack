@@ -2,6 +2,10 @@
 
 Each knackpack release, newest first. Each one starts with a heading `## <version> (<date>)`, and an entry that breaks the public interface starts with **Breaking:** and says what users need to do. Installed copies of knackpack read this file at session start to tell their users what changed since their version, so keep its headings in that form. Entries before 0.37.0 are the titles of their release commits.
 
+## 0.37.1 (2026-11-20)
+
+- The README and `.claude/CLAUDE.md` say that `main` also requires the `Claude review` check, as the ruleset now does (#90). Nothing in the plugin changes.
+
 ## 0.37.0 (2026-11-20)
 
 - At the start of each session, knackpack tells you when a newer version is out, gives the commands to update, and Claude opens its first reply with a summary of what changed since your version. It checks this file on GitHub with one request, waiting at most 3 seconds and showing nothing when it can't connect. `KNACKPACK_UPDATE_CHECK=off` turns it off, and so do Claude Code's own `DISABLE_UPDATES`, `DISABLE_AUTOUPDATER` and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (#87).
