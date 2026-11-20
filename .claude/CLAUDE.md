@@ -54,6 +54,7 @@ These cover what a skill or agent says and the eval cases that check it.
    | Any change, as a fast first pass | `quick` | `Edit` |
    | Adversarial reviewer | `reviewer` | `Bash` |
    | Go reviewer | `go-reviewer` | `Bash` |
+   | Reviewer reply lines without a shell | `reviewer-noshell` | none, so the reviewer can't run its count command |
    | Python reviewer | `python-dev`, then `python-holdout` | `Bash` |
    | React reviewer | `react-dev`, then `react-holdout` | `Bash` |
    | CSS reviewer | `css-dev`, then `css-holdout` | `Bash "WebFetch(domain:developer.mozilla.org)" "WebFetch(domain:webstatus.dev)" "WebFetch(domain:web.dev)"` |
