@@ -1914,6 +1914,33 @@ for s in $shells; do
 		{ fail "commit-docs.sh under $s committed $files or disturbed the other work, or wrote a wrong feature.json"; docs_ok=0; }
 	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
 	case $out in "already committed"*) ;; *) fail "commit-docs.sh under $s didn't report an unchanged document as already committed: $out"; docs_ok=0 ;; esac
+	# A document holding a common secret shape is refused, naming the kind and
+	# line but never the value, and one that only talks about tokens, headers
+	# and keys commits. The fake secrets are put together here, at run time,
+	# so that no file in this repository holds one for gitleaks to find.
+	for k in github aws private-key authorization; do
+		case $k in
+		github) tok=$(printf 'gh%s_%036d' p 7) what='GitHub token' ;;
+		aws) tok=$(printf 'AK%s%016d' IA 7) what='AWS access key ID' ;;
+		private-key) tok=$(printf -- '-----BEGIN %s PRIVATE KEY-----' RSA) what='private key block' ;;
+		authorization) tok=$(printf 'Authorization: %s %040d' Bearer 7) what='Authorization header credential' ;;
+		esac
+		printf '# Brief\n\nREQ-01: list orders.\n\nThe job used %s.\n' "$tok" >"$doc" || { fail "couldn't write a brief with a fake $what"; docs_ok=0; continue; }
+		head=$(git -C "$r" rev-parse HEAD) && before=$(git -C "$r" status --porcelain)
+		out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
+		case $out in "not committed: .knackpack/orders-list/REQUIREMENTS.md holds what looks like a secret: $what (line 5). Replace each with a description"*"matches only common secret shapes"*) ;;
+		*) fail "commit-docs.sh under $s didn't refuse a document holding a fake $what by its kind and line: $out"; docs_ok=0 ;;
+		esac
+		case $out in *"$tok"* | *"$(printf '%036d' 7)"* | *"$(printf '%016d' 7)"*) fail "commit-docs.sh under $s printed the fake $what it refused"; docs_ok=0 ;; esac
+		[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] ||
+			{ fail "commit-docs.sh under $s left a commit, or changed the index or the other work, for a document holding a fake $what"; docs_ok=0; }
+	done
+	printf '# Brief\n\nREQ-01: list orders.\nREQ-02: send Authorization: Bearer <token>; Basic auth is gone.\nGitHub tokens start with ghp_ or github_pat_, AWS key IDs with AKIA, and Stripe keys with sk_live_.\n-----BEGIN PUBLIC KEY----- blocks are public.\n' >"$doc"
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$doc")
+	files=$(git -C "$r" show --name-only --format= HEAD | tr '\n' ' ')
+	case $out in committed*) ;; *) fail "commit-docs.sh under $s refused a document that only talks about tokens, headers and keys: $out"; docs_ok=0 ;; esac
+	[ "$files" = '.knackpack/orders-list/REQUIREMENTS.md ' ] && [ "$(git -C "$r" diff --cached --name-only)" = a.txt ] && [ "$(git -C "$r" diff --name-only)" = b.txt ] ||
+		{ fail "commit-docs.sh under $s committed $files for a document that only talks about tokens, or disturbed the other work"; docs_ok=0; }
 	printf '# Root cause: orders list times out\n\n## Status\n\nTRIAGED\n' >"$r/.knackpack/orders-list/ROOT-CAUSE.md" ||
 		{ fail "couldn't write a root cause to try scripts/commit-docs.sh with"; docs_ok=0; continue; }
 	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-list/ROOT-CAUSE.md")
@@ -1933,6 +1960,20 @@ for s in $shells; do
 		[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] && cmp -s "$r/.knackpack/feature.json" "$tmp/feature.json" ||
 			{ fail "commit-docs.sh under $s with a pre-commit hook running '$h' left a commit, or changed the index, the other work or feature.json"; docs_ok=0; }
 	done
+	# A commit hook that puts a fake token into the document's staged text, and
+	# not into the file, gets the commit taken back, because the script checks
+	# the text committed.
+	printf '# Plan\n\nPLAN-01: export orders.\nThe export runs as gh%s_%036d.\n' p 7 >"$tmp/plan-secret.md" &&
+		printf '#!/bin/sh\nb=$(git hash-object -w -- "%s") && git update-index --cacheinfo "100644,$b,.knackpack/orders-export/PLAN.md"\n' "$tmp/plan-secret.md" >"$r/.git/hooks/pre-commit" &&
+		chmod +x "$r/.git/hooks/pre-commit" || { fail "couldn't write a pre-commit hook that adds a fake token"; docs_ok=0; continue; }
+	head=$(git -C "$r" rev-parse HEAD) && before=$(git -C "$r" status --porcelain)
+	out=$(cd "$r" && KNACKPACK_DOCS=repo "$s" "$here/scripts/commit-docs.sh" "$r/.knackpack/orders-export/PLAN.md")
+	case $out in "not committed: .knackpack/orders-export/PLAN.md as committed holds what looks like a secret, which a clean filter or commit hook added: GitHub token (line 4), so the commit was taken back. Replace each"*) ;;
+	*) fail "commit-docs.sh under $s with a pre-commit hook adding a fake token printed: $out"; docs_ok=0 ;;
+	esac
+	case $out in *"$(printf '%036d' 7)"*) fail "commit-docs.sh under $s printed the fake token a commit hook added"; docs_ok=0 ;; esac
+	[ "$(git -C "$r" rev-parse HEAD)" = "$head" ] && [ "$(git -C "$r" status --porcelain)" = "$before" ] && cmp -s "$r/.knackpack/feature.json" "$tmp/feature.json" ||
+		{ fail "commit-docs.sh under $s with a pre-commit hook adding a fake token left a commit, or changed the index, the other work or feature.json"; docs_ok=0; }
 	rm -f "$r/.git/hooks/pre-commit"
 	mkdir -p "$r/.claude" && printf '{"env":{"KNACKPACK_DOCS":"repo"}}\n' >"$r/.claude/settings.local.json" ||
 		{ fail "couldn't write settings to try scripts/commit-docs.sh with"; docs_ok=0; continue; }

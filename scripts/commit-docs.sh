@@ -16,7 +16,9 @@
 # touched only after the commit is made and checked, and then only for those
 # two paths, so a failed or interrupted run leaves it as it was. A commit hook
 # can stage more files or change the document, so it checks the commit too,
-# and takes it back when it holds anything else. It also refuses when the
+# and takes it back when it holds anything else. It refuses a document that
+# names a path from this machine or holds a common secret shape, before the
+# commit and again in the text committed. It also refuses when the
 # repository's own settings switch the mode on. It prints one line,
 # "committed ...", "already committed ..." or "not committed: <reason>", and
 # exits 1 only when it didn't commit. hooks/challenge.sh tells Claude when and
@@ -171,6 +173,51 @@ leaks() {
 found=$(leaks <"$p") || fail "can't read $p"
 [ -z "$found" ] || fail "$p names paths from this machine:$found. Cite files in the repository by their repository path and leave the rest out"
 
+# Nor may it hold a credential. Only shapes that are rarely anything else
+# count, so incident text that talks about tokens, headers or keys still
+# commits: an Authorization header with a Bearer or Basic value of 16 or more
+# characters (a placeholder such as <token> or $TOKEN has characters no
+# credential does), a PEM private-key header, and the fixed prefixes of
+# GitHub, AWS, Slack, Stripe live and Anthropic keys with as many characters
+# after them as a real one has, not inside a longer word. It prints each
+# kind found with its line numbers, never the text that matched, since the
+# refusal is printed where the document mustn't be. It returns 1 when grep
+# can't read the file, so a failed read never passes; grep gets the file as
+# an argument, since a failed redirection could give 1, grep's status for no
+# match.
+secrets() { # <file>
+	sfound=
+	for kind in authorization private-key github aws slack stripe anthropic; do
+		i=
+		case $kind in
+		authorization)
+			what="Authorization header credential" i=-i
+			pat='authorization["'\'']?[[:space:]]*[:=][[:space:]]*["'\'']?(bearer|basic)[[:space:]]+[A-Za-z0-9._~+/=-]{16,}'
+			;;
+		private-key) what="private key block" pat='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY( BLOCK)?-----' ;;
+		github) what="GitHub token" pat='(^|[^A-Za-z0-9_])(gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})' ;;
+		aws) what="AWS access key ID" pat='(^|[^A-Za-z0-9])(AKIA|ASIA)[A-Z0-9]{16}([^A-Za-z0-9]|$)' ;;
+		slack) what="Slack token" pat='(^|[^A-Za-z0-9_])xox[abprs]-[A-Za-z0-9-]{10,}' ;;
+		stripe) what="Stripe live key" pat='(^|[^A-Za-z0-9_])[rs]k_live_[A-Za-z0-9]{16,}' ;;
+		anthropic) what="Anthropic API key" pat='(^|[^A-Za-z0-9_])sk-ant-[A-Za-z0-9_-]{20,}' ;;
+		esac
+		# $i is empty or -i, a single word.
+		# shellcheck disable=SC2086
+		grep -q $i -E -e "$pat" -- "$1" 2>/dev/null
+		case $? in 0) ;; 1) continue ;; *) return 1 ;; esac
+		# shellcheck disable=SC2086
+		n=$(grep -n $i -E -e "$pat" -- "$1" 2>/dev/null | sed -n 's/^\([0-9][0-9]*\):.*/\1/p' | tr '\n' ' ')
+		n=${n% }
+		# A file grep reads as binary gives no line numbers.
+		case $n in '') n=" unknown" ;; *' '*) n="s $n" ;; *) n=" $n" ;; esac
+		sfound="$sfound${sfound:+,} $what (line$n)"
+	done
+	printf '%s\n' "$sfound"
+}
+secret_advice="Replace each with a description of it, such as \"the deploy token\", and leave the value out. This check matches only common secret shapes, so passing it doesn't prove a document holds no secrets"
+found=$(secrets "$p") || fail "can't read $p"
+[ -z "$found" ] || fail "$p holds what looks like a secret:$found. $secret_advice"
+
 ignored=$(git check-ignore -- "$p" "$f" 2>/dev/null | tr '\n' ' ')
 [ -z "$ignored" ] || fail "git ignores ${ignored% }, so it can't be committed"
 
@@ -183,7 +230,7 @@ gp() {
 }
 lock=$(gp knackpack-commit-docs.lock) && idx=$(gp knackpack-commit-docs.index) &&
 	bak=$(gp knackpack-commit-docs.feature.json) && new=$(gp knackpack-commit-docs.new) &&
-	ri=$(gp index) || fail "can't find the repository's git folder"
+	blob=$(gp knackpack-commit-docs.committed) && ri=$(gp index) || fail "can't find the repository's git folder"
 if ! mkdir "$lock" 2>/dev/null; then
 	pid=$(cat "$lock/pid" 2>/dev/null)
 	case $pid in
@@ -205,12 +252,12 @@ takeback() {
 		git update-ref -d HEAD "$c"
 	fi || fail "$1, and taking commit $c back failed; check git log and git status"
 	restore
-	fail "$1, so the commit was taken back"
+	fail "$1, so the commit was taken back${2:+. $2}"
 }
 # After the commit, judged by where HEAD went rather than by git's exit
 # status: what the commit holds, what feature.json in it names, and whether
-# the text committed names a path from this machine, as a clean filter could
-# make it.
+# the text committed names a path from this machine or holds a secret shape,
+# as a clean filter could make it.
 finish() {
 	state=checking
 	trap '' HUP INT TERM
@@ -239,6 +286,10 @@ finish() {
 		takeback "the commit hooks left $f out of the commit or changed the folder it names"
 	found=$(git cat-file blob "$c:$p" | leaks)
 	[ -z "$found" ] || takeback "$p as committed names paths from this machine:$found, which a clean filter or commit hook added"
+	git cat-file blob "$c:$p" >"$blob" && found=$(secrets "$blob") ||
+		takeback "can't read $p as committed to check it for secrets"
+	[ -z "$found" ] || takeback "$p as committed holds what looks like a secret, which a clean filter or commit hook added:$found" "$secret_advice"
+	rm -f "$blob"
 	short=$(git rev-parse --short "$c")
 	note=
 	[ "$(git rev-parse "$c:$p")" = "$written" ] ||
@@ -259,7 +310,7 @@ interrupted() {
 }
 
 state=start
-trap 'rm -f "$idx" "$new" "$bak"; rm -rf "$lock"' EXIT
+trap 'rm -f "$idx" "$new" "$bak" "$blob"; rm -rf "$lock"' EXIT
 trap interrupted HUP INT TERM
 
 had=
