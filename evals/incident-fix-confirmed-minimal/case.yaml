@@ -1,0 +1,10 @@
+schema_version: "1.1"
+name: incident-fix-confirmed-minimal
+context:
+  scaffold_script: fixture.sh
+# The SHA-256 of the fixture's incident/ROOT-CAUSE.md, as a tool that approved
+# the diagnosis would pass it. Eval runs pass only EVAL_* variables, so this
+# is the name scripts/incident-check.sh reads in an eval.
+execution:
+  env:
+    EVAL_KNACKPACK_INCIDENT_APPROVED_SHA256: "a40c0dd0c3e9feb78cd159db71e32182e538c65ecb51a25c0e2662d536bcfe5c"

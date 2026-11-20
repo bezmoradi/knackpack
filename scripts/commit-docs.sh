@@ -1,11 +1,13 @@
 #!/bin/sh
-# Commits one document that knackpack's challenge-requirements or
-# plan-implementation skill wrote into the repository because
-# KNACKPACK_DOCS=repo asked for it, so a tool that reads the committed
-# documents, such as a push gate, can read it from git:
+# Commits one document that a knackpack skill (challenge-requirements,
+# plan-implementation, debug-incident or incident-review) wrote into the
+# repository because KNACKPACK_DOCS=repo asked for it, so a tool that reads
+# the committed documents, such as a push gate, can read it from git:
 #
 #   sh scripts/commit-docs.sh .knackpack/<task>/REQUIREMENTS.md
 #   sh scripts/commit-docs.sh .knackpack/<task>/PLAN.md
+#   sh scripts/commit-docs.sh .knackpack/<task>/ROOT-CAUSE.md
+#   sh scripts/commit-docs.sh .knackpack/<task>/INCIDENT.md
 #
 # It rewrites .knackpack/feature.json to name the document's folder, then
 # commits exactly those two files on the current branch, through the
@@ -39,7 +41,7 @@ fail() {
 # a git repository it passes, since the rules then commit nothing anyway.
 check=
 [ "${1:-}" = --check ] && check=1
-[ -n "$check" ] || [ "$#" -eq 1 ] || fail "give one path, .knackpack/<task>/REQUIREMENTS.md or .knackpack/<task>/PLAN.md"
+[ -n "$check" ] || [ "$#" -eq 1 ] || fail "give one path, .knackpack/<task>/ followed by REQUIREMENTS.md, PLAN.md, ROOT-CAUSE.md or INCIDENT.md"
 # Each of these would point git at another index, repository or object store.
 for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR; do
 	eval "isset=\${$v+x}"
@@ -51,33 +53,15 @@ top=$(git rev-parse --show-toplevel 2>/dev/null) && top=$(cd -P -- "$top" && pwd
 }
 
 # A repository mustn't switch the mode on for someone who didn't choose it, so
-# refuse when its own settings may set KNACKPACK_DOCS: .claude/settings.json in
-# this folder or any above it up to the top level, and every
-# .claude/settings.json or .claude/settings.local.json git tracks anywhere in
-# the repository, since Claude Code counts a tracked local file as the
-# repository's too and may have started in any folder. JSON can spell any
-# letter of a key as a \u escape, so a file that uses one counts as setting
-# it. A person's environment, user settings, --settings or untracked local
-# settings still can.
-names() { # <file>: whether it may name the variable
-	[ -f "$1" ] && grep -q -F -e KNACKPACK_DOCS -e '\u' -- "$1" 2>/dev/null
-}
-refuse() {
-	fail "$1 names KNACKPACK_DOCS or uses a \\u escape that could spell it, and a repository's settings can't switch committed documents on; set it in your own environment, your user settings or an untracked .claude/settings.local.json"
-}
-dir=$(pwd -P) || fail "can't tell which folder this is"
-while :; do
-	s=$dir/.claude/settings.json
-	! names "$s" || refuse "${s#"$top"/}"
-	[ "$dir" != "$top" ] || break
-	case $dir in "$top"/*) dir=${dir%/*} ;; *) break ;; esac
-done
-tracked=$(git -C "$top" -c core.quotepath=off ls-files -- ':(glob)**/.claude/settings.json' ':(glob)**/.claude/settings.local.json' 2>/dev/null) ||
-	fail "can't list the repository's settings files"
-hit=$(printf '%s\n' "$tracked" | while IFS= read -r f; do
-	[ -n "$f" ] && names "$top/$f" && { printf '%s\n' "$f"; break; }
-done)
-[ -z "$hit" ] || refuse "$hit"
+# refuse when its own settings may set KNACKPACK_DOCS; scripts/repo-settings.sh
+# says which files count.
+lib=$(dirname -- "$0")/repo-settings.sh
+[ -f "$lib" ] || fail "can't find repo-settings.sh beside this script"
+# shellcheck source=scripts/repo-settings.sh
+. "$lib"
+hit=$(settings_naming KNACKPACK_DOCS) || fail "can't list the repository's settings files"
+[ -z "$hit" ] ||
+	fail "$hit names KNACKPACK_DOCS or uses a \\u escape that could spell it, and a repository's settings can't switch committed documents on; set it in your own environment, your user settings or an untracked .claude/settings.local.json"
 [ -z "$check" ] || exit 0
 
 # The document, relative to the top level, however it was given: resolved
@@ -94,7 +78,9 @@ cd -P -- "$top" || fail "can't enter the repository's top level, $top"
 case $p in
 .knackpack/*/REQUIREMENTS.md) kind=requirements ;;
 .knackpack/*/PLAN.md) kind=plan ;;
-*) fail "$p isn't .knackpack/<task>/REQUIREMENTS.md or .knackpack/<task>/PLAN.md" ;;
+.knackpack/*/ROOT-CAUSE.md) kind="root cause" ;;
+.knackpack/*/INCIDENT.md) kind="incident review" ;;
+*) fail "$p isn't .knackpack/<task>/ followed by REQUIREMENTS.md, PLAN.md, ROOT-CAUSE.md or INCIDENT.md" ;;
 esac
 task=${p#.knackpack/}
 task=${task%/*}

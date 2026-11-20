@@ -2,6 +2,13 @@
 
 Each knackpack release, newest first. Each one starts with a heading `## <version> (<date>)`, and an entry that breaks the public interface starts with **Breaking:** and says what users need to do. Installed copies of knackpack read this file at session start to tell their users what changed since their version, so keep its headings in that form. Entries before 0.37.0 are the titles of their release commits.
 
+## 0.38.0 (2026-11-20)
+
+- Three commands for a production incident, so a fix never starts before its cause is shown (#89). `/knackpack:debug-incident` does one step per run, triage, then a reproduction at the deployed revision that fails, then ranked hypotheses and a test that tells them apart, and saves each to `ROOT-CAUSE.md`, whose Status ends `CONFIRMED`, `UNCONFIRMED` or `BLOCKED`. It changes no code, keeps secrets and personal data from your logs out of what it writes, and works in a separate git worktree on an `incident-<task>` branch when your checkout isn't the deployed revision or has uncommitted work. `/knackpack:fix-incident` refuses unless the diagnosis is `CONFIRMED` and approved, by you in the session or by a tool that passes the approved file's SHA-256 in `KNACKPACK_INCIDENT_APPROVED_SHA256`, then makes the smallest fix, reruns the reproduction and assesses rollback, without committing. `/knackpack:incident-review` writes a blameless `INCIDENT.md`. None of them starts on its own.
+- With `KNACKPACK_DOCS=repo`, `.knackpack/<task>/ROOT-CAUSE.md` and `.knackpack/<task>/INCIDENT.md` are committed the way briefs and plans are, one commit per revision. Their paths, headings and Status words, and the approval variable, are new public interface; nothing existing changed.
+- The adversarial and slop reviewers judge an incident fix, a change that adds or changes a `ROOT-CAUSE.md` or that you say fixes an incident, by whether it removes the cause, its regression risk, blast radius and rollback first, and report anything beyond the cause.
+- A reviewer that can't run commands now writes its `knackpack-coverage/1` and `knackpack-finding/1` lines itself, in the same form the count command prints, where before it left them out. With a shell nothing changes. A program reading replies may now get those lines from such a reviewer, so it should check each one and drop one that's malformed, as it already should.
+
 ## 0.37.1 (2026-11-20)
 
 - The README and `.claude/CLAUDE.md` say that `main` also requires the `Claude review` check, as the ruleset now does (#90). Nothing in the plugin changes.

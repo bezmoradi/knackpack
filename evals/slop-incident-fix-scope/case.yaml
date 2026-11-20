@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: slop-incident-fix-scope
+context:
+  scaffold_script: fixture.sh
