@@ -2,6 +2,12 @@
 
 Each knackpack release, newest first. Each one starts with a heading `## <version> (<date>)`, and an entry that breaks the public interface starts with **Breaking:** and says what users need to do. Installed copies of knackpack read this file at session start to tell their users what changed since their version, so keep its headings in that form. Entries before 0.37.0 are the titles of their release commits.
 
+## 0.40.0 (2026-11-21)
+
+- Requirements briefs now have a format a program can check, `knackpack-requirements/1` (#98). Every brief Challenge requirements writes has the line `knackpack-requirements/1`, gives each requirement as a heading such as `#### REQ-01: <text>` followed by an `Acceptance:` line, and ends each open question's line with `Blocking: yes` or `Blocking: no`, or says `- None.` when there are none. Its short form, which writes no brief, is unchanged.
+- Plan implementation checks a brief before planning from it. When a question blocks, it stops and names the blocking questions, and plans only once you've answered them or tell it to plan around them. When the brief breaks the format, such as a requirement with no `Acceptance:` line, it stops and names the problem and its line. A brief written before 0.40.0 is planned from as before, and Claude says it wasn't checked. Execute plan runs the same check when you hand it a brief instead of a plan.
+- The check is `scripts/requirements-check.sh <file>`, which changes nothing and prints one line: `ready` (exit 0), `blocked` and the blocking questions' IDs (1), `invalid:` and the reason, with its line number (2), `none` for a brief in the older format (3), or `error:` and the reason when it's run wrongly or can't read the file (4). The format and these lines are new public interface, described in the README under "Reading knackpack from a tool" and in full in `docs/requirements-format.md`; nothing existing changes meaning.
+
 ## 0.39.1 (2026-11-20)
 
 - Nothing changes in the plugin. For maintainers: the pre-push hook is one line that hands over to `scripts/prompt-audit.sh --hook`, which now runs the trigger gate itself after the audit passes, so a hook installed by any release runs every pre-push check without reinstalling. In a clone of this repository, the repository's own `.claude/settings.json` installs the hook at session start, or updates knackpack's older one, and leaves a pre-push hook that isn't knackpack's alone; a fork's clone gets nothing, since the hook spends on the account of whoever pushes.

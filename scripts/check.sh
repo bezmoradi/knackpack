@@ -2286,6 +2286,133 @@ for s in $shells; do
 done
 [ "$inc_ok" = 1 ] && pass "scripts/incident-check.sh refuses, asks and approves as fix-incident needs under$shells"
 
+# scripts/requirements-check.sh, the reference reader of the
+# knackpack-requirements/1 brief, on briefs written here: the format's example
+# is blocked on Q-02, and ready once Q-02 isn't blocking, with CRLF line ends
+# or no final newline too. A brief with no marker outside a code fence is
+# none. Each kind of invalid brief is reported at its line with its ID, a
+# problem tied to a line before a missing section, and a missing Requirements
+# section before a missing Questions section before a Requirements section
+# with no requirement. What a fence holds counts for nothing, NUL and other
+# bytes match nothing, and bad usage is an error. Each run prints one line and
+# leaves the briefs' bytes and times as they were. The skills that read a
+# brief must run it by the path the plugin ships it at.
+rq_ok=1
+for f in skills/challenge-requirements/SKILL.md skills/plan-implementation/SKILL.md skills/execute-plan/SKILL.md; do
+	grep -qF 'sh "${CLAUDE_PLUGIN_ROOT}/scripts/requirements-check.sh"' "$f" ||
+		{ fail "$f doesn't run sh \"\${CLAUDE_PLUGIN_ROOT}/scripts/requirements-check.sh\""; rq_ok=0; }
+done
+rq=$tmp/requirements
+mkdir -p "$rq/adir" && cat >"$rq/example.md" <<'EOF' || { fail "couldn't write briefs to try scripts/requirements-check.sh with"; rq_ok=0; }
+knackpack-requirements/1
+
+### Readiness
+- BLOCKED ON DECISIONS: Q-02 decides who may export.
+
+### Requirements and acceptance criteria
+
+#### REQ-01: Managers can export their own organization's orders
+Acceptance: Given a manager of org A, when they export, the file holds only org A's orders; a manager of org B gets a 403.
+
+#### REQ-02: An export over 10,000 rows is refused with a message
+Acceptance: Exporting 10,001 rows answers "Too many rows; narrow the dates." and writes no file.
+
+### Open questions and risks
+- Q-01: Should exports include archived orders? Blocking: no
+- Q-02: May support staff export across organizations? Blocking: yes
+EOF
+rqex() { sed "$1" "$rq/example.md" >"$rq/$2.md"; } # <sed script> <brief name>: a variant of the example
+rqex 's/Blocking: yes$/Blocking: no/' ready
+rqex '1d' nomarker
+rqex 's/^### Readiness$/knackpack-requirements\/1/' marker2
+rqex 's/^#### REQ-02: /#### REQ-02 /' badh4
+rqex 's/^#### REQ-02: /#### REQ-01: /' dupreq
+rqex 's/^- Q-02: /- Q-01: /' dupq
+rqex '/^Acceptance: Exporting/d' noacc
+rqex 's/^Acceptance: Exporting.*/Acceptance:   	 /' accblank
+rqex 's/^- Q-02: /- Q-02 /' badq
+rqex 's/ Blocking: no$//' qnomark
+rqex 's/? Blocking: no$/? Blocking: yes Blocking: no/' qtwice
+rqex 's/Blocking: yes$/Blocking: Yes/' qcase
+rqex '/^### Requirements/,/^Acceptance: Exporting/d' noreqsec
+rqex '/^### Open/,$d' noqsec
+rqex '/^#### /d; /^Acceptance:/d' noreq
+rqex '/^#### /d; /^Acceptance:/d; /^### Open/,$d' noreqnoq
+rqex '/^- Q-0/d' noneq
+printf -- '- None.\n' >>"$rq/noneq.md"
+{ cat "$rq/example.md" && printf '### Requirements and acceptance criteria\n'; } >"$rq/section2.md"
+printf 'knackpack-requirements/1\n- Q-01: Who signs off? Blocking: no\n' >"$rq/nosections.md"
+printf 'knackpack-requirements/1\n### Open questions and risks\n- Q-1: Who signs off? Blocking: maybe\n' >"$rq/lineproblem.md"
+: >"$rq/empty.md"
+printf '```\nknackpack-requirements/1\n```\n' >"$rq/fencemarker.md"
+{ cat "$rq/ready.md" && printf '```\n- Q-09: Is this one hidden? Blocking: yes\n```\n'; } >"$rq/fenceq.md"
+awk '/^#### REQ-02/ { print "~~~"; print "#### REQ-09: A heading in a fence"; print "~~~" } { print }' "$rq/ready.md" >"$rq/fencereq.md"
+{ cat "$rq/ready.md" && printf '```md\n~~~\n- Q-09: Still fenced? Blocking: yes\n~~~~\n````\n- Q-10: After the fence? Blocking: yes\n'; } >"$rq/fencetilde.md"
+{ cat "$rq/ready.md" && printf '```\n- Q-09: Never closed? Blocking: yes\n- Q-1x\n### Requirements and acceptance criteria\n'; } >"$rq/fenceopen.md"
+awk '{ printf "%s\r\n", $0 }' "$rq/ready.md" >"$rq/crlf.md"
+printf '%s' "$(cat "$rq/example.md")" >"$rq/nofinal.md"
+printf '%s' "$(cat "$rq/ready.md")" >"$rq/nofinalready.md"
+{ cat "$rq/ready.md" && printf 'Risk: \000 and \377\376 bytes\n- Q-\000: x\n- Q-03: Bytes \000\377 before it? Blocking: yes\n'; } >"$rq/bytes.md"
+{ cat "$rq/ready.md" && awk 'BEGIN { s = "x"; for (i = 0; i < 20; i++) s = s s; print "- Q-03: " s " Blocking: yes" }'; } >"$rq/long.md"
+: >"$tmp/rq-ref" && ln -s ready.md "$rq/link.md" && touch -t 200001010000 "$tmp/rq-ref" "$rq"/*.md && cksum "$rq"/*.md >"$tmp/rq-sums" ||
+	{ fail "couldn't write briefs to try scripts/requirements-check.sh with"; rq_ok=0; }
+rqc() { # <shell> <expected exit> <expected line, as a case pattern> <arguments>...
+	rs=$1 rx=$2 ro=$3
+	shift 3
+	"$rs" scripts/requirements-check.sh "$@" >"$tmp/rq-out" 2>"$tmp/err"
+	rr=$?
+	out=$(cat "$tmp/rq-out")
+	# shellcheck disable=SC2254 # $ro is a pattern
+	case $out in
+	$ro) [ "$rr" = "$rx" ] && [ "$(wc -l <"$tmp/rq-out" | tr -d ' ')" = 1 ] && return ;;
+	esac
+	fail "requirements-check.sh under $rs exited $rr, not $rx, given $*, or printed: $out $(cat "$tmp/err")"
+	rq_ok=0
+}
+for s in $shells; do
+	"$s" -n scripts/requirements-check.sh 2>"$tmp/err" || { fail "scripts/requirements-check.sh syntax under $s: $(cat "$tmp/err")"; rq_ok=0; continue; }
+	rqc "$s" 1 'blocked Q-02' "$rq/example.md"
+	rqc "$s" 0 ready "$rq/ready.md"
+	rqc "$s" 0 ready "$rq/crlf.md"
+	rqc "$s" 1 'blocked Q-02' "$rq/nofinal.md"
+	rqc "$s" 0 ready "$rq/nofinalready.md"
+	rqc "$s" 0 ready "$rq/noneq.md"
+	rqc "$s" 0 ready "$rq/link.md"
+	rqc "$s" 3 none "$rq/nomarker.md"
+	rqc "$s" 3 none "$rq/empty.md"
+	rqc "$s" 3 none "$rq/fencemarker.md"
+	rqc "$s" 2 'invalid: line 3: *' "$rq/marker2.md"
+	rqc "$s" 2 'invalid: line 17: *' "$rq/section2.md"
+	rqc "$s" 2 'invalid: line 11: *' "$rq/badh4.md"
+	rqc "$s" 2 'invalid: line 11: REQ-01 *' "$rq/dupreq.md"
+	rqc "$s" 2 'invalid: line 16: Q-01 *' "$rq/dupq.md"
+	rqc "$s" 2 'invalid: line 13: REQ-02 *' "$rq/noacc.md"
+	rqc "$s" 2 'invalid: line 14: REQ-02 *' "$rq/accblank.md"
+	rqc "$s" 2 'invalid: line 16: *' "$rq/badq.md"
+	rqc "$s" 2 'invalid: line 15: Q-01 *' "$rq/qnomark.md"
+	rqc "$s" 2 'invalid: line 15: Q-01 *' "$rq/qtwice.md"
+	rqc "$s" 2 'invalid: line 16: Q-02 *' "$rq/qcase.md"
+	rqc "$s" 2 'invalid: line 3: Q-1 *' "$rq/lineproblem.md"
+	rqc "$s" 2 'invalid: no "### Requirements and acceptance criteria" section' "$rq/noreqsec.md"
+	rqc "$s" 2 'invalid: no "### Requirements and acceptance criteria" section' "$rq/nosections.md"
+	rqc "$s" 2 'invalid: no "### Open questions and risks" section' "$rq/noqsec.md"
+	rqc "$s" 2 'invalid: no "### Open questions and risks" section' "$rq/noreqnoq.md"
+	rqc "$s" 2 'invalid: line 6: *' "$rq/noreq.md"
+	rqc "$s" 0 ready "$rq/fenceq.md"
+	rqc "$s" 0 ready "$rq/fencereq.md"
+	rqc "$s" 1 'blocked Q-10' "$rq/fencetilde.md"
+	rqc "$s" 0 ready "$rq/fenceopen.md"
+	rqc "$s" 1 'blocked Q-03' "$rq/bytes.md"
+	rqc "$s" 1 'blocked Q-03' "$rq/long.md"
+	rqc "$s" 4 'error: *'
+	rqc "$s" 4 'error: *' "$rq/ready.md" "$rq/ready.md"
+	rqc "$s" 4 'error: *' "$rq/adir"
+	rqc "$s" 4 'error: *' "$rq/absent.md"
+done
+cksum "$rq"/*.md | cmp -s - "$tmp/rq-sums" && [ -z "$(find "$rq" -type f -newer "$tmp/rq-ref")" ] && [ ! -e "$rq/absent.md" ] ||
+	{ fail "requirements-check.sh changed, added or touched a brief"; rq_ok=0; }
+[ "$rq_ok" = 1 ] && pass "scripts/requirements-check.sh reads knackpack-requirements/1 briefs as ready, blocked, invalid or none under$shells"
+
 # scripts/review-coverage.sh, which orchestrate-review runs on the replies of
 # the reviewers it started before it writes Coverage and the Decision: complete
 # only when every reply's last line is a verdict line, even indented with CRLF
