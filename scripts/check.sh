@@ -2296,7 +2296,8 @@ done
 # tied to a line before a missing section, and a missing Requirements section
 # before a missing Questions section before a Requirements section with no
 # requirement. What a fence holds counts for nothing, NUL and other
-# bytes match nothing, and bad usage is an error. Each run prints one line and
+# bytes match no character a rule names but count as characters that aren't
+# spaces, and bad usage is an error. Each run prints one line and
 # leaves the briefs' bytes and times as they were. The skills that read a
 # brief must run it by the path the plugin ships it at.
 rq_ok=1
@@ -2355,6 +2356,8 @@ awk '{ printf "%s\r\n", $0 }' "$rq/ready.md" >"$rq/crlf.md"
 printf '%s' "$(cat "$rq/example.md")" >"$rq/nofinal.md"
 printf '%s' "$(cat "$rq/ready.md")" >"$rq/nofinalready.md"
 { cat "$rq/ready.md" && printf 'Risk: \000 and \377\376 bytes\n- Q-\000: x\n- Q-03: Bytes \000\377 before it? Blocking: yes\n'; } >"$rq/bytes.md"
+{ sed '/^Acceptance: Exporting/,$d' "$rq/ready.md" && printf 'Acceptance: \000\n' && sed '1,/^Acceptance: Exporting/d' "$rq/ready.md"; } >"$rq/accnul.md"
+{ cat "$rq/ready.md" && printf -- '- Q-03: Who signs off? Blocking: yes\000\n'; } >"$rq/qnul.md"
 { cat "$rq/ready.md" && awk 'BEGIN { s = "x"; for (i = 0; i < 20; i++) s = s s; print "- Q-03: " s " Blocking: yes" }'; } >"$rq/long.md"
 bom=$(printf '\357\273\277') # a UTF-8 byte-order mark, dropped only from the start of line 1
 { printf '%s' "$bom" && cat "$rq/ready.md"; } >"$rq/bomready.md"
@@ -2415,6 +2418,8 @@ for s in $shells; do
 	rqc "$s" 1 'blocked Q-10' "$rq/fencetilde.md"
 	rqc "$s" 0 ready "$rq/fenceopen.md"
 	rqc "$s" 1 'blocked Q-03' "$rq/bytes.md"
+	rqc "$s" 0 ready "$rq/accnul.md"
+	rqc "$s" 2 'invalid: line 17: Q-03 *' "$rq/qnul.md"
 	rqc "$s" 1 'blocked Q-03' "$rq/long.md"
 	rqc "$s" 0 ready "$rq/bomready.md"
 	rqc "$s" 1 'blocked Q-02' "$rq/bomexample.md"

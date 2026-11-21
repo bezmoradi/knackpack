@@ -25,7 +25,8 @@
 # text in one pass.
 #
 # NUL bytes become \001 before awk, since awks differ on NUL and the format
-# treats it as a byte that matches nothing. Lines are tested with ~ or with
+# treats it as a byte that matches no character a rule names but isn't a
+# space. Lines are tested with ~ or with
 # anchored patterns, match() runs only on a line whose shape is already known,
 # and nothing uses sub(), gsub() or a loop over substr(), so a very long line
 # costs time in proportion to its length under every awk.

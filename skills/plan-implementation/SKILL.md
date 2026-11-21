@@ -235,7 +235,6 @@ when intermediate states would be broken or unsafe, and say why they stay togeth
 Implementation order, review or PR boundaries, and deployment order may
 differ.
 
-
 ## 8. Order work by dependency and risk
 
 Build an explicit dependency order.
