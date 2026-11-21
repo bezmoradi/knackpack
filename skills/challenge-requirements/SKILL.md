@@ -422,9 +422,9 @@ on indented lines. Risks are other bullets. With no questions, write
 What the planner, test designer and reviewers need to examine next. With
 knackpack, `knackpack:security-reviewer` can take security requirements in
 plan mode before coding, `knackpack:architecture-reviewer` a consequential
-design, and after implementation
-`knackpack:adversarial-reviewer` reports each ID as verified, violated or not
-verified; the other reviewers check code, not requirements.
+design, and after implementation every knackpack reviewer given the IDs,
+such as `knackpack:adversarial-reviewer`, reports each as verified, violated
+or not verified, so give them to whichever reviewers run.
 
 ## 13. Maintain independent judgment
 
