@@ -11,7 +11,7 @@
 + engineered: designed, reviewed, documented
 ```
 
-<sub>✅ Every merge needs Claude's approval · All required checks must pass</sub>
+<sub>✅ Approved by human reviewers · All checks passed</sub>
 
 # Knackpack
 
