@@ -35,7 +35,7 @@ Always save the plan there as `PLAN.md`, or as `PLAN-<short-name>.md` if one for
 The change to plan is the text passed with this skill. If it names a file,
 such as a `REQUIREMENTS.md` brief, read it first. If nothing was passed, use
 the most recent agreed request in the conversation and say which you took.
-To revise an existing plan, read it first, keep its package IDs, and say
+To revise a plan, read it first, keep its package IDs, and say
 what changed and why.
 
 Identify:
@@ -46,7 +46,7 @@ Identify:
 - Relevant constraints and architectural decisions.
 - Whether the task is a feature, defect correction, refactor, migration,
   integration, or operational change.
-- Whether the user requested planning only or planning followed by execution.
+- Whether the user asked for planning only or planning and then execution.
 
 Respect the requested mode. When the request doesn't say, plan only, and say
 so. In planning-only mode, investigate read-only and produce the plan.
@@ -55,23 +55,36 @@ Don't modify implementation code or external systems.
 A request for a plan never authorizes building it. If execution is also
 authorized, finish planning and save the plan, then start knackpack's
 `execute-plan` skill with the plan's absolute path, without inventing another
-approval step. It orchestrates: subagents make every implementation change,
-however small, and it checks their diffs before accepting them, so don't
-implement packages yourself.
+approval step. Its subagents make every implementation change, however
+small, and it checks their diffs, so don't implement packages yourself.
 
 Existing organizational or repository approvals still apply; name the
 concrete one if it blocks dependent work.
 
 ## 2. Check whether the requirements are ready
 
-Read the requirements challenger's output when available: the brief from
-knackpack's `challenge-requirements` skill, saved as `REQUIREMENTS.md`.
-Read the session's intent record too, if knackpack
-keeps one: it's newer where they differ, and only its Agreed entries are
+Read the brief from knackpack's `challenge-requirements` skill when there is
+one, and the session's intent record if knackpack keeps one: it's newer
+where they differ, and only its Agreed entries are
 confirmed. A research brief's recommendation is a proposal: plan from it only
 where the developer accepted it, and mark the rest conditional. If the user
-refers to a brief you can't see, ask for its path; don't plan from
-assumptions instead.
+refers to a brief you can't see, ask for its path rather than plan from
+assumptions.
+
+Before planning from a brief, run
+`sh "${CLAUDE_PLUGIN_ROOT}/scripts/requirements-check.sh" <its absolute path>`.
+It's the check: don't judge readiness yourself or by the Readiness line the
+brief's writer chose. It prints one line:
+
+- `ready`: go on.
+- `blocked <IDs>` or `invalid: <reason>`: stop and ask the user, naming
+  each blocking question and what it asks, or the reason. Plan a blocked
+  brief only once its questions are answered, with the brief rewritten by
+  challenge-requirements and checked again, or the user explicitly says to
+  plan around them; then mark the work that depends on them blocked.
+- `none` (an older brief), `error: <reason>` or nothing: say in your reply
+  and the plan that the brief wasn't checked. After an error or nothing,
+  also stop and ask on any `Blocking: yes` you see.
 
 Identify unresolved decisions that materially affect:
 
@@ -84,7 +97,8 @@ Identify unresolved decisions that materially affect:
 
 Don't silently resolve these as implementation details.
 
-If requirements are incomplete:
+Apart from a checked brief's blocking questions, if requirements are
+incomplete:
 
 - State the precise decision needed.
 - Explain which work depends on it.
@@ -106,7 +120,6 @@ commands, configuration and dependency versions, build, CI, deployment and
 migration mechanisms, and observability conventions.
 
 Use targeted searches and follow the affected execution paths.
-Don't read the entire repository without a reason.
 
 Record the baseline revision and relevant local modifications
 (`git rev-parse HEAD`, `git status --porcelain`).
@@ -146,7 +159,7 @@ Identify:
 - Whether deployment order affects correctness.
 
 For a bug fix, separate the observed symptom from the established root cause.
-If the cause is unverified, plan a diagnostic step before committing to a remedy.
+If the cause is unverified, plan a diagnostic step before a remedy.
 
 For a refactor, specify the behavior that must remain unchanged and how it
 will be checked. Don't quietly combine it with a behavioral redesign.
@@ -175,11 +188,8 @@ incompatible with the requirements.
 
 ## 6. Resolve uncertainty before expensive commitment
 
-Identify assumptions that could invalidate substantial downstream work.
-
-Examples:
-- A dependency may not support the required transaction semantics.
-- A schema change may lock a large production table.
+Identify assumptions that could invalidate substantial downstream work, such
+as a schema change that may lock a large production table.
 
 For consequential uncertainty, define a bounded investigation: the exact
 question, the minimal experiment or inspection, its inputs and environment,
@@ -192,7 +202,7 @@ afterward.
 
 Don't disguise speculative implementation as a feasibility experiment.
 Don't request privileged access when a local or synthetic experiment can
-answer the question.
+answer.
 
 If the uncertainty can't be resolved, make the plan conditional and explain
 the alternatives. Don't manufacture certainty.
@@ -209,7 +219,7 @@ Each package should have:
 - Ownership: the files or modules it may change, so packages that run at
   the same time never share one.
 - Dependencies: prerequisite packages or external decisions.
-- Work: the substantive implementation actions.
+- Work: the implementation actions.
 - Validation: how correctness will be established.
 - Completion criteria: observable conditions for being done.
 - Status, once work starts: not started, in progress, blocked, or done with
@@ -218,17 +228,12 @@ Each package should have:
 
 Prefer packages that can be reviewed and verified independently.
 
-Organize around coherent behavior rather than arbitrary file counts.
+Organize around coherent behavior rather than file counts.
 Don't split tightly coupled changes into independently deployable steps
-when intermediate states would be broken or unsafe.
+when intermediate states would be broken or unsafe, and say why they stay together.
 
 Implementation order, review or PR boundaries, and deployment order may
 differ.
-
-Keep required atomic changes together and explain why.
-
-Replace vague tasks such as "Add security" or "Handle all edge cases" with
-specific behavior and evidence.
 
 ## 8. Order work by dependency and risk
 
@@ -238,7 +243,7 @@ Bring forward work that tests a risky assumption, establishes a shared
 contract, enables meaningful integration testing, prevents expensive rework,
 or demonstrates a thin end-to-end path.
 
-Don't order by layer (all database, then backend, then UI) by default; use
+Don't order by layer (database, backend, UI) by default; use
 vertical slices where they give earlier evidence and the architecture or
 migration allows.
 
@@ -261,10 +266,9 @@ For security-sensitive changes, use the security gate's requirements
 and findings when available, such as the plan-mode output of knackpack's
 `security-reviewer` agent.
 
-Attach relevant security obligations to the implementation packages that
-establish them.
+Attach each security obligation to the package that establishes it.
 
-Include appropriate negative cases, such as:
+Include negative cases, such as:
 
 - Unauthorized actors.
 - Cross-tenant access.
@@ -273,24 +277,20 @@ Include appropriate negative cases, such as:
 - Security dependency failures.
 - Attempts through alternate entry points.
 
-Don't place all security work in a final generic review task.
+Don't invent an ASVS mapping or claim security verification that was only
+planned.
 
-Don't invent an ASVS mapping or claim security verification was performed
-when it was only planned.
-
-Identify where independent security review is required by project policy.
-Schedule it early enough to influence the design and before the relevant
-release decision.
+Find where project policy requires independent security review, and
+schedule it early enough to shape the design and before the release
+decision.
 
 Name the review each package needs and when it runs. With knackpack
 installed, that might be the `architecture-reviewer` for the proposed approach
 before dependent packages start, the `security-reviewer` for
-security-sensitive packages, the `adversarial-reviewer` for risky ones, and the code reviewer
-for each package's stack, such as the Go, Python, React, TypeScript or UI reviewer.
+security-sensitive packages, the `adversarial-reviewer` for risky ones, and
+the code reviewer for each package's stack, such as the Go or React reviewer.
 
 ## 10. Plan decisive verification
-
-Map acceptance criteria to the work and checks that establish them.
 
 For each important requirement, identify:
 
@@ -305,11 +305,10 @@ failure injection, performance measurements, or security checks. Don't
 require every test type for every change. Where the project's rules forbid
 test code, plan runs of the real program instead.
 
-Specify verified commands when available.
-Label commands that still require discovery or configuration.
+Give verified commands when available, and label those still needing
+discovery or configuration.
 
-For a defect correction, plan a check that shows the defect before the
-correction when feasible.
+For a defect, plan a check that shows it before the correction when feasible.
 
 For critical side effects, verify both the expected response and the
 resulting state; a successful response alone may not establish correctness.
@@ -339,7 +338,7 @@ When relevant, address:
 When old and new versions must coexist, use expand and contract: add
 compatible capabilities, deploy code that works with both, migrate or
 backfill, verify, and remove the old path once compatibility obligations
-expire. Don't prescribe this pattern when it's unnecessary.
+expire. Don't prescribe it when it's unnecessary.
 
 Separate irreversible cleanup from reversible rollout when possible.
 
@@ -361,9 +360,8 @@ For changes that need deployment planning, identify:
 - Rollback or roll-forward actions.
 - Data repair or reconciliation needs.
 
-Use existing operational targets where available.
-Don't invent acceptable error rates, latency thresholds, or observation
-periods and present them as approved policy.
+Use existing operational targets where available. Don't present invented
+error rates, latency thresholds or observation periods as approved policy.
 
 Label proposed thresholds and unresolved decisions clearly.
 
@@ -377,7 +375,7 @@ Distinguish:
 A code rollback may not undo a payment, message, resource creation, or
 destructive migration.
 
-If safe rollback is unavailable, say so explicitly and plan prevention,
+If safe rollback is unavailable, say so and plan prevention,
 staged exposure, and recovery measures.
 
 Don't include production deployment as an executable task when the user's
@@ -426,8 +424,7 @@ precise times or commitments.
 
 ## 15. Produce an executable handoff
 
-Scale the output to the task. Give the plan in the conversation, and save
-it as Where to save describes.
+Scale the output to the task, and give the plan in the conversation too.
 
 For substantial changes, use:
 
@@ -446,23 +443,22 @@ Verified affected components, existing mechanisms, and baseline revision.
 Key decisions, important alternatives, and material tradeoffs.
 
 ### Work packages
-Ordered packages with dependencies, ownership, concrete actions, validation,
-and completion criteria, and which can run in parallel.
+Ordered packages with section 7's fields, and which can run in parallel.
 
 ### Requirement coverage
-Mapping from requirements to implementation and verification.
+Section 14's mapping.
 
 ### Rollout and recovery
 Only where relevant; include limitations and authorization boundaries.
 
 ### Open decisions and risks
-Consequential uncertainties and the exact action needed to resolve them.
+Consequential uncertainties and the exact action that resolves each.
 
 ### First executable step
 The earliest ready package and its completion criterion.
 
-For a small change, compress this into a short ordered list.
-Don't create empty sections or unnecessary planning ceremony.
+For a small change, compress this into a short ordered list, without empty
+sections or unnecessary planning ceremony.
 
 ## Completion rule
 
@@ -470,8 +466,8 @@ The plan is ready when the requirements are clear enough for the ready work,
 the approach fits the actual repository, consequential uncertainties are
 resolved or isolated, packages have concrete outputs, verification and
 explicit dependencies, security, compatibility, rollout and recovery are
-covered where needed, and another coding agent can identify its first action
-and know when it is done.
+covered where needed, and another coding agent can tell its first action and
+when it's done.
 
 Planning readiness isn't implementation completion, security approval,
 or permission to release.

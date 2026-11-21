@@ -58,8 +58,8 @@ challenge-requirements for this: it would build the work in this session.
 
 Execution needs the user's explicit go-ahead for this plan, such as "go
 ahead", "implement it" or a request to plan and then implement. A request
-for a plan, a question about one, or praise for its content without saying
-to build it isn't one: confirm before starting, since each package changes
+for a plan, a question about one, or praise for it without saying to build
+it isn't one: confirm first, since each package changes
 their repository. Once authorized, don't invent further approval steps, but
 existing organizational or repository approvals still apply; name the
 concrete one if it blocks dependent work.
@@ -76,8 +76,8 @@ refers to a plan you can't find, ask for its path rather than rebuilding it
 from memory. When only some packages are named, execute those and the ones
 they depend on, and say so.
 
-Record the baseline: `git rev-parse HEAD` and `git status --porcelain`.
-Compare them with the baseline the plan states. If the code the plan builds
+Record the baseline, `git rev-parse HEAD` and `git status --porcelain`, and
+compare it with the plan's. If the code the plan builds
 on has changed, or a package is blocked on an open decision, reassess the
 affected packages before assigning them, and keep blocked work out of the
 assignments.
@@ -87,9 +87,17 @@ If your environment has a task list, mirror the packages there.
 ## 2. Shape the assignments
 
 Turn the plan's packages into assignments, one per implementer. When the
-document says what to build but has no packages, such as a PRD section or
-roadmap phase, cut the packages yourself first, by the components they
-change, and say how you cut them:
+document says what to build but has no packages, such as a PRD section,
+roadmap phase or requirements brief, cut the packages yourself first, by the
+components they change, and say how you cut them. For a brief marked
+`knackpack-requirements/1`, first run
+`sh "${CLAUDE_PLUGIN_ROOT}/scripts/requirements-check.sh" <its absolute path>`,
+which decides, not its Readiness line: go on at `ready`; at `blocked <IDs>` or
+`invalid: <reason>`, stop and ask the user, naming each question and what it
+asks, or the reason, and keep blocked work out until a rewritten brief answers
+it or they explicitly say to build around it; otherwise say the brief is
+unchecked, and after `error` or no output, stop and ask on any `Blocking: yes`
+you see.
 
 - Keep tightly coupled packages in one assignment, and keep a package whole:
   splitting one across agents makes them negotiate a contract that only the
@@ -101,8 +109,8 @@ change, and say how you cut them:
   belong to one owner or to assignments that run in sequence.
 - Run dependent work in the plan's order. Run independent assignments in
   parallel only when the shared contract they build on is settled and
-  committed or written into each prompt, they own separate files, and there's
-  a defined point where you integrate and verify them together. Different
+  committed or written into each prompt, they own separate files, and you've
+  defined where to integrate and verify them together. Different
   files alone don't make work independent.
 - Start no more implementers at once than there are ready, independent
   assignments, and fewer when you can't review results as fast as they
@@ -110,11 +118,11 @@ change, and say how you cut them:
 
 ## 3. Choose where each implementer works
 
-- **One implementer at a time** works in the session's own working tree.
-  Its changes land where you can inspect them, and nothing needs merging.
+- **One implementer at a time** works in the session's own tree, where you
+  can inspect its changes and nothing needs merging.
 - **Implementers running in parallel** each get a separate working copy:
   start them with the Agent tool's `isolation: "worktree"`. In Claude Code, a
-  worktree-isolated subagent starts from the repository's default branch
+  worktree-isolated subagent starts from the default branch
   unless the `worktree.baseRef` setting (from Claude Code 2.1.133) is
   `"head"`, and even then it sees
   only committed, tracked files, so uncommitted work in the session's tree,
@@ -124,22 +132,20 @@ change, and say how you cut them:
   with changes is kept, and the agent's result names its path and branch.
 
 Use Claude Code's `general-purpose` agent as the implementer, or one the
-project defines for implementation. Knackpack's own agents are report-only
-reviewers and can't implement.
+project defines. Knackpack's own agents are report-only
+reviewers.
 
-If you can't start subagents at all, because the Agent tool is missing or
-denied, stop and tell the user: implementing directly is their call, not a
-fallback to take silently.
+If the Agent tool is missing or denied, stop and tell the user: implementing
+directly is their call, not a fallback to take silently.
 
 ## 4. Write each assignment as a contract
 
 The implementer knows only what its prompt says, so every assignment states:
 
-1. **Objective**: the outcome, and the plan's package IDs and requirement
-   IDs it serves.
+1. **Objective**: the outcome, and the package and requirement IDs it serves.
 2. **Scope**: the behavior or components involved, and what is out of scope.
-3. **Ownership**: the files and modules it may change. Anything else it
-   finds it needs to change, it reports instead of changing.
+3. **Ownership**: the files and modules it may change; it reports anything
+   else it needs changed instead of changing it.
 4. **Context**: the relevant architecture, conventions, contracts, earlier
    packages' results, and the paths of the plan and intent record to read.
 5. **Constraints**: what must not change, such as public contracts, security
@@ -151,11 +157,10 @@ The implementer knows only what its prompt says, so every assignment states:
 7. **Verification**: the exact commands or runs to perform, and what each
    should show.
 8. **Reporting**: files changed, decisions it made and why, each check it
-   ran with its command and result, its self-review of the diff, and anything
-   unresolved or blocked.
+   ran with its command and result, its self-review of the diff against the
+   acceptance criteria, and anything unresolved or blocked.
 
-Ask it to review its own diff against the acceptance criteria before it
-reports, and to stop and report, rather than force a way through, when a
+Ask it to stop and report, rather than force a way through, when a
 central assumption proves false, the work grows beyond its scope, or passing
 a check would mean weakening it.
 
@@ -165,9 +170,8 @@ call, keeping its error response" doesn't.
 
 ## 5. Coordinate while they work
 
-Subagents started in the background notify you when they finish; don't
-do their work while you wait: prepare the next assignment or review a
-finished one.
+Background subagents notify you when they finish; while you wait, prepare
+the next assignment or review a finished one rather than do their work.
 
 When an implementer reports a blocker, a contract that has to change or
 scope that grew, decide it from the plan and the agreement: answer it, adjust
@@ -176,7 +180,7 @@ decision is theirs. Never let an implementer settle a requirement on its own.
 
 To send work back, continue the same agent with SendMessage when its context
 helps, or start a fresh one with a corrected contract when its context would
-repeat the mistake. Section 6 limits the attempts.
+repeat the mistake.
 
 ## 6. Verify every result yourself
 
@@ -204,7 +208,7 @@ since a repeat isn't new evidence: send work back only with a changed
 approach. After 2 failed attempts, or the limit the plan sets for the
 package, start fresh, since patching a wrong approach makes the code worse:
 an agent started only to diagnose, changing nothing, maybe on a stronger
-model through the Agent tool's `model` option, then a new implementer given
+model, then a new implementer given
 the plan, the attempt history and that diagnosis. A fresh start abandons a
 parallel implementer's own worktree, left unintegrated; in the session's
 tree, which may hold the user's uncommitted work, it undoes nothing without
@@ -221,9 +225,9 @@ verify by running it.
 
 Start the reviews the plan names for each package: approving the plan for
 execution approved them. With knackpack installed, those are its reviewers,
-such as `knackpack:adversarial-reviewer` for risky changes,
-`knackpack:security-reviewer` for security-sensitive ones and the stack's own
-code reviewer. If the risk calls for a review the plan didn't name, ask the
+such as `knackpack:adversarial-reviewer` for risky changes and
+`knackpack:security-reviewer` for security-sensitive ones. If the risk calls
+for a review the plan didn't name, ask the
 user before starting it, and continue other work meanwhile. Give each
 reviewer the change, saying where it is: the worktree's path and the
 package's commits, or the files the package changed in the integrated tree,
@@ -236,8 +240,7 @@ Resolve every Critical or High finding before accepting the work: send the
 fix to an implementer, or record the user's decision to accept the risk.
 When reviewers contradict each other or a finding is disputed, weigh the
 evidence each gives; for a Critical or High finding still in doubt, offer an
-independent check by `knackpack:adjudicator`. Verify each fix as section 6
-says.
+independent check by `knackpack:adjudicator`.
 
 ## 8. Edit the project yourself only as an exception
 
@@ -245,7 +248,7 @@ You may change files the packages own only to:
 
 - resolve a conflict while integrating results,
 - make a small correction that the integration needs and no single
-  assignment owns, such as an import two results both need,
+  assignment owns,
 - fix orchestration or tracking state, such as the plan's status, the task
   list or the intent record, or
 - act where delegation is impossible or clearly counterproductive, with the
@@ -253,7 +256,7 @@ You may change files the packages own only to:
 
 Keep each one as narrow as its reason. Before making it, say which exception
 applies and why; afterwards, inspect the resulting diff. A small feature or
-bug fix is never an exception: assign it. If you find yourself writing more
+bug fix is never an exception. If you find yourself writing more
 than an integration needs, stop and assign it.
 
 ## 9. Integrate and accept
@@ -306,10 +309,9 @@ longer needs, and don't hide scope growth inside a progress update.
 
 Stop the affected work and reassess with the user when a central assumption
 proves false, the change would weaken a security control, a migration risks
-data loss, the work grows beyond the agreed scope, validation can't exercise
-the behavior, or passing a check would mean loosening it. A failed check
-calls for diagnosis and correction within section 6's limit, not escalation.
-Continue independent work that's still safe.
+data loss, the work outgrows the agreed scope, validation can't exercise
+the behavior, or passing a check would mean loosening it. Continue
+independent work that's still safe.
 
 ## 11. Report
 
@@ -321,9 +323,9 @@ End with:
   you made, with each file you left out of them and why.
 - The checks you ran yourself, with their results; label anything only an
   implementer reported, and anything still to run in a later environment.
-- The reviews run, their unresolved findings, and any risk the user accepted.
-- For each review, the snapshot its report names, and the accepted changes
-  made after it, which it didn't see.
+- The reviews run, each with the snapshot its report names and the accepted
+  changes made after it, which it didn't see, their unresolved findings, and
+  any risk the user accepted.
 - Each direct edit you made under section 8, with its reason.
 - Worktrees left on disk, by path; remove them only when the user says so.
 - What wasn't done and needs the user's go-ahead, such as committing,
