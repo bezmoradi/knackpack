@@ -4,7 +4,9 @@
 # .claude/CLAUDE.md, which the action restores from the base branch. Every
 # problem Claude finds in the change blocks, however minor: it comments on the
 # lines involved and returns a verdict, and the job posts a summary comment.
-# The approval job passes on an approve verdict with nothing blocking.
+# The approval job passes on an approve verdict with nothing blocking, or
+# when a maintainer has added the skip-claude-approval label, which only
+# accounts that can label pull requests can add.
 #
 # The review only reviews: the job's token can't push and Claude has no tool
 # that edits files. .claude/CLAUDE.md says which settings keep it that way,
@@ -140,10 +142,17 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions: {}
+    permissions:
+      pull-requests: read # read the pull request's current labels, for the bypass label
     steps:
       - name: Require an approve verdict
         env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          # A maintainer adds this label to merge without Claude's approval.
+          # Its labels are read when this job runs, not from the event, so
+          # re-running only this failed job after adding it is enough.
+          BYPASS_LABEL: skip-claude-approval
           RESULT: ${{ needs.review.result }}
           REVIEW: ${{ needs.review.outputs.review }}
           DRAFT: ${{ github.event.pull_request.draft }}
@@ -157,6 +166,13 @@ jobs:
           verdict=$(jq -r '.verdict // empty' <<<"${REVIEW:-null}" 2>/dev/null) || verdict=
           if [ "$RESULT" = success ] && [ "$approved" = true ]; then
             echo 'Claude approved this pull request.' | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Fails closed: if the labels can't be read, there's no bypass.
+          labels=$(gh api "repos/$REPO/pulls/$PR" --jq '.labels[].name') || labels=
+          if printf '%s\n' "$labels" | grep -Fxq -- "$BYPASS_LABEL"; then
+            echo "::warning::Claude hasn't approved this pull request, but it has the $BYPASS_LABEL label, so this check passes without Claude's approval."
+            echo "Passed through the $BYPASS_LABEL label, without Claude's approval (review result: $RESULT, verdict: ${verdict:-none})." >>"$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           if [ "$DRAFT" = true ]; then
