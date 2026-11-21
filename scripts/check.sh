@@ -2289,11 +2289,13 @@ done
 # scripts/requirements-check.sh, the reference reader of the
 # knackpack-requirements/1 brief, on briefs written here: the format's example
 # is blocked on Q-02, and ready once Q-02 isn't blocking, with CRLF line ends
-# or no final newline too. A brief with no marker outside a code fence is
-# none. Each kind of invalid brief is reported at its line with its ID, a
-# problem tied to a line before a missing section, and a missing Requirements
-# section before a missing Questions section before a Requirements section
-# with no requirement. What a fence holds counts for nothing, NUL and other
+# or no final newline too, and with a UTF-8 byte-order mark before line 1,
+# which is dropped once, before any rule reads that line, and is ordinary
+# bytes anywhere else. A brief with no marker outside a code fence is none.
+# Each kind of invalid brief is reported at its line with its ID, a problem
+# tied to a line before a missing section, and a missing Requirements section
+# before a missing Questions section before a Requirements section with no
+# requirement. What a fence holds counts for nothing, NUL and other
 # bytes match nothing, and bad usage is an error. Each run prints one line and
 # leaves the briefs' bytes and times as they were. The skills that read a
 # brief must run it by the path the plugin ships it at.
@@ -2354,6 +2356,16 @@ printf '%s' "$(cat "$rq/example.md")" >"$rq/nofinal.md"
 printf '%s' "$(cat "$rq/ready.md")" >"$rq/nofinalready.md"
 { cat "$rq/ready.md" && printf 'Risk: \000 and \377\376 bytes\n- Q-\000: x\n- Q-03: Bytes \000\377 before it? Blocking: yes\n'; } >"$rq/bytes.md"
 { cat "$rq/ready.md" && awk 'BEGIN { s = "x"; for (i = 0; i < 20; i++) s = s s; print "- Q-03: " s " Blocking: yes" }'; } >"$rq/long.md"
+bom=$(printf '\357\273\277') # a UTF-8 byte-order mark, dropped only from the start of line 1
+{ printf '%s' "$bom" && cat "$rq/ready.md"; } >"$rq/bomready.md"
+{ printf '%s' "$bom" && cat "$rq/example.md"; } >"$rq/bomexample.md"
+{ printf '%s' "$bom" && cat "$rq/crlf.md"; } >"$rq/bomcrlf.md"
+{ printf '%s\r\n' "$bom" && cat "$rq/ready.md"; } >"$rq/bomcr.md"
+{ printf '%s### Requirements and acceptance criteria\n' "$bom" && cat "$rq/ready.md"; } >"$rq/bomheading.md"
+{ printf '%s' "$bom" && cat "$rq/nomarker.md"; } >"$rq/bomnomarker.md"
+{ printf '%s%s' "$bom" "$bom" && cat "$rq/ready.md"; } >"$rq/bomtwice.md"
+{ printf '# Export brief\n\n%s' "$bom" && cat "$rq/ready.md"; } >"$rq/bomline3.md"
+{ printf '%s```\n' "$bom" && cat "$rq/ready.md"; } >"$rq/bomfence.md"
 : >"$tmp/rq-ref" && ln -s ready.md "$rq/link.md" && touch -t 200001010000 "$tmp/rq-ref" "$rq"/*.md && cksum "$rq"/*.md >"$tmp/rq-sums" ||
 	{ fail "couldn't write briefs to try scripts/requirements-check.sh with"; rq_ok=0; }
 rqc() { # <shell> <expected exit> <expected line, as a case pattern> <arguments>...
@@ -2404,6 +2416,15 @@ for s in $shells; do
 	rqc "$s" 0 ready "$rq/fenceopen.md"
 	rqc "$s" 1 'blocked Q-03' "$rq/bytes.md"
 	rqc "$s" 1 'blocked Q-03' "$rq/long.md"
+	rqc "$s" 0 ready "$rq/bomready.md"
+	rqc "$s" 1 'blocked Q-02' "$rq/bomexample.md"
+	rqc "$s" 0 ready "$rq/bomcrlf.md"
+	rqc "$s" 0 ready "$rq/bomcr.md"
+	rqc "$s" 2 'invalid: line 7: *' "$rq/bomheading.md"
+	rqc "$s" 3 none "$rq/bomnomarker.md"
+	rqc "$s" 3 none "$rq/bomtwice.md"
+	rqc "$s" 3 none "$rq/bomline3.md"
+	rqc "$s" 3 none "$rq/bomfence.md"
 	rqc "$s" 4 'error: *'
 	rqc "$s" 4 'error: *' "$rq/ready.md" "$rq/ready.md"
 	rqc "$s" 4 'error: *' "$rq/adir"

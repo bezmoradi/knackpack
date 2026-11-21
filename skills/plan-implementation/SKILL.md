@@ -230,7 +230,7 @@ Prefer packages that can be reviewed and verified independently.
 
 Organize around coherent behavior rather than file counts.
 Don't split tightly coupled changes into independently deployable steps
-when intermediate states would be broken or unsafe.
+when intermediate states would be broken or unsafe, and say why they stay together.
 
 Implementation order, review or PR boundaries, and deployment order may
 differ.

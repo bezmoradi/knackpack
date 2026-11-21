@@ -20,8 +20,9 @@
 # open question ends its bullet line with Blocking: yes or Blocking: no, and
 # every requirement has an Acceptance: line. Lines in code fences count for
 # nothing. A second reader written elsewhere must give the same result and
-# blocking IDs on every input, so this one adds no rule of its own and reads
-# the text in one pass.
+# blocking IDs on every input, so this one adds no rule beyond
+# docs/requirements-format.md, which holds the format's rules, and reads the
+# text in one pass.
 #
 # NUL bytes become \001 before awk, since awks differ on NUL and the format
 # treats it as a byte that matches nothing. Lines are tested with ~ or with
@@ -56,6 +57,8 @@ function end_body(n) {
 {
 	l = $0
 	if (substr(l, length(l), 1) == "\r") l = substr(l, 1, length(l) - 1)
+	# A UTF-8 byte-order mark at the very start of the text goes, once.
+	if (NR == 1 && substr(l, 1, 3) == "\357\273\277") l = substr(l, 4)
 
 	# Code fences: at most 3 leading spaces or tabs, then 3 or more of one
 	# character; closed by a run of it at least as long, then only blanks.
