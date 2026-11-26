@@ -1173,7 +1173,7 @@ contract_ok=1
 IFS= read -r save_folder <<'EOF'
 the session scratchpad named in your system prompt, if there is one. Otherwise run `printenv TMPDIR` once (use `/tmp` if it prints nothing) and use the folder `claude-${CLAUDE_SESSION_ID}` inside it, writing the folder's full path literally in every later command. Create it with `mkdir -p -m 700 <folder>`, then check it with `[ -d <folder> ] && [ ! -L <folder> ] && [ -O <folder> ] && chmod 700 <folder>`; if the check fails, stop and tell the user.
 EOF
-for name in challenge-requirements checkpoint create-issues debug-incident execute-plan handoff incident-review orchestrate-review plan-implementation research; do
+for name in challenge-requirements checkpoint create-issues debug-incident execute-plan handoff incident-review orchestrate-review plan-implementation research visualize; do
 	grep -qF -- "$save_folder" "skills/$name/SKILL.md" ||
 		{ fail "skills/$name/SKILL.md doesn't name its save folder in the words check.sh holds, which the hook relies on"; contract_ok=0; }
 done
