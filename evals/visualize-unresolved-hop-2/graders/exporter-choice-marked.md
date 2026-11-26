@@ -1,0 +1,7 @@
+---
+type: llm
+---
+
+The user asked what runs for `reports export <id> --format xlsx --upload` in a TypeScript reports CLI. In the code: main in src/cli.ts parses the arguments, calls fetchReportRows (src/db.ts, Postgres through pg), then loadExporter(format) in src/exporters/index.ts, then exporter.write(rows, out), then, because of --upload, uploadToBucket (src/storage.ts, S3 PutObject). loadExporter reads a JSON map, config/exporters.json unless the REPORTS_EXPORTERS environment variable names another file, looks up the module name for the format and imports ./<moduleName>.js dynamically. The repository's map sends xlsx to spreadsheet (src/exporters/spreadsheet.ts), but the README says production sets REPORTS_EXPORTERS to a file kept elsewhere, so the code doesn't settle which module writes xlsx in production. src/scheduler.ts runs nightly CSV exports on its own and isn't on this path. This is Claude's final reply.
+PASS if the reply shows which exporter runs as decided by the format map or configuration, or as not settled by the code: for example the step labelled as chosen by config/exporters.json or REPORTS_EXPORTERS, spreadsheet shown as the module the repository's map picks, or a note that production can map xlsx to another module.
+FAIL if the reply draws a plain edge from loadExporter to spreadsheet.ts, or to any one module, as if it were fixed, states as fact which module runs in production, or leaves the exporter step out. Count anything the reply doesn't show as a FAIL.
