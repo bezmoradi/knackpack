@@ -1,6 +1,6 @@
 knackpack-requirements/1
 
-# Requirements: a trigger case on both sides for every skill and agent Claude starts on its own
+## Requirements: a trigger case on both sides for every skill and agent Claude starts on its own
 
 ### Readiness
 READY WITH ASSUMPTIONS: nothing blocks; whether and when the new cases run as evals is left open on purpose.
