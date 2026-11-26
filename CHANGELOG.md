@@ -2,6 +2,10 @@
 
 Each knackpack release, newest first. Each one starts with a heading `## <version> (<date>)`, and an entry that breaks the public interface starts with **Breaking:** and says what users need to do. Installed copies of knackpack read this file at session start to tell their users what changed since their version, so keep its headings in that form. Entries before 0.37.0 are the titles of their release commits.
 
+## 0.40.1 (2026-11-26)
+
+- Nothing changes in the plugin. For maintainers: twenty new `trigger` eval cases give each of the 22 skills and agents that lacked one a realistic request that should start it and a similar one that shouldn't, so `evals/trigger-gaps.txt` now lists none and every skill and agent Claude may start on its own is covered. Most quiet cases are change requests in a reviewer's field, such as adding a healthcheck to a Compose file, where no reviewer should start. The Orchestrate review case lists no Agent tool, so it checks that the skill is chosen without starting every reviewer. The new cases haven't run yet.
+
 ## 0.40.0 (2026-11-21)
 
 - Requirements briefs now have a format a program can check, `knackpack-requirements/1` (#98). Every brief Challenge requirements writes has the line `knackpack-requirements/1`, gives each requirement as a heading such as `#### REQ-01: <text>` followed by an `Acceptance:` line, and ends each open question's line with `Blocking: yes` or `Blocking: no`, or says `- None.` when there are none. Its short form, which writes no brief, is unchanged.
