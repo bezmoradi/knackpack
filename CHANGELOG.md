@@ -2,6 +2,13 @@
 
 Each knackpack release, newest first. Each one starts with a heading `## <version> (<date>)`, and an entry that breaks the public interface starts with **Breaking:** and says what users need to do. Installed copies of knackpack read this file at session start to tell their users what changed since their version, so keep its headings in that form. Entries before 0.37.0 are the titles of their release commits.
 
+## 0.41.0 (2026-11-27)
+
+- A new command, `/knackpack:visualize [html] [topic or question]`, answers a question about code or a design with the smallest accurate visual: a call path, a request or data flow, who owns which state, what a change did, or a current design beside a proposed one. It starts only when you type it, never on its own. It reads the code first and names the file or symbol behind each part it draws, and where one drawing mixes kinds of evidence, it labels parts Observed, Inferred, Proposed or Unknown. When a sentence answers the question, such as a yes-or-no question, it answers in prose and says why there's no drawing.
+- It draws in the reply. With `html`, or words such as "as a page" or "in HTML", it instead writes one self-contained HTML page, with no script and nothing loaded from the network, into a private temporary folder, never your repository, and replies with its path and the command to open it; it opens nothing itself. It edits no project file and never copies a secret's value into the reply or the page.
+- Visualize is a trial: a later release may remove it if it doesn't prove useful. Removing it would then be a breaking change to the command list, marked **Breaking:** here. Nothing that exists changes in this release.
+- For maintainers: 16 eval cases cover it, 11 for development (`visualize-dev`) and 5 held out (`visualize-holdout`), run with `--ablation none` since the command exists only with the plugin. The README's Limitations give their results.
+
 ## 0.40.2 (2026-11-26)
 
 - Nothing changes in the plugin. The installed copy no longer includes a `.knackpack/` folder, which 0.40.1 shipped holding the requirements brief for one of the maintainer's tasks.
