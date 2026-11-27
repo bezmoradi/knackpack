@@ -45,9 +45,11 @@ Rules for using them:
 - When a current and a proposed design appear together, label both, Observed for today's and Proposed for the other, every time. A heading such as "with the new design" reads as description, and the reader can't tell it from what exists.
 - Labels are words, never colour or line style alone, which a reader may not see or may read differently. Give no numeric confidence, such as a percentage: a number claims a measurement you didn't make.
 
-## 3. Choose one representation
+## 3. Choose one representation, or none
 
-Pick the form from the kind of question:
+**First decide whether to draw at all.** For a yes-or-no question, a single value or a fact one sentence states, answer in prose, though the command is called visualize. The developer asked a question, and a drawing makes them hunt inside it for an answer one sentence gives: drawing because the command's name says visualize is the mistake to avoid. That holds even when the answer has a mechanism behind it worth explaining, which the table below would send to pseudocode or a tree. Give the answer in the first sentence, explain the mechanism in a few sentences with `path:line` evidence (quoting a line of code is fine), and say in one line why there's no visual, so the developer knows the command ran and chose prose. Draw when the answer is itself a structure, such as a path, a set of callers, who owns what, a sequence or a before and after.
+
+When it is, pick the form from the kind of question:
 
 | The question | Draw |
 | --- | --- |
@@ -59,7 +61,6 @@ Pick the form from the kind of question:
 | What a change did | Before/after sketch of only the part that changed |
 
 - **One visual per question.** Draw a second only when the request asks two distinct questions: two drawings of one thing make the reader hunt for differences that aren't there.
-- **Prose when prose is clearer.** For a yes/no question, a single value or a fact one sentence states, answer in prose and say in one line why a visual wouldn't help, so the developer knows the command ran and chose prose.
 - **In the reply, draw plain text** in a fenced code block, with box-drawing characters and arrows (`─ │ ┌ └ ├ ┬ ▼ →`), kept within about 80 columns, since longer lines wrap in a terminal and break the drawing. Claude Code's terminal may show a Mermaid block as its source rather than as a drawing, so use Mermaid only when the developer asks for it or the visual is headed for GitHub or a document, and then say that diagrams for a document belong to Write docs (`/knackpack:write-docs`).
 - **Keep the words short.** After the visual, give the evidence list and at most a few lines on what to notice, not the diagram retold.
 
