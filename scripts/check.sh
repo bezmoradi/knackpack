@@ -985,7 +985,7 @@ grep -q "An eval suite of $ncases cases" README.md || { fail "README.md doesn't 
 # one case builds has been taught that case. This checks the names that only
 # one fixture writes with cat or tee, apart from standard ones that many
 # projects share, which go in the list below.
-standard_names=' .env.example .golangci.yml conftest.py kustomization.yaml '
+standard_names=' .env.example .golangci.yml conftest.py email.py kustomization.yaml '
 for f in evals/*/fixture.sh; do
 	grep -o -E '(cat|tee)[[:space:]]+>?[[:space:]]*["'\'']?[A-Za-z0-9_./-]+' "$f" |
 		sed 's/^...[[:space:]]*>*[[:space:]]*//; s/^["'\'']//; s#.*/##' | grep '\.' | sort -u

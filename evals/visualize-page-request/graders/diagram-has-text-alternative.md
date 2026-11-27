@@ -8,6 +8,6 @@ tool: Write
 # newline is \n. A tag counts only when it opens with a real <, outside an
 # HTML comment and outside another tag's attribute values, so markup shown
 # escaped (&lt;script&gt;) or quoted inside an attribute doesn't count.
-input_match: '(?<!<!--(?:(?!-->)[\s\S])*)(?<!<[a-zA-Z][^<>]*)<[a-zA-Z][a-zA-Z0-9-]*(?=[\s/\\])(?=[^<>]*(?:\s|\\[nrt])role(?:\s|\\[nrt])*=(?:\s|\\[nrt])*(?:\\"|'')?img\b)(?:[^<>]*(?:\s|\\[nrt])aria-label(?:ledby)?(?:\s|\\[nrt])*=(?:\s|\\[nrt])*(?:\\"|'')?[^\s"''\\>]|[^<>]*>(?:\s|\\[nrt])*<title[\s>])'
+input_match: '(?<!<!--(?!-?>)(?:(?!--!?>)[\s\S])*)(?<!<[a-zA-Z][^<>]*)<[a-zA-Z][a-zA-Z0-9-]*(?=[\s/\\])(?=[^<>]*(?:\s|\\[nrt])role(?:\s|\\[nrt])*=(?:\s|\\[nrt])*(?:\\"|'')?img\b)(?:[^<>]*(?:\s|\\[nrt])aria-label(?:ledby)?(?:\s|\\[nrt])*=(?:\s|\\[nrt])*(?:\\"|'')?[^\s"''\\>]|[^<>]*>(?:\s|\\[nrt])*<title[\s>])'
 min: 1
 ---
